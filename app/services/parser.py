@@ -1,12 +1,12 @@
-from google import genai
+import anthropic
 from dotenv import load_dotenv
 import os
 import json
 
 load_dotenv()
 
-# Configure Gemini
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# Configure Claude
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 def parse_order(customer_phone: str, message: str) -> dict:
     """
@@ -101,13 +101,17 @@ Respond ONLY with this exact JSON, no other text, no markdown:
 """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=prompt
+        response = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
         )
-        raw = response.text.strip()
 
-        # Clean response if Gemini adds markdown
+        raw = response.content[0].text.strip()
+
+        # Clean response if markdown present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
