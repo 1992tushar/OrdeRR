@@ -1,11 +1,18 @@
 from sqlalchemy.orm import Session
 from app.models.order import Order
 from app.services.parser import parse_order
+from app.services.notifier import (
+    send_order_confirmation,
+    send_manager_alert,
+    send_unclear_order_alert
+)
 import json
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 
 def process_incoming_order(
     db: Session,
@@ -17,10 +24,11 @@ def process_incoming_order(
     Full pipeline:
     1. Parse incoming WhatsApp message
     2. Save to database
-    3. Return structured result
+    3. Send confirmation to customer
+    4. Alert plant manager
     """
 
-    # Step 1 — Parse order using AI
+    # Step 1 — Parse order using Claude AI
     parsed = parse_order(customer_phone, message)
 
     # Step 2 — Save to database
@@ -41,7 +49,34 @@ def process_incoming_order(
     db.commit()
     db.refresh(order)
 
-    # Step 3 — Return result
+    # Step 3 — Send confirmation or unclear alert
+    if parsed.get("is_unclear"):
+        # Alert manager about unclear order
+        send_unclear_order_alert(
+            manager_phone=MANAGER_PHONE,
+            customer_phone=customer_phone,
+            raw_message=message,
+            unclear_reason=parsed.get("unclear_reason", "Unknown reason")
+        )
+    else:
+        # Send confirmation to customer
+        send_order_confirmation(
+            customer_phone=customer_phone,
+            parsed=parsed
+        )
+
+        # Step 4 — Alert plant manager in real time
+        send_manager_alert(
+            manager_phone=MANAGER_PHONE,
+            customer_phone=customer_phone,
+            parsed=parsed
+        )
+
+    # Update confirmation sent status
+    order.confirmation_sent = True
+    order.forwarded_to_manager = True
+    db.commit()
+
     return {
         "order_id": order.id,
         "customer_phone": customer_phone,
@@ -50,18 +85,18 @@ def process_incoming_order(
         "saved": True
     }
 
+
 def get_all_orders(db: Session) -> list:
-    """Get all orders sorted by latest first"""
     return db.query(Order).order_by(Order.created_at.desc()).all()
 
+
 def get_unclear_orders(db: Session) -> list:
-    """Get all unclear orders that need manual review"""
     return db.query(Order).filter(
         Order.is_unclear == True
     ).order_by(Order.created_at.desc()).all()
 
+
 def get_todays_orders(db: Session) -> list:
-    """Get all orders received today"""
     from sqlalchemy import func, cast, Date
     today = func.date(Order.created_at)
     return db.query(Order).filter(
