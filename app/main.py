@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.database import engine, Base, SessionLocal
-from app.routes import webhook
+from app.routes import webhook, dashboard
 from app.services.reporter import send_morning_report, send_evening_report
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -21,6 +21,7 @@ app = FastAPI(
 
 # Register routes
 app.include_router(webhook.router, prefix="/webhook", tags=["Webhook"])
+app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 
 # Health check endpoint
 @app.get("/")

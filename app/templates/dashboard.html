@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OrdeRR — Fluffy Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #f0f2f5;
+            color: #333;
+        }
+
+        /* Header */
+        .header {
+            background: #075e54;
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 22px; }
+        .header span { font-size: 13px; opacity: 0.8; }
+
+        /* Summary Cards */
+        .cards {
+            display: flex;
+            gap: 16px;
+            padding: 24px;
+            flex-wrap: wrap;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px 24px;
+            flex: 1;
+            min-width: 150px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .card .number {
+            font-size: 36px;
+            font-weight: bold;
+            color: #075e54;
+        }
+        .card .label {
+            font-size: 13px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .card.warning .number { color: #e67e22; }
+        .card.danger .number { color: #e74c3c; }
+
+        /* Section */
+        .section {
+            padding: 0 24px 24px;
+        }
+        .section h2 {
+            font-size: 16px;
+            color: #555;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #075e54;
+        }
+
+        /* Product Summary Table */
+        .summary-table {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+        }
+        .summary-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .summary-table th {
+            background: #075e54;
+            color: white;
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 13px;
+        }
+        .summary-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+        .summary-table tr:last-child td { border-bottom: none; }
+        .summary-table tr:hover td { background: #f9f9f9; }
+
+        /* Order Cards */
+        .order-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #075e54;
+        }
+        .order-card.unclear {
+            border-left-color: #e67e22;
+        }
+        .order-card .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .order-card .phone {
+            font-weight: bold;
+            font-size: 15px;
+        }
+        .order-card .delivery {
+            font-size: 12px;
+            color: #888;
+        }
+        .order-card .items {
+            font-size: 13px;
+            color: #555;
+            line-height: 1.8;
+        }
+        .order-card .raw-message {
+            font-size: 12px;
+            color: #e67e22;
+            margin-top: 8px;
+            font-style: italic;
+        }
+
+        /* Status Badge */
+        .badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .badge.received { background: #e8f5e9; color: #2e7d32; }
+        .badge.unclear { background: #fff3e0; color: #e65100; }
+
+        /* Refresh Button */
+        .refresh-btn {
+            background: #075e54;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .refresh-btn:hover { background: #064e46; }
+
+        /* Empty state */
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #aaa;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+    <div>
+        <h1>🐔 OrdeRR — {{ plant_name }}</h1>
+        <span>Order Management Dashboard</span>
+    </div>
+    <div>
+        <span>{{ current_time }}</span>
+        <button class="refresh-btn" onclick="location.reload()">🔄 Refresh</button>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="cards">
+    <div class="card">
+        <div class="number">{{ total_orders }}</div>
+        <div class="label">Total Orders Today</div>
+    </div>
+    <div class="card">
+        <div class="number">{{ clear_orders }}</div>
+        <div class="label">Clear Orders</div>
+    </div>
+    <div class="card warning">
+        <div class="number">{{ unclear_orders }}</div>
+        <div class="label">Needs Attention</div>
+    </div>
+    <div class="card">
+        <div class="number">{{ total_items }}</div>
+        <div class="label">Total Items</div>
+    </div>
+</div>
+
+<!-- Product Summary -->
+<div class="section">
+    <h2>📊 Product Summary</h2>
+    {% if product_summary %}
+    <div class="summary-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Total Quantity</th>
+                    <th>Unit</th>
+                    <th>Orders</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for product, data in product_summary.items() %}
+                <tr>
+                    <td>{{ data.product }}</td>
+                    <td><strong>{{ data.total_quantity }}</strong></td>
+                    <td>{{ data.unit }}</td>
+                    <td>{{ data.orders_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">No orders yet today</div>
+    {% endif %}
+</div>
+
+<!-- Clear Orders -->
+<div class="section">
+    <h2>✅ Today's Orders</h2>
+    {% if orders %}
+        {% for order in orders %}
+        {% if not order.is_unclear %}
+        <div class="order-card">
+            <div class="order-header">
+                <span class="phone">📱 {{ order.customer_phone }}</span>
+                <div>
+                    <span class="delivery">
+                        🕐 {{ order.delivery_date or 'Date not specified' }}
+                        {% if order.delivery_time %} at {{ order.delivery_time }}{% endif %}
+                    </span>
+                    <span class="badge received">{{ order.status }}</span>
+                </div>
+            </div>
+            <div class="items">
+                {% for item in order.items_parsed %}
+                • {{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    {% else %}
+    <div class="empty">No orders yet today</div>
+    {% endif %}
+</div>
+
+<!-- Unclear Orders -->
+{% if unclear_count > 0 %}
+<div class="section">
+    <h2>⚠️ Unclear Orders — Needs Attention</h2>
+    {% for order in orders %}
+    {% if order.is_unclear %}
+    <div class="order-card unclear">
+        <div class="order-header">
+            <span class="phone">📱 {{ order.customer_phone }}</span>
+            <span class="badge unclear">unclear</span>
+        </div>
+        <div class="raw-message">
+            "{{ order.raw_message }}"
+        </div>
+        {% if order.unclear_reason %}
+        <div class="items" style="margin-top:8px; color:#e67e22;">
+            ❓ {{ order.unclear_reason }}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
+</body>
+</html>
