@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services.order_service import process_incoming_order
+from app.services.reporter import send_morning_report, send_evening_report
 import json
 
 router = APIRouter()
@@ -106,3 +107,19 @@ async def test_webhook(request: Request, db: Session = Depends(get_db)):
             "status": "error", 
             "message": str(e)
         }
+
+
+@router.post("/report/morning")
+def trigger_morning_report(db: Session = Depends(get_db)):
+    """Manually trigger morning report — for testing"""
+    send_morning_report(db)
+    return {"status": "Morning report sent"}
+
+
+@router.post("/report/evening")
+def trigger_evening_report(db: Session = Depends(get_db)):
+    """Manually trigger evening report — for testing"""
+    send_evening_report(db)
+    return {"status": "Evening report sent"}
+
+        
