@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: orderr
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///orderr.db
+      - key: PLANT_NAME
+        value: Fluffy
