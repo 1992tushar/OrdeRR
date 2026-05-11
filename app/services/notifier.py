@@ -1,6 +1,8 @@
 import os
 import requests
 from dotenv import load_dotenv
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 load_dotenv()
 
@@ -35,9 +37,11 @@ def send_whatsapp_message(phone: str, message: str) -> dict:
                 "type": "text",
                 "text": {"body": message}
             }
-            response = requests.post(url, json=payload, headers=headers)
+            response = requests.post(url, json=payload, headers=headers, verify=False)
             print(f"\n📤 WhatsApp sent via Meta Cloud API")
             print(f"   To     : {clean_phone}")
+            print(f"   Phone ID: {META_PHONE_NUMBER_ID}")
+            print(f"   URL: {url}")
             print(f"   Status : {response.status_code}")
             print(f"   Response : {response.text}")
             return response.json()
