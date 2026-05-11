@@ -24,7 +24,7 @@ def send_whatsapp_message(phone: str, message: str) -> dict:
             if not clean_phone.startswith("91"):
                 clean_phone = f"91{clean_phone}"
 
-            url = f"https://graph.facebook.com/v18.0/{META_PHONE_NUMBER_ID}/messages"
+            url = f"https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}/messages"
             headers = {
                 "Authorization": f"Bearer {META_ACCESS_TOKEN}",
                 "Content-Type": "application/json"
