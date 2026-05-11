@@ -122,4 +122,46 @@ def trigger_evening_report(db: Session = Depends(get_db)):
     send_evening_report(db)
     return {"status": "Evening report sent"}
 
+@router.get("/meta")
+async def meta_webhook_verify(request: Request):
+    """Meta webhook verification"""
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    
+    if mode == "subscribe" and token == "orderr_fluffy_2026":
+        return int(challenge)
+    return {"error": "Invalid token"}
+
+@router.post("/meta")
+async def meta_webhook(request: Request, db: Session = Depends(get_db)):
+    """Receives incoming WhatsApp messages from Meta Cloud API"""
+    try:
+        payload = await request.json()
         
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                
+                for message in messages:
+                    customer_phone = message.get("from", "")
+                    message_type = message.get("type", "")
+                    
+                    if message_type == "text":
+                        message_text = message.get("text", {}).get("body", "")
+                    elif message_type == "image":
+                        message_text = message.get("image", {}).get("caption", "Photo order received")
+                    else:
+                        continue
+                    
+                    if message_text and customer_phone:
+                        process_incoming_order(
+                            db=db,
+                            customer_phone=customer_phone,
+                            message=message_text
+                        )
+        
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}        
