@@ -39,6 +39,7 @@ def send_whatsapp_message(phone: str, message: str) -> dict:
             print(f"\n📤 WhatsApp sent via Meta Cloud API")
             print(f"   To     : {clean_phone}")
             print(f"   Status : {response.status_code}")
+            print(f"   Response : {response.text}")
             return response.json()
         except Exception as e:
             print(f"❌ Meta API send failed: {str(e)}")
