@@ -4,6 +4,8 @@ from app.database import get_db
 from app.services.order_service import process_incoming_order
 from app.services.reporter import send_morning_report, send_evening_report
 import json
+from app.services.product_catalog import generate_menu_template
+from app.services.notifier import send_whatsapp_message
 
 router = APIRouter()
 
@@ -50,7 +52,23 @@ async def interakt_webhook(request: Request, db: Session = Depends(get_db)):
         if not message_text or not customer_phone:
             return {"status": "ignored", "reason": "Empty message or phone"}
 
+
+
         # Process the order
+        message_text_clean = message_text.strip().lower()
+
+if message_text_clean == "order":
+
+    menu_template = generate_menu_template()
+
+    send_whatsapp_message(
+        customer_phone,
+        menu_template
+    )
+
+    return {
+        "status": "menu_template_sent"
+    }
         result = process_incoming_order(
             db=db,
             customer_phone=customer_phone,

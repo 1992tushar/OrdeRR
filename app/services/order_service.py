@@ -9,6 +9,7 @@ from app.services.notifier import (
 import json
 import os
 from dotenv import load_dotenv
+from app.services.template_parser import parse_template_order
 
 load_dotenv()
 
@@ -29,7 +30,41 @@ def process_incoming_order(
     """
 
     # Step 1 — Parse order using Claude AI
-    parsed = parse_order(customer_phone, message)
+    #parsed = parse_order(customer_phone, message)
+
+    template_keywords = [
+    "whole broiler",
+    "breast boneless",
+    "leg boneless",
+    "wings",
+    "drumsticks"
+]
+
+is_template_order = any(
+    keyword in message.lower()
+    for keyword in template_keywords
+)
+
+if is_template_order:
+
+    parsed = parse_template_order(
+        customer_phone,
+        message
+    )
+
+    if parsed.get("is_unclear"):
+
+        parsed = parse_order(
+            customer_phone,
+            message
+        )
+
+else:
+
+    parsed = parse_order(
+        customer_phone,
+        message
+    )
 
     # Step 2 — Save to database
     order = Order(
