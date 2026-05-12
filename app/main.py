@@ -1,11 +1,36 @@
 from fastapi import FastAPI
-from app.database import engine, Base, SessionLocal
-from app.routes import webhook, dashboard
-from app.services.reporter import send_morning_report, send_evening_report
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+
 from dotenv import load_dotenv
+
+from apscheduler.schedulers.background import (
+    BackgroundScheduler
+)
+
+from apscheduler.triggers.cron import (
+    CronTrigger
+)
+
 import os
+
+from app.database import (
+    engine,
+    Base,
+    SessionLocal
+)
+
+from app.routes import (
+    webhook,
+    dashboard
+)
+
+from app.services.reporter import (
+    send_morning_report,
+    send_evening_report
+)
+
+# Import models so SQLAlchemy creates tables
+from app.models.order import Order
+from app.models.customer import Customer
 
 load_dotenv()
 
@@ -20,40 +45,79 @@ app = FastAPI(
 )
 
 # Register routes
-app.include_router(webhook.router, prefix="/webhook", tags=["Webhook"])
-app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+app.include_router(
+    webhook.router,
+    prefix="/webhook",
+    tags=["Webhook"]
+)
+
+app.include_router(
+    dashboard.router,
+    prefix="/dashboard",
+    tags=["Dashboard"]
+)
 
 # Health check endpoint
 @app.get("/")
 def root():
+
     return {
         "app": "OrdeRR",
-        "plant": os.getenv("PLANT_NAME", "Fluffy"),
+        "plant": os.getenv(
+            "PLANT_NAME",
+            "Fluffy"
+        ),
         "status": "running"
     }
 
+
 # Scheduler jobs
 def morning_report_job():
-    """Runs automatically at 5am every day"""
+    """
+    Runs automatically at 5am every day
+    """
+
     db = SessionLocal()
+
     try:
-        print("\n⏰ AUTO SCHEDULER — 5AM Morning Report triggered")
+
+        print(
+            "\n⏰ AUTO SCHEDULER — "
+            "5AM Morning Report triggered"
+        )
+
         send_morning_report(db)
+
     finally:
+
         db.close()
 
+
 def evening_report_job():
-    """Runs automatically at 6pm every day"""
+    """
+    Runs automatically at 6pm every day
+    """
+
     db = SessionLocal()
+
     try:
-        print("\n⏰ AUTO SCHEDULER — 6PM Evening Report triggered")
+
+        print(
+            "\n⏰ AUTO SCHEDULER — "
+            "6PM Evening Report triggered"
+        )
+
         send_evening_report(db)
+
     finally:
+
         db.close()
+
 
 # Start scheduler when app starts
 @app.on_event("startup")
 def start_scheduler():
+
     scheduler = BackgroundScheduler()
 
     # Morning report — every day at 5:00 AM
@@ -73,11 +137,24 @@ def start_scheduler():
     )
 
     scheduler.start()
+
     print("\n✅ OrdeRR Scheduler Started!")
-    print("   📅 Morning report → Every day at 5:00 AM")
-    print("   📅 Evening report → Every day at 6:00 PM\n")
+
+    print(
+        "   📅 Morning report "
+        "→ Every day at 5:00 AM"
+    )
+
+    print(
+        "   📅 Evening report "
+        "→ Every day at 6:00 PM\n"
+    )
+
 
 # Stop scheduler when app stops
 @app.on_event("shutdown")
 def stop_scheduler():
-    print("\n🛑 OrdeRR Scheduler Stopped")
+
+    print(
+        "\n🛑 OrdeRR Scheduler Stopped"
+    )
