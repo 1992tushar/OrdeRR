@@ -1,22 +1,19 @@
 import anthropic
-from dotenv import load_dotenv
 import os
 import json
 
-load_dotenv()
-
-# Configure Claude
+# No load_dotenv() here — called once in main.py
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
 
 def parse_order(customer_phone: str, message: str) -> dict:
     """
     Parse a WhatsApp order message using deep chicken industry knowledge.
-    No hardcoded product list — AI understands order naturally.
-    Works for ANY chicken processing plant automatically.
+    Uses system/user message separation to prevent prompt injection.
     """
 
-    prompt = f"""
-You are a 20-year veteran of the Indian chicken and poultry wholesale trade.
+    # System prompt contains all instructions — completely separate from user input
+    system_prompt = """You are a 20-year veteran of the Indian chicken and poultry wholesale trade.
 You have worked with chicken processing plants, hotels, restaurants and caterers across India.
 You deeply understand how buyers communicate orders in Hindi, English and Hinglish.
 You know every cut, every term, every abbreviation used in this industry.
@@ -79,33 +76,37 @@ IMPORTANT RULES:
      * Spring Chicken = pcs
      * Any other cut with no unit = kg
 
-CUSTOMER PHONE: {customer_phone}
-ORDER MESSAGE: {message}
-
 Respond ONLY with this exact JSON, no other text, no markdown:
-{{
-    "customer_phone": "{customer_phone}",
+{
+    "customer_phone": "<phone>",
     "items": [
-        {{
+        {
             "product": "clear standard English product name",
             "quantity": 0,
             "unit": "kg or pcs",
             "notes": "any special instructions or weight specifications"
-        }}
+        }
     ],
     "delivery_date": "today or tomorrow or YYYY-MM-DD or null",
     "delivery_time": "HH:MM or null",
     "is_unclear": false,
     "unclear_reason": "only fill if message is completely unreadable or irrelevant to chicken"
-}}
-"""
+}"""
+
+    # User message contains ONLY the customer input — never mixed with instructions
+    # This prevents prompt injection attacks from customer messages
+    user_message = (
+        f"Customer phone: {customer_phone}\n"
+        f"Order message: {message}"
+    )
 
     try:
         response = client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=1000,
+            system=system_prompt,
             messages=[
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": user_message}
             ]
         )
 
@@ -119,6 +120,10 @@ Respond ONLY with this exact JSON, no other text, no markdown:
         raw = raw.strip()
 
         parsed = json.loads(raw)
+
+        # Ensure customer_phone is correct regardless of what model returned
+        parsed["customer_phone"] = customer_phone
+
         return parsed
 
     except Exception as e:

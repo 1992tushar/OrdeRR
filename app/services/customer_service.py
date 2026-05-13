@@ -4,16 +4,28 @@ from app.models.customer import Customer
 
 
 def normalize_phone(phone: str) -> str:
+    """
+    Normalize phone number to E.164 format without leading +.
+    Handles numbers with/without country code.
 
+    Examples:
+        9876543210      → 919876543210
+        919876543210    → 919876543210  (already correct, not double-prefixed)
+        +919876543210   → 919876543210
+    """
+
+    # Strip whitespace, dashes, plus sign
     phone = (
         phone
         .replace("+", "")
         .replace(" ", "")
+        .replace("-", "")
         .strip()
     )
 
-    if not phone.startswith("91"):
-
+    # Only add 91 prefix if the number is exactly 10 digits (raw Indian mobile)
+    # This avoids the bug where 911234567890 would incorrectly get prefixed again
+    if len(phone) == 10 and not phone.startswith("91"):
         phone = f"91{phone}"
 
     return phone
@@ -23,7 +35,6 @@ def get_customer_by_phone(
     db: Session,
     phone: str
 ):
-
     normalized_phone = normalize_phone(phone)
 
     return db.query(Customer).filter(
@@ -35,7 +46,6 @@ def create_new_customer(
     db: Session,
     phone: str
 ):
-
     normalized_phone = normalize_phone(phone)
 
     customer = Customer(
@@ -44,9 +54,7 @@ def create_new_customer(
     )
 
     db.add(customer)
-
     db.commit()
-
     db.refresh(customer)
 
     return customer

@@ -1,13 +1,8 @@
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from dotenv import load_dotenv
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 import os
 
-# Load environment variables
-load_dotenv()
-
-# Database URL from .env
+# DATABASE_URL from environment (load_dotenv called once in main.py)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///orderr.db")
 
 # Create engine
@@ -19,8 +14,11 @@ engine = create_engine(
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base class for all models
-Base = declarative_base()
+
+# SQLAlchemy 2.0 style base class (replaces deprecated declarative_base())
+class Base(DeclarativeBase):
+    pass
+
 
 # Dependency to get DB session
 def get_db():
