@@ -15,9 +15,45 @@ from app.services.customer_service import (
 )
 
 import json
+import re
 import os
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
+
+GREETINGS = {
+    "hi", "hello", "hey", "hii", "hiii", "hiiii",
+    "helo", "helloo",
+    "ok", "okay", "okk", "okkk",
+    "haan", "han", "ha", "haa",
+    "yes", "no", "nahi", "nope", "yep", "yup",
+    "thanks", "thank you", "thankyou", "thnx", "thx",
+    "bye", "goodbye", "good morning", "good evening",
+    "good night", "goodnight", "gm", "gn",
+    "namaste", "namaskar", "jai hind",
+    "test", "testing", "hello world",
+    "who", "what", "where", "when", "why", "how",
+}
+
+
+def validate_restaurant_name(name: str) -> str | None:
+    if len(name) < 3:
+        return "That name is too short."
+    if len(name) > 60:
+        return "That seems too long for a restaurant name."
+    if name.replace(" ", "").isdigit():
+        return "That looks like a number, not a restaurant name."
+    if name.lower().strip() in GREETINGS:
+        return "That looks like a greeting, not a restaurant name."
+    if re.match(r'^[^a-zA-Z0-9\u0900-\u097F]+$', name):
+        return "That doesn't look like a valid restaurant name."
+    if len(set(name.lower().replace(" ", ""))) <= 2 and len(name) >= 4:
+        return "That doesn't look like a valid restaurant name."
+    letters_only = re.sub(r'[^a-zA-Z]', '', name.lower())
+    if len(letters_only) >= 5:
+        vowels = set('aeiou')
+        if not any(c in vowels for c in letters_only):
+            return "That doesn't look like a valid restaurant name."
+    return None
 
 
 def process_incoming_order(
@@ -46,10 +82,9 @@ def process_incoming_order(
         send_whatsapp_message(
             customer_phone,
             "👋 Welcome to BBC Ordering!\n\n"
-            "Please reply with your restaurant name to continue."
+            "Please reply with your *restaurant or hotel name* to continue."
         )
 
-        # Return consistent shape — order_id is None for new customers
         return {
             "order_id": None,
             "status": "awaiting_restaurant_name",
@@ -59,15 +94,30 @@ def process_incoming_order(
     # Customer onboarding pending
     if customer.onboarding_status == "awaiting_name":
 
-        customer.restaurant_name = message.strip()
+        name = message.strip()
+        validation_error = validate_restaurant_name(name)
+
+        if validation_error:
+            send_whatsapp_message(
+                customer_phone,
+                f"⚠️ {validation_error}\n\n"
+                f"Please reply with your *restaurant or hotel name* to continue."
+            )
+            return {
+                "order_id": None,
+                "status": "invalid_restaurant_name",
+                "parsed": None
+            }
+
+        customer.restaurant_name = name
         customer.onboarding_status = "active"
         db.commit()
 
         send_whatsapp_message(
             customer_phone,
-            f"✅ Welcome {customer.restaurant_name}!\n\n"
-            f"You can now place orders.\n\n"
-            f"Type 'order' to see menu."
+            f"✅ Welcome *{customer.restaurant_name}*!\n\n"
+            f"You can now place your orders.\n\n"
+            f"Type *order* to see our menu."
         )
 
         return {
@@ -160,7 +210,6 @@ def get_all_orders(db: Session) -> list:
 
 
 def get_unclear_orders(db: Session) -> list:
-    # Use .is_(True) instead of == True
     return db.query(Order).filter(
         Order.is_unclear.is_(True)
     ).order_by(
