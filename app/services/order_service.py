@@ -13,6 +13,7 @@ from app.services.customer_service import (
     get_customer_by_phone,
     create_new_customer
 )
+from sqlalchemy import func
 
 import json
 import re
@@ -264,9 +265,9 @@ def get_unclear_orders(db: Session) -> list:
 
 
 def get_todays_orders(db: Session) -> list:
-    today_str = date.today().strftime("%Y-%m-%d")
+    today = date.today()
     return db.query(Order).filter(
-        Order.created_at.like(f"{today_str}%")
+        func.date(Order.created_at) == today
     ).order_by(
         Order.created_at.asc()
     ).all()

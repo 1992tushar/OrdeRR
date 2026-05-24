@@ -3,6 +3,7 @@ import json
 from datetime import datetime, date, timezone, timedelta
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.models.order import Order
 from app.services.notifier import send_whatsapp_message
@@ -42,10 +43,9 @@ def generate_daily_report(db: Session) -> str:
     """Generate consolidated daily order report."""
 
     today = date.today()
-    today_str = today.strftime("%Y-%m-%d")
 
     orders = db.query(Order).filter(
-        Order.created_at.like(f"{today_str}%")
+    func.date(Order.created_at) == today
     ).order_by(Order.created_at.asc()).all()
 
     if not orders:
