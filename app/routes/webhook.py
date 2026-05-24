@@ -7,10 +7,7 @@ import os
 
 from app.database import get_db
 from app.services.order_service import process_incoming_order
-from app.services.reporter import (
-    send_morning_report,
-    send_evening_report
-)
+from app.services.reporter import send_daily_report
 from app.services.product_catalog import generate_menu_template
 from app.services.notifier import send_whatsapp_message
 from app.auth import require_auth
@@ -55,7 +52,7 @@ def health_check():
 async def test_webhook(
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(require_auth)   # ← protected
+    username: str = Depends(require_auth)
 ):
     """
     Test endpoint for Postman/manual testing.
@@ -90,24 +87,14 @@ async def test_webhook(
         return {"status": "error", "message": str(e)}
 
 
-@router.post("/report/morning")
-def trigger_morning_report(
+@router.post("/report")
+def trigger_report(
     db: Session = Depends(get_db),
-    username: str = Depends(require_auth)   # ← protected
+    username: str = Depends(require_auth)
 ):
-    """Requires Basic Auth."""
-    send_morning_report(db)
-    return {"status": "Morning report sent"}
-
-
-@router.post("/report/evening")
-def trigger_evening_report(
-    db: Session = Depends(get_db),
-    username: str = Depends(require_auth)   # ← protected
-):
-    """Requires Basic Auth."""
-    send_evening_report(db)
-    return {"status": "Evening report sent"}
+    """Manually trigger the daily report. Requires Basic Auth."""
+    send_daily_report(db)
+    return {"status": "Daily report sent"}
 
 
 @router.get("/meta")
@@ -142,7 +129,6 @@ async def meta_webhook(
     # Read raw body BEFORE json.loads() — body stream can only be read once
     body = await request.body()
 
-    # Issue #1 — verify every incoming request is genuinely from Meta
     signature = request.headers.get("X-Hub-Signature-256", "")
     if not verify_meta_signature(body, signature):
         raise HTTPException(

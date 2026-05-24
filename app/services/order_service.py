@@ -34,27 +34,73 @@ GREETINGS = {
     "who", "what", "where", "when", "why", "how",
 }
 
+# Multi-word filler phrases that should be rejected
+FILLER_PHRASES = {
+    "yes please", "yes pls", "yes sure", "yes ok", "yes okay",
+    "ok sure", "ok fine", "ok thanks", "ok thank you",
+    "sure sure", "fine fine", "no problem", "no worries",
+    "go ahead", "please help", "help me", "i want",
+    "i need", "send menu", "show menu", "place order",
+    "start order", "new order", "haan ji", "haan bhai",
+    "ha bhai", "ha ji", "ji haan", "ji han", "ji ha",
+    "good morning", "good evening", "good night",
+    "please proceed", "pls proceed", "pls help",
+}
+
 
 def validate_restaurant_name(name: str) -> str | None:
-    if len(name) < 3:
+    """
+    Returns error message string if invalid, None if valid.
+    """
+    stripped = name.strip()
+    lower = stripped.lower()
+
+    # Too short
+    if len(stripped) < 3:
         return "That name is too short."
-    if len(name) > 60:
+
+    # Too long
+    if len(stripped) > 60:
         return "That seems too long for a restaurant name."
-    if name.replace(" ", "").isdigit():
+
+    # Pure numbers
+    if stripped.replace(" ", "").isdigit():
         return "That looks like a number, not a restaurant name."
-    if name.lower().strip() in GREETINGS:
-        return "That looks like a greeting, not a restaurant name."
-    if re.match(r'^[^a-zA-Z0-9\u0900-\u097F]+$', name):
+
+    # Only special characters, no letters
+    if re.match(r'^[^a-zA-Z0-9\u0900-\u097F]+$', stripped):
         return "That doesn't look like a valid restaurant name."
-    if len(set(name.lower().replace(" ", ""))) <= 2 and len(name) >= 4:
+
+    # Repeated characters (e.g. "aaaa", "hhhh")
+    if len(set(lower.replace(" ", ""))) <= 2 and len(stripped) >= 4:
         return "That doesn't look like a valid restaurant name."
-    letters_only = re.sub(r'[^a-zA-Z]', '', name.lower())
+
+    # No vowels in long strings (gibberish detector)
+    letters_only = re.sub(r'[^a-zA-Z]', '', lower)
     if len(letters_only) >= 5:
         vowels = set('aeiou')
         if not any(c in vowels for c in letters_only):
             return "That doesn't look like a valid restaurant name."
-    return None
 
+    # Exact match against single-word greetings/fillers
+    if lower in GREETINGS:
+        return "That looks like a greeting, not a restaurant name."
+
+    # Match against multi-word filler phrases
+    if lower in FILLER_PHRASES:
+        return "That doesn't look like a restaurant name. Please send your actual restaurant or hotel name."
+
+    # Check if ALL words in the name are filler/greeting words
+    words = lower.split()
+    single_word_fillers = {
+        "yes", "no", "ok", "okay", "sure", "fine", "please", "pls",
+        "hi", "hello", "hey", "thanks", "thank", "haan", "nahi",
+        "ji", "ha", "bhai", "yep", "yup", "nope", "good", "great"
+    }
+    if len(words) >= 2 and all(w in single_word_fillers for w in words):
+        return "That doesn't look like a restaurant name. Please send your actual restaurant or hotel name."
+
+    return None
 
 def process_incoming_order(
     db: Session,
@@ -81,7 +127,7 @@ def process_incoming_order(
 
         send_whatsapp_message(
             customer_phone,
-            "👋 Welcome to BBC Ordering!\n\n"
+            "👋 Welcome to Fluffy Ordering System!\n\n"
             "Please reply with your *restaurant or hotel name* to continue."
         )
 
@@ -218,8 +264,9 @@ def get_unclear_orders(db: Session) -> list:
 
 
 def get_todays_orders(db: Session) -> list:
+    today_str = date.today().strftime("%Y-%m-%d")
     return db.query(Order).filter(
-        cast(Order.created_at, Date) == func.current_date()
+        Order.created_at.like(f"{today_str}%")
     ).order_by(
         Order.created_at.asc()
     ).all()
