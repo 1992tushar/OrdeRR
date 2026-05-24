@@ -61,15 +61,15 @@ def dashboard(
             product_summary[key]["orders_count"] += 1
 
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "plant_name": os.getenv("PLANT_NAME", "Fluffy"),
-            "current_time": datetime.now().strftime("%d %b %Y, %I:%M %p"),
-            "orders": orders,
-            "clear_orders": clear_orders,
-            "unclear_orders": unclear_orders,
-            "product_summary": list(product_summary.values()),
-            "total_items": sum(len(o.items_parsed) for o in clear_orders),
-        }
+    request=request,
+    name="dashboard.html",
+    context={
+        "plant_name": os.getenv("PLANT_NAME", "Fluffy"),
+        "current_time": datetime.now().strftime("%d %b %Y, %I:%M %p"),
+        "orders": orders,
+        "clear_orders": clear_orders,
+        "unclear_orders": unclear_orders,
+        "product_summary": list(product_summary.values()),
+        "total_items": sum(len(o.items_parsed) for o in clear_orders),
+    }
     )
