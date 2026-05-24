@@ -2,15 +2,19 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.database import get_db
 from app.models.order import Order
 from app.auth import require_auth
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 import json
 import os
 
 router = APIRouter()
+
+# IST = UTC+5:30
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # Jinja2 auto-escapes all variables — eliminates XSS
 templates = Jinja2Templates(directory="app/templates")
@@ -20,15 +24,15 @@ templates = Jinja2Templates(directory="app/templates")
 def dashboard(
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(require_auth)   # ← protected
+    username: str = Depends(require_auth)
 ):
     """Main dashboard showing today's orders. Requires Basic Auth."""
 
     today = date.today()
 
+    # FIX: Use func.date() — works on both SQLite and PostgreSQL
     orders = db.query(Order).filter(
-        Order.created_at >= datetime.combine(today, datetime.min.time()),
-        Order.created_at <= datetime.combine(today, datetime.max.time())
+        func.date(Order.created_at) == today
     ).order_by(Order.created_at.desc()).all()
 
     # Parse items for each order
@@ -61,15 +65,16 @@ def dashboard(
             product_summary[key]["orders_count"] += 1
 
     return templates.TemplateResponse(
-    request=request,
-    name="dashboard.html",
-    context={
-        "plant_name": os.getenv("PLANT_NAME", "Fluffy"),
-        "current_time": datetime.now().strftime("%d %b %Y, %I:%M %p"),
-        "orders": orders,
-        "clear_orders": clear_orders,
-        "unclear_orders": unclear_orders,
-        "product_summary": list(product_summary.values()),
-        "total_items": sum(len(o.items_parsed) for o in clear_orders),
-    }
+        request=request,
+        name="dashboard.html",
+        context={
+            "plant_name": os.getenv("PLANT_NAME", "Fluffy"),
+            # FIX: Use IST timezone instead of server local time
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "orders": orders,
+            "clear_orders": clear_orders,
+            "unclear_orders": unclear_orders,
+            "product_summary": list(product_summary.values()),
+            "total_items": sum(len(o.items_parsed) for o in clear_orders),
+        }
     )
