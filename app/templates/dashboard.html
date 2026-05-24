@@ -105,7 +105,7 @@
         {% for order in clear_orders %}
         <div class="order-card">
             <div class="order-header">
-                <span class="phone">📱 {{ order.customer_phone }}</span>
+                <span class="phone">🏪 {{ order.customer_name or order.customer_phone }}</span>
                 <span class="delivery">
                     🕐
                     {% if order.delivery_date and order.delivery_time %}
@@ -135,7 +135,7 @@
     {% for order in unclear_orders %}
     <div class="order-card unclear">
         <div class="order-header">
-            <span class="phone">📱 {{ order.customer_phone }}</span>
+            <span class="phone">🏪 {{ order.customer_name or order.customer_phone }}</span>
             <span class="badge unclear">unclear</span>
         </div>
         {# Jinja2 auto-escapes these — raw customer input is safe here #}
