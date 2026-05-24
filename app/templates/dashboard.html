@@ -258,16 +258,16 @@ async function loadCustomers() {
 
     try {
         const resp = await fetch('/admin/customers', {
-            headers: { 'Authorization': 'Basic ' + btoa(
-                document.cookie.match(/dash_user=([^;]+)/)?.[1] || ''
-            )}
+            credentials: 'include'
         });
 
-        // If 401, credentials not in cookie — use stored from page load
-        const data = await resp.json();
-        const customers = data.customers || [];
+        if (resp.status === 401) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e67e22;padding:24px">Auth failed — try refreshing the page</td></tr>';
+            return;
+        }
 
-        renderCustomers(customers);
+        const data = await resp.json();
+        renderCustomers(data.customers || []);
 
     } catch(e) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e67e22;padding:24px">Failed to load — try refreshing the page</td></tr>';
