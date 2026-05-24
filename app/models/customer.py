@@ -3,10 +3,12 @@ from sqlalchemy import (
     Integer,
     String,
     Boolean,
-    DateTime
+    DateTime,
+    ForeignKey
 )
 
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -62,3 +64,27 @@ class Customer(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
+
+    # ── New fields for salesperson / pending order feature ──────────────
+
+    area = Column(
+        String,
+        nullable=True
+    )
+
+    salesperson_id = Column(
+        Integer,
+        ForeignKey("salespersons.id"),
+        nullable=True,
+        index=True
+    )
+
+    # True  → expect a daily order; include in pending checks
+    # False → irregular customer; never chase for missing orders
+    is_daily_order_customer = Column(
+        Boolean,
+        default=True
+    )
+
+    # Relationship
+    salesperson = relationship("Salesperson", back_populates="customers")
