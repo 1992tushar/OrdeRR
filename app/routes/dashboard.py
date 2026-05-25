@@ -76,5 +76,7 @@ def dashboard(
             "unclear_orders": unclear_orders,
             "product_summary": list(product_summary.values()),
             "total_items": sum(len(o.items_parsed) for o in clear_orders),
+            "dashboard_username": os.getenv("DASHBOARD_USERNAME", ""),
+            "dashboard_password": os.getenv("DASHBOARD_PASSWORD", ""),
         }
     )

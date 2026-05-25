@@ -212,7 +212,7 @@ def list_customers(
 
     customers = (
         db.query(Customer)
-        .filter(Customer.onboarding_status == "completed")
+        .filter(Customer.onboarding_status == "active")
         .order_by(Customer.restaurant_name)
         .all()
     )
@@ -252,7 +252,7 @@ def list_unassigned_customers(
     customers = (
         db.query(Customer)
         .filter(
-            Customer.onboarding_status == "completed",
+            Customer.onboarding_status == "active",
             Customer.salesperson_id == None
         )
         .order_by(Customer.created_at.desc())

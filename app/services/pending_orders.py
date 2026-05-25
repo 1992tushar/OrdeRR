@@ -58,7 +58,7 @@ def get_pending_customers(db: Session, delivery_date: date) -> dict:
         .filter(
             Customer.is_active == True,
             Customer.is_daily_order_customer == True,
-            Customer.onboarding_status == "completed"   # only fully onboarded
+            Customer.onboarding_status == "active"   # only fully onboarded
         )
         .all()
     )

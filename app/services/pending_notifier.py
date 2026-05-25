@@ -12,7 +12,6 @@ All three are called from main.py scheduler jobs.
 """
 
 import os
-from collections import Counter
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -131,7 +130,8 @@ def notify_salespersons_pending(db: Session, delivery_date: date | None = None):
 def send_management_summary(db: Session, delivery_date: date | None = None):
     """
     Sends the operations manager a daily completion summary:
-    total customers, orders received, pending count, area-wise breakdown.
+    total customers, orders received, pending count,
+    and area-wise breakdown WITH customer names.
     """
 
     if delivery_date is None:
@@ -149,7 +149,7 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
         .filter(
             Customer.is_active == True,
             Customer.is_daily_order_customer == True,
-            Customer.onboarding_status == "completed"
+            Customer.onboarding_status == "active"
         )
         .count()
     )
@@ -159,12 +159,22 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
     total_pending = len(all_pending)
     total_received = total_active - total_pending
 
-    # Area-wise pending breakdown
-    area_counts = Counter(c.area or "Unassigned" for c in all_pending)
-    area_lines = "\n".join(
-        f"  {area:<15}: {count} pending"
-        for area, count in sorted(area_counts.items())
-    )
+    # Area-wise breakdown with customer names
+    area_customers = {}
+    for c in all_pending:
+        area = c.area or "Unassigned"
+        if area not in area_customers:
+            area_customers[area] = []
+        area_customers[area].append(c.restaurant_name)
+
+    if area_customers:
+        area_lines = ""
+        for area, names in sorted(area_customers.items()):
+            area_lines += f"\n*{area}* ({len(names)} pending)\n"
+            for i, name in enumerate(names, 1):
+                area_lines += f"  {i}. {name}\n"
+    else:
+        area_lines = "\n  None — all orders received ✅\n"
 
     # Unassigned customers note
     unassigned_pending = len(grouped.get(None, []))
@@ -179,10 +189,10 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
         f"📅 {delivery_date.strftime('%d %B %Y')}\n\n"
         f"Total Customers: *{total_active}*\n"
         f"Orders Received: *{total_received}*\n"
-        f"Pending Orders:  *{total_pending}*\n"
-        f"\n*Area-wise Pending:*\n"
-        f"{area_lines if area_lines else '  None — all orders received ✅'}"
-        f"{unassigned_note}\n\n"
+        f"Pending Orders:  *{total_pending}*\n\n"
+        f"*Pending by Area:*"
+        f"{area_lines}"
+        f"{unassigned_note}\n"
         f"_OrdeRR — {PLANT_NAME} Automation_"
     )
 

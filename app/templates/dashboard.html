@@ -25,11 +25,11 @@
         .card .label { font-size: 13px; color: #888; margin-top: 4px; }
         .card.warning .number { color: #e67e22; }
         .section { padding: 0 24px 24px; }
-        .section h2 { font-size: 16px; color: #555; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #075e54; }
+        .section h2 { font-size: 16px; color: #555; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #075e54; display: flex; justify-content: space-between; align-items: center; }
         .summary-table { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.1); margin-bottom: 24px; }
         .summary-table table { width: 100%; border-collapse: collapse; }
         .summary-table th { background: #075e54; color: white; padding: 12px 16px; text-align: left; font-size: 13px; }
-        .summary-table td { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+        .summary-table td { padding: 10px 16px; border-bottom: 1px solid #f0f0f0; font-size: 14px; vertical-align: middle; }
         .summary-table tr:last-child td { border-bottom: none; }
         .order-card { background: white; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); border-left: 4px solid #075e54; }
         .order-card.unclear { border-left-color: #e67e22; }
@@ -40,29 +40,56 @@
         .raw-message { font-size: 12px; color: #e67e22; margin-top: 8px; font-style: italic; }
         .reason { font-size: 12px; color: #e67e22; margin-top: 4px; }
         .badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; display: inline-block; }
-        .badge.unclear { background: #fff3e0; color: #e65100; }
+        .badge.unclear  { background: #fff3e0; color: #e65100; }
         .badge.inactive { background: #fce4ec; color: #c62828; }
-        .badge.active { background: #e8f5e9; color: #2e7d32; }
-        .badge.irregular { background: #f3e5f5; color: #6a1b9a; }
-        .badge.unassigned { background: #fff8e1; color: #f57f17; }
+        .badge.active   { background: #e8f5e9; color: #2e7d32; }
+        .badge.irregular{ background: #f3e5f5; color: #6a1b9a; }
+        .badge.unassigned{ background: #fff8e1; color: #f57f17; }
         .refresh-btn { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; margin-left: 12px; }
         .refresh-btn:hover { background: rgba(255,255,255,0.3); }
         .empty { text-align: center; padding: 40px; color: #aaa; font-size: 14px; }
 
-        /* Customer table */
-        .customer-row td { vertical-align: middle; }
-        .customer-row.inactive { opacity: 0.55; }
-        .toggle-btn { border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-weight: 600; transition: background 0.15s; }
-        .toggle-btn.deactivate { background: #fce4ec; color: #c62828; }
-        .toggle-btn.deactivate:hover { background: #f48fb1; }
-        .toggle-btn.activate { background: #e8f5e9; color: #2e7d32; }
-        .toggle-btn.activate:hover { background: #a5d6a7; }
-        .toggle-btn.irregular-off { background: #f3e5f5; color: #6a1b9a; }
-        .toggle-btn.irregular-on { background: #ede7f6; color: #4527a0; }
+        /* Action buttons */
+        .btn { border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-weight: 600; transition: background 0.15s; white-space: nowrap; }
+        .btn-deactivate  { background: #fce4ec; color: #c62828; }
+        .btn-deactivate:hover { background: #f48fb1; }
+        .btn-activate    { background: #e8f5e9; color: #2e7d32; }
+        .btn-activate:hover { background: #a5d6a7; }
+        .btn-irregular   { background: #f3e5f5; color: #6a1b9a; }
+        .btn-irregular:hover { background: #ce93d8; }
+        .btn-daily       { background: #ede7f6; color: #4527a0; }
+        .btn-daily:hover { background: #b39ddb; }
+        .btn-assign      { background: #e3f2fd; color: #1565c0; }
+        .btn-assign:hover{ background: #90caf9; }
+        .btn-save        { background: #075e54; color: white; }
+        .btn-save:hover  { background: #064e46; }
+        .btn-cancel      { background: #f5f5f5; color: #555; }
+        .btn-cancel:hover{ background: #e0e0e0; }
+
+        /* Inline assign form */
+        .assign-row td { background: #f8fffe; padding: 12px 16px !important; }
+        .assign-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .assign-form input, .assign-form select {
+            padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px;
+            font-size: 13px; outline: none; min-width: 130px;
+        }
+        .assign-form input:focus, .assign-form select:focus { border-color: #075e54; }
+
+        /* Add salesperson panel */
+        .add-sp-panel { background: white; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); display: none; }
+        .add-sp-panel.open { display: block; }
+        .add-sp-panel h3 { font-size: 15px; color: #075e54; margin-bottom: 14px; }
+        .add-sp-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+        .add-sp-form label { font-size: 12px; color: #666; display: block; margin-bottom: 4px; }
+        .add-sp-form input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; width: 200px; }
+        .section-action-btn { font-size: 12px; background: #075e54; color: white; border: none; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-weight: 600; }
+        .section-action-btn:hover { background: #064e46; }
 
         /* Toast */
-        #toast { position: fixed; bottom: 24px; right: 24px; background: #323232; color: white; padding: 12px 20px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 999; }
+        #toast { position: fixed; bottom: 24px; right: 24px; background: #323232; color: white; padding: 12px 20px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 999; max-width: 320px; }
         #toast.show { opacity: 1; }
+        #toast.success { background: #2e7d32; }
+        #toast.error   { background: #c62828; }
     </style>
 </head>
 <body>
@@ -78,15 +105,14 @@
     </div>
 </div>
 
-<!-- Tab navigation -->
 <div class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('orders', this)">📦 Orders</button>
     <button class="tab-btn" onclick="switchTab('customers', this)">🏪 Customers</button>
+    <button class="tab-btn" onclick="switchTab('salespersons', this)">👤 Salespersons</button>
 </div>
 
-<!-- ── Orders Tab ─────────────────────────────────────────────────────── -->
+<!-- ── Orders Tab ──────────────────────────────────────────────────────────── -->
 <div id="tab-orders" class="tab-pane active">
-
     <div class="cards">
         <div class="card">
             <div class="number">{{ orders | length }}</div>
@@ -110,14 +136,7 @@
         <h2>📊 Product Summary</h2>
         <div class="summary-table">
             <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Total Quantity</th>
-                        <th>Unit</th>
-                        <th>Orders</th>
-                    </tr>
-                </thead>
+                <thead><tr><th>Product</th><th>Total Quantity</th><th>Unit</th><th>Orders</th></tr></thead>
                 <tbody>
                     {% if product_summary %}
                         {% for item in product_summary %}
@@ -129,9 +148,7 @@
                         </tr>
                         {% endfor %}
                     {% else %}
-                        <tr>
-                            <td colspan="4" style="text-align:center;color:#aaa;">No orders yet today</td>
-                        </tr>
+                        <tr><td colspan="4" style="text-align:center;color:#aaa;">No orders yet today</td></tr>
                     {% endif %}
                 </tbody>
             </table>
@@ -145,21 +162,14 @@
             <div class="order-card">
                 <div class="order-header">
                     <span class="phone">🏪 {{ order.customer_name or order.customer_phone }}</span>
-                    <span class="delivery">
-                        🕐
-                        {% if order.delivery_date and order.delivery_time %}
-                            {{ order.delivery_date }} at {{ order.delivery_time }}
-                        {% elif order.delivery_date %}
-                            {{ order.delivery_date }}
-                        {% else %}
-                            Not specified
-                        {% endif %}
+                    <span class="delivery">🕐
+                        {% if order.delivery_date and order.delivery_time %}{{ order.delivery_date }} at {{ order.delivery_time }}
+                        {% elif order.delivery_date %}{{ order.delivery_date }}
+                        {% else %}Not specified{% endif %}
                     </span>
                 </div>
                 <div class="items">
-                    {% for item in order.items_parsed %}
-                        • {{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>
-                    {% endfor %}
+                    {% for item in order.items_parsed %}• {{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}
                 </div>
             </div>
             {% endfor %}
@@ -183,33 +193,22 @@
         {% endfor %}
     </div>
     {% endif %}
+</div>
 
-</div><!-- /tab-orders -->
-
-<!-- ── Customers Tab ──────────────────────────────────────────────────── -->
+<!-- ── Customers Tab ───────────────────────────────────────────────────────── -->
 <div id="tab-customers" class="tab-pane">
-
     <div class="cards">
-        <div class="card">
-            <div class="number" id="stat-total">—</div>
-            <div class="label">Total Customers</div>
-        </div>
-        <div class="card">
-            <div class="number" id="stat-active" style="color:#075e54">—</div>
-            <div class="label">Active</div>
-        </div>
-        <div class="card warning">
-            <div class="number" id="stat-inactive">—</div>
-            <div class="label">Inactive</div>
-        </div>
-        <div class="card">
-            <div class="number" id="stat-unassigned" style="color:#f57f17">—</div>
-            <div class="label">Unassigned</div>
-        </div>
+        <div class="card"><div class="number" id="stat-total">—</div><div class="label">Total Customers</div></div>
+        <div class="card"><div class="number" id="stat-active" style="color:#075e54">—</div><div class="label">Active</div></div>
+        <div class="card warning"><div class="number" id="stat-inactive">—</div><div class="label">Inactive</div></div>
+        <div class="card"><div class="number" id="stat-unassigned" style="color:#f57f17">—</div><div class="label">Unassigned</div></div>
     </div>
 
     <div class="section">
-        <h2>🏪 Customer List</h2>
+        <h2>
+            🏪 Customer List
+            <button class="section-action-btn" onclick="loadCustomers()">🔄 Refresh</button>
+        </h2>
         <div class="summary-table">
             <table>
                 <thead>
@@ -228,59 +227,196 @@
             </table>
         </div>
     </div>
+</div>
 
-</div><!-- /tab-customers -->
+<!-- ── Salespersons Tab ────────────────────────────────────────────────────── -->
+<div id="tab-salespersons" class="tab-pane">
+    <div class="section" style="padding-top:24px">
+        <h2>
+            👤 Salespersons
+            <button class="section-action-btn" onclick="toggleAddSP()">＋ Add Salesperson</button>
+        </h2>
+
+        <!-- Add salesperson panel -->
+        <div class="add-sp-panel" id="add-sp-panel">
+            <h3>Add New Salesperson</h3>
+            <div class="add-sp-form">
+                <div>
+                    <label>Name</label>
+                    <input type="text" id="sp-name" placeholder="e.g. Rahul" />
+                </div>
+                <div>
+                    <label>WhatsApp Number</label>
+                    <input type="text" id="sp-phone" placeholder="919XXXXXXXXX" />
+                </div>
+                <div style="display:flex;gap:8px;padding-bottom:1px">
+                    <button class="btn btn-save" onclick="addSalesperson()">Save</button>
+                    <button class="btn btn-cancel" onclick="toggleAddSP()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="summary-table">
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>Phone</th><th>Customers</th><th>Status</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="sp-tbody">
+                    <tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ── Assign Modal ────────────────────────────────────────────────────────── -->
+<div id="assign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:500;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:14px;padding:28px;width:380px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+        <h3 style="margin-bottom:6px;color:#075e54">Assign Salesperson</h3>
+        <p id="modal-customer-name" style="font-size:13px;color:#888;margin-bottom:20px"></p>
+
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Area</label>
+        <input id="modal-area" type="text" placeholder="e.g. Baner, Hinjawadi"
+            style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none" />
+
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Salesperson</label>
+        <select id="modal-sp" style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:20px;outline:none;background:white">
+            <option value="">— Select Salesperson —</option>
+        </select>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn btn-cancel" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-save" onclick="saveAssignment()">Save Assignment</button>
+        </div>
+    </div>
+</div>
 
 <div id="toast"></div>
 
 <script>
+// ── State ──────────────────────────────────────────────────────────────
+let allSalespersons = [];
+let currentAssignId = null;
+
 // ── Tab switching ──────────────────────────────────────────────────────
 function switchTab(name, btn) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
     btn.classList.add('active');
-    if (name === 'customers') loadCustomers();
+    if (name === 'customers')    { loadSalespersons().then(loadCustomers); }
+    if (name === 'salespersons') { loadSalespersons(); }
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────
-function showToast(msg) {
+function showToast(msg, type = '') {
     const t = document.getElementById('toast');
     t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 3000);
+    t.className = 'show' + (type ? ' ' + type : '');
+    setTimeout(() => t.className = '', 3200);
 }
 
-// ── Load customers via Admin API ───────────────────────────────────────
+// ── API helper ─────────────────────────────────────────────────────────
+async function api(method, path, body) {
+    const opts = { 
+        method, 
+        credentials: 'include', 
+        headers: {
+            'Authorization': 'Basic ' + btoa('{{ dashboard_username }}:{{ dashboard_password }}')
+        } 
+    };
+    if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const r = await fetch(path, opts);
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+}
+
+// ── Load salespersons (cached in allSalespersons) ──────────────────────
+async function loadSalespersons() {
+    try {
+        const data = await api('GET', '/admin/salespersons');
+        allSalespersons = data.salespersons || [];
+        renderSalespersons(allSalespersons);
+        // Populate modal dropdown
+        const sel = document.getElementById('modal-sp');
+        sel.innerHTML = '<option value="">— Select Salesperson —</option>';
+        allSalespersons.filter(s => s.active).forEach(s => {
+            sel.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+        });
+    } catch(e) {
+        console.error('Failed to load salespersons', e);
+    }
+}
+
+function renderSalespersons(list) {
+    const tbody = document.getElementById('sp-tbody');
+    if (!tbody) return;
+    if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">No salespersons yet — add one above</td></tr>';
+        return;
+    }
+    tbody.innerHTML = list.map(s => `
+        <tr>
+            <td><strong>${s.name}</strong></td>
+            <td style="color:#888;font-size:13px">${s.phone}</td>
+            <td>${s.customer_count}</td>
+            <td>${s.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
+            <td>
+                ${s.active
+                    ? `<button class="btn btn-deactivate" onclick="toggleSP(${s.id}, false)">Deactivate</button>`
+                    : `<button class="btn btn-activate"   onclick="toggleSP(${s.id}, true)">Activate</button>`}
+            </td>
+        </tr>`).join('');
+}
+
+// ── Add salesperson ────────────────────────────────────────────────────
+function toggleAddSP() {
+    const panel = document.getElementById('add-sp-panel');
+    panel.classList.toggle('open');
+}
+
+async function addSalesperson() {
+    const name  = document.getElementById('sp-name').value.trim();
+    const phone = document.getElementById('sp-phone').value.trim();
+    if (!name || !phone) { showToast('⚠️ Name and phone are required', 'error'); return; }
+    try {
+        await api('POST', '/admin/salespersons', { name, phone });
+        showToast(`✅ ${name} added`, 'success');
+        document.getElementById('sp-name').value = '';
+        document.getElementById('sp-phone').value = '';
+        document.getElementById('add-sp-panel').classList.remove('open');
+        loadSalespersons();
+    } catch(e) {
+        showToast('❌ ' + (JSON.parse(e.message)?.detail || 'Failed to add'), 'error');
+    }
+}
+
+async function toggleSP(id, active) {
+    try {
+        await api('PUT', `/admin/salespersons/${id}`, { active });
+        showToast(active ? '✅ Activated' : '✅ Deactivated', 'success');
+        loadSalespersons();
+    } catch(e) { showToast('❌ Update failed', 'error'); }
+}
+
+// ── Load customers ─────────────────────────────────────────────────────
 async function loadCustomers() {
     const tbody = document.getElementById('customer-tbody');
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
-
     try {
-        const resp = await fetch('/admin/customers', {
-            credentials: 'include'
-        });
-
-        if (resp.status === 401) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e67e22;padding:24px">Auth failed — try refreshing the page</td></tr>';
-            return;
-        }
-
-        const data = await resp.json();
+        const data = await api('GET', '/admin/customers');
         renderCustomers(data.customers || []);
-
     } catch(e) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e67e22;padding:24px">Failed to load — try refreshing the page</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e67e22;padding:24px">Failed to load — try refreshing</td></tr>';
     }
 }
 
 function renderCustomers(customers) {
     const tbody = document.getElementById('customer-tbody');
 
-    // Stats
-    const total    = customers.length;
-    const active   = customers.filter(c => c.is_active).length;
-    const inactive = total - active;
+    const total      = customers.length;
+    const active     = customers.filter(c => c.is_active).length;
+    const inactive   = total - active;
     const unassigned = customers.filter(c => !c.salesperson_id).length;
 
     document.getElementById('stat-total').textContent     = total;
@@ -288,7 +424,7 @@ function renderCustomers(customers) {
     document.getElementById('stat-inactive').textContent  = inactive;
     document.getElementById('stat-unassigned').textContent = unassigned;
 
-    if (customers.length === 0) {
+    if (!customers.length) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';
         return;
     }
@@ -300,65 +436,93 @@ function renderCustomers(customers) {
                 ? '<span class="badge irregular">Irregular</span>'
                 : '<span class="badge active">Active</span>';
 
-        const spBadge = c.salesperson_name
+        const spCell = c.salesperson_name
             ? `<span style="font-size:13px">${c.salesperson_name}</span>`
             : '<span class="badge unassigned">Unassigned</span>';
 
-        const areaTxt = c.area || '<span style="color:#bbb">—</span>';
+        const areaCell = c.area || '<span style="color:#ccc">—</span>';
 
         const activateBtn = c.is_active
-            ? `<button class="toggle-btn deactivate" onclick="setStatus(${c.id}, false, null)">Deactivate</button>`
-            : `<button class="toggle-btn activate"   onclick="setStatus(${c.id}, true,  null)">Activate</button>`;
+            ? `<button class="btn btn-deactivate" onclick="setStatus(${c.id},false,null)">Deactivate</button>`
+            : `<button class="btn btn-activate"   onclick="setStatus(${c.id},true,null)">Activate</button>`;
 
         const dailyBtn = c.is_active
             ? (c.is_daily_order_customer
-                ? `<button class="toggle-btn irregular-off" onclick="setStatus(${c.id}, null, false)" title="Mark as irregular — won't be chased for missing orders">Set Irregular</button>`
-                : `<button class="toggle-btn irregular-on"  onclick="setStatus(${c.id}, null, true)"  title="Expect daily orders from this customer">Set Daily</button>`)
+                ? `<button class="btn btn-irregular" onclick="setStatus(${c.id},null,false)" title="Won't be chased for missing orders">Irregular</button>`
+                : `<button class="btn btn-daily"     onclick="setStatus(${c.id},null,true)"  title="Expect daily orders">Daily</button>`)
             : '';
 
-        return `<tr class="customer-row ${!c.is_active ? 'inactive' : ''}">
-            <td><strong>${c.restaurant_name || '—'}</strong></td>
+        const assignBtn = `<button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${c.area||''}')">Assign</button>`;
+
+        return `<tr class="customer-row ${!c.is_active?'inactive':''}">
+            <td><strong>${c.restaurant_name||'—'}</strong></td>
             <td style="font-size:13px;color:#888">${c.phone_number}</td>
-            <td>${areaTxt}</td>
-            <td>${spBadge}</td>
+            <td>${areaCell}</td>
+            <td>${spCell}</td>
             <td>${statusBadge}</td>
-            <td style="display:flex;gap:6px;flex-wrap:wrap">${activateBtn} ${dailyBtn}</td>
+            <td style="display:flex;gap:6px;flex-wrap:wrap">${assignBtn} ${activateBtn} ${dailyBtn}</td>
         </tr>`;
     }).join('');
 }
 
-// ── Status toggle ──────────────────────────────────────────────────────
-async function setStatus(customerId, isActive, isDailyOrder) {
+// ── Assign modal ───────────────────────────────────────────────────────
+function openAssignModal(customerId, restaurantName, currentSpId, currentArea) {
+    currentAssignId = customerId;
+    document.getElementById('modal-customer-name').textContent = restaurantName;
+    document.getElementById('modal-area').value = currentArea || '';
+    const sel = document.getElementById('modal-sp');
+    sel.value = currentSpId || '';
+    const modal = document.getElementById('assign-modal');
+    modal.style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('assign-modal').style.display = 'none';
+    currentAssignId = null;
+}
+
+async function saveAssignment() {
+    const area = document.getElementById('modal-area').value.trim();
+    const spId = document.getElementById('modal-sp').value;
+
     const body = {};
-    if (isActive !== null)     body.is_active = isActive;
-    if (isDailyOrder !== null) body.is_daily_order_customer = isDailyOrder;
+    if (area)  body.area = area;
+    if (spId)  body.salesperson_id = parseInt(spId);
+
+    if (!area && !spId) { showToast('⚠️ Enter area or select a salesperson', 'error'); return; }
 
     try {
-        const resp = await fetch(`/admin/customers/${customerId}/status`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-
-        if (resp.ok) {
-            const data = await resp.json();
-            const c = data.customer;
-            const label = !c.is_active ? 'Inactive' : !c.is_daily_order_customer ? 'Irregular' : 'Active';
-            showToast(`✅ ${c.restaurant_name} → ${label}`);
-            loadCustomers(); // refresh table
-        } else {
-            showToast('❌ Update failed — check console');
-            console.error(await resp.text());
-        }
+        const data = await api('POST', `/admin/customers/${currentAssignId}/assign`, body);
+        showToast(`✅ ${data.customer.restaurant_name} assigned to ${data.customer.salesperson_name || 'updated'}`, 'success');
+        closeModal();
+        loadCustomers();
     } catch(e) {
-        showToast('❌ Network error');
+        showToast('❌ Assignment failed', 'error');
     }
 }
 
-// Auto-reload orders tab every 60 seconds (original behaviour)
+// Close modal on backdrop click
+document.getElementById('assign-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+// ── Status toggle ──────────────────────────────────────────────────────
+async function setStatus(customerId, isActive, isDailyOrder) {
+    const body = {};
+    if (isActive    !== null) body.is_active = isActive;
+    if (isDailyOrder !== null) body.is_daily_order_customer = isDailyOrder;
+    try {
+        const data = await api('PUT', `/admin/customers/${customerId}/status`, body);
+        const c = data.customer;
+        const label = !c.is_active ? 'Inactive' : !c.is_daily_order_customer ? 'Irregular' : 'Active';
+        showToast(`✅ ${c.restaurant_name} → ${label}`, 'success');
+        loadCustomers();
+    } catch(e) { showToast('❌ Update failed', 'error'); }
+}
+
+// Auto-reload orders tab every 60 seconds
 setInterval(() => {
-    const ordersTabActive = document.getElementById('tab-orders').classList.contains('active');
-    if (ordersTabActive) location.reload();
+    if (document.getElementById('tab-orders').classList.contains('active')) location.reload();
 }, 60000);
 </script>
 </body>

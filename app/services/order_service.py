@@ -157,7 +157,7 @@ def process_incoming_order(
             }
 
         customer.restaurant_name = name
-        customer.onboarding_status = "active"
+        Customer.onboarding_status == "active"
         db.commit()
 
         send_whatsapp_message(
