@@ -19,6 +19,7 @@ Pending orders:
   GET    /admin/pending                      current pending customers (manual check)
 """
 
+import os
 from datetime import date
 from typing import Optional
 
@@ -31,9 +32,12 @@ from app.database import get_db
 from app.models.customer import Customer
 from app.models.salesperson import Salesperson
 from app.services.customer_service import normalize_phone
+from app.services.notifier import send_whatsapp_message
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 
 router = APIRouter()
+
+PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
@@ -120,6 +124,20 @@ def create_salesperson(
     db.commit()
     db.refresh(sp)
 
+    # Send welcome message — non-blocking, failure won't affect creation
+    try:
+        send_whatsapp_message(
+            sp.phone,
+            f"👋 Hi {sp.name},\n\n"
+            f"You've been added to the OrdeRR system for *{PLANT_NAME}*.\n\n"
+            f"You will receive a daily WhatsApp message at *11:05 PM* "
+            f"with a list of customers who haven't placed their order yet.\n\n"
+            f"Please follow up with them for order collection.\n\n"
+            f"— {PLANT_NAME} Team"
+        )
+    except Exception as e:
+        print(f"⚠️ Welcome message failed (salesperson still created): {e}")
+
     return {
         "status": "created",
         "salesperson": {
@@ -188,7 +206,6 @@ def deactivate_salesperson(
     sp.active = False
     db.commit()
 
-    # Count affected customers
     affected = db.query(Customer).filter(
         Customer.salesperson_id == salesperson_id
     ).count()
@@ -295,7 +312,6 @@ def assign_customer(
         customer.area = payload.area.strip()
 
     if payload.salesperson_id is not None:
-        # Validate salesperson exists
         sp = db.query(Salesperson).filter(
             Salesperson.id == payload.salesperson_id
         ).first()
@@ -340,10 +356,10 @@ def update_customer_status(
     """
     Update a customer's active/notification status.
 
-    is_active = false          → customer switched to another vendor;
-                                 stops ALL reminders and notifications
-    is_daily_order_customer    → customer orders irregularly;
-    = false                      stops daily pending checks but keeps them active
+    is_active = false            → customer switched to another vendor;
+                                   stops ALL reminders and notifications
+    is_daily_order_customer=false → customer orders irregularly;
+                                   stops daily pending checks but keeps them active
     """
 
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
