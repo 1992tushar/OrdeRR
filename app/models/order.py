@@ -9,45 +9,36 @@ class Order(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Plant identification
-    plant_name = Column(String, default="Fluffy")
-
-    # Customer details
+    plant_name     = Column(String, default="Fluffy")
     customer_phone = Column(String, index=True)
-    customer_name = Column(String, nullable=True)
+    customer_name  = Column(String, nullable=True)
 
-    # Raw message from WhatsApp
-    raw_message = Column(Text)
+    raw_message    = Column(Text)
     is_photo_order = Column(Boolean, default=False)
 
-    # Parsed order details stored as JSON string
-    parsed_items = Column(Text, nullable=True)
-    delivery_date = Column(String, nullable=True)
+    parsed_items  = Column(Text, nullable=True)
+
+    # delivery_date always set at order creation as YYYY-MM-DD string
+    delivery_date = Column(String, nullable=True, index=True)
     delivery_time = Column(String, nullable=True)
 
-    # Status tracking
+    # status: received → confirmed → packed → delivered → cancelled
     status = Column(String, default="received")
-    # received → confirmed → packed → delivered
 
-    # Flags
-    is_unclear = Column(Boolean, default=False)
+    # soft cancel — keeps record in DB for history
+    is_cancelled = Column(Boolean, default=False)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
+
+    is_unclear     = Column(Boolean, default=False)
     unclear_reason = Column(String, nullable=True)
 
-    # Confirmation sent back to customer
-    confirmation_sent = Column(Boolean, default=False)
-
-    # Forwarded to plant manager
+    confirmation_sent    = Column(Boolean, default=False)
     forwarded_to_manager = Column(Boolean, default=False)
 
-    # Timestamps
-    # server_default on both so neither is ever NULL
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
-        server_default=func.now(),   # ← was missing; caused updated_at = NULL on new rows
+        server_default=func.now(),
         onupdate=func.now()
     )
 
