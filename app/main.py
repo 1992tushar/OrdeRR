@@ -1,105 +1,190 @@
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
-
 from dotenv import load_dotenv
 
-# Load env vars ONCE here — no need to call load_dotenv() in other files
 load_dotenv()
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 import os
+from datetime import datetime, timezone, timedelta
 
 from app.database import engine, Base, SessionLocal
-
 from app.routes import webhook, dashboard
-
+from app.routes.admin import router as admin_router
 from app.services.reporter import send_daily_report
+from app.services.pending_notifier import (
+    send_customer_reminders,
+    notify_salespersons_pending,
+    send_management_summary,
+)
 
-# Import models so SQLAlchemy creates tables
-from app.models.order import Order
+# Import ALL models — order matters for FK resolution
+from app.models.salesperson import Salesperson
 from app.models.customer import Customer
+from app.models.order import Order
 
-# Create all database tables automatically
 Base.metadata.create_all(bind=engine)
 
+IST = timezone(timedelta(hours=5, minutes=30))
+
+# Track last report time for health check
+_last_report_time: str = "Never"
+
+
+# ── Scheduler job wrappers ────────────────────────────────────────────────────
 
 def daily_report_job():
-    """Runs automatically once a day at configured REPORT_TIME IST"""
-
+    global _last_report_time
     db = SessionLocal()
-
     try:
         print("\n⏰ AUTO SCHEDULER — Daily Report triggered")
         send_daily_report(db)
-
+        _last_report_time = datetime.now(IST).strftime("%d %b %Y %I:%M %p IST")
     finally:
         db.close()
 
 
-# Use lifespan instead of deprecated @app.on_event
+def customer_reminders_job():
+    db = SessionLocal()
+    try:
+        print("\n⏰ AUTO SCHEDULER — Customer Reminders triggered")
+        send_customer_reminders(db)
+    finally:
+        db.close()
+
+
+def salesperson_notification_job():
+    db = SessionLocal()
+    try:
+        print("\n⏰ AUTO SCHEDULER — Salesperson Notifications triggered")
+        notify_salespersons_pending(db)
+    finally:
+        db.close()
+
+
+def management_summary_job():
+    db = SessionLocal()
+    try:
+        print("\n⏰ AUTO SCHEDULER — Management Summary triggered")
+        send_management_summary(db)
+    finally:
+        db.close()
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    # ── Startup ──────────────────────────────────────────
+    report_time    = os.getenv("REPORT_TIME", "22:00")
+    hour, minute   = map(int, report_time.split(":"))
+    scheduler      = BackgroundScheduler()
 
-    # Read from .env — format "HH:MM" in 24hr IST, e.g. "22:00"
-    report_time = os.getenv("REPORT_TIME", "22:00")
-    hour, minute = map(int, report_time.split(":"))
-
-    scheduler = BackgroundScheduler()
-
+    # Daily report (configurable time)
     scheduler.add_job(
         daily_report_job,
         CronTrigger(hour=hour, minute=minute, timezone="Asia/Kolkata"),
-        id="daily_report",
-        name=f"Daily Report at {report_time} IST"
+        id="daily_report", name=f"Daily Report at {report_time} IST",
+    )
+
+    # Customer reminders — 22:00 IST
+    scheduler.add_job(
+        customer_reminders_job,
+        CronTrigger(hour=22, minute=0, timezone="Asia/Kolkata"),
+        id="customer_reminders", name="Customer Reminders at 22:00 IST",
+    )
+
+    # Salesperson notifications — 23:05 IST
+    scheduler.add_job(
+        salesperson_notification_job,
+        CronTrigger(hour=23, minute=5, timezone="Asia/Kolkata"),
+        id="salesperson_notifications", name="Salesperson Notifications at 23:05 IST",
+    )
+
+    # Management summary — 23:10 IST
+    scheduler.add_job(
+        management_summary_job,
+        CronTrigger(hour=23, minute=10, timezone="Asia/Kolkata"),
+        id="management_summary", name="Management Summary at 23:10 IST",
+    )
+
+    # Keep-alive ping — every 10 min (prevents Render free tier spin-down)
+    scheduler.add_job(
+        lambda: print("💓 keep-alive ping"),
+        IntervalTrigger(minutes=10),
+        id="keep_alive", name="Keep-Alive Ping",
     )
 
     scheduler.start()
-
-    # Store reference on app.state so shutdown can reach it
     app.state.scheduler = scheduler
 
     print("\n✅ OrdeRR Scheduler Started!")
-    print(f"   📅 Daily report → Every day at {report_time} IST\n")
+    print(f"   📅 Daily report          → Every day at {report_time} IST")
+    print(f"   🔔 Customer reminders    → Every day at 22:00 IST")
+    print(f"   📋 Salesperson alerts    → Every day at 23:05 IST")
+    print(f"   📊 Management summary    → Every day at 23:10 IST")
+    print(f"   💓 Keep-alive ping       → Every 10 minutes\n")
 
     yield
 
-    # ── Shutdown ─────────────────────────────────────────
     app.state.scheduler.shutdown()
     print("\n🛑 OrdeRR Scheduler Stopped")
 
 
-# Initialize FastAPI app
+# ── App ───────────────────────────────────────────────────────────────────────
+
 app = FastAPI(
     title="OrdeRR",
     description="WhatsApp Order Automation for Fluffy Plant",
-    version="1.0.0",
-    lifespan=lifespan
+    version="2.1.0",
+    lifespan=lifespan,
 )
 
-# Register routes
-app.include_router(
-    webhook.router,
-    prefix="/webhook",
-    tags=["Webhook"]
-)
-
-app.include_router(
-    dashboard.router,
-    prefix="/dashboard",
-    tags=["Dashboard"]
-)
+app.include_router(webhook.router,  prefix="/webhook", tags=["Webhook"])
+app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+app.include_router(admin_router,     prefix="/admin",    tags=["Admin"])
 
 
-# Health check endpoint
 @app.get("/")
 def root():
     return {
-        "app": "OrdeRR",
-        "plant": os.getenv("PLANT_NAME", "Fluffy"),
-        "status": "running"
+        "app"   : "OrdeRR",
+        "plant" : os.getenv("PLANT_NAME", "Fluffy"),
+        "status": "running",
+    }
+
+
+@app.get("/health")
+def health_check():
+    """
+    Health check endpoint — used by Render uptime monitoring.
+    Returns DB status, scheduler job count, last report time.
+    """
+    from app.database import SessionLocal
+    from sqlalchemy import text
+
+    db_status = "ok"
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+
+    scheduler   = app.state.scheduler if hasattr(app.state, "scheduler") else None
+    job_count   = len(scheduler.get_jobs()) if scheduler else 0
+    sched_status = "running" if (scheduler and scheduler.running) else "stopped"
+
+    return {
+        "status"          : "ok",
+        "app"             : "OrdeRR",
+        "plant"           : os.getenv("PLANT_NAME", "Fluffy"),
+        "database"        : db_status,
+        "scheduler"       : sched_status,
+        "scheduler_jobs"  : job_count,
+        "last_report_time": _last_report_time,
+        "time_ist"        : datetime.now(IST).strftime("%d %b %Y %I:%M %p"),
     }
