@@ -10,12 +10,6 @@ from app.services.order_service import process_incoming_order
 from app.services.reporter import send_daily_report
 from app.services.product_catalog import generate_menu_template
 from app.services.notifier import send_whatsapp_message
-from app.services.interactive_order import (
-    start_interactive_order,
-    handle_interactive_message,
-    handle_custom_quantity_text,
-)
-from app.services.session_service import get_session
 from app.auth import require_auth
 
 router = APIRouter()
@@ -49,7 +43,7 @@ async def test_webhook(
     username: str = Depends(require_auth),
 ):
     try:
-        payload        = await request.json()
+        payload      = await request.json()
         customer_phone = payload.get("phone", "919999999999")
         message_text   = payload.get("message", "")
         if not message_text:
@@ -102,47 +96,25 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                 for message in messages:
                     customer_phone = message.get("from", "")
                     message_type   = message.get("type", "")
+                    is_photo       = False
 
-                    # ── Interactive (list tap or button tap) ──────────────────
-                    if message_type == "interactive":
-                        handle_interactive_message(
-                            db=db,
-                            phone=customer_phone,
-                            interactive=message.get("interactive", {}),
-                        )
-                        continue
-
-                    # ── Text ──────────────────────────────────────────────────
                     if message_type == "text":
                         message_text = message.get("text", {}).get("body", "")
-                        is_photo     = False
-
-                    # ── Image ─────────────────────────────────────────────────
                     elif message_type == "image":
                         message_text = message.get("image", {}).get("caption", "Photo order received")
-                        is_photo     = True
-
+                        is_photo = True
                     else:
                         continue
 
                     if not message_text or not customer_phone:
                         continue
 
-                    msg_lower = message_text.strip().lower()
-
-                    # ── Menu / order trigger → start interactive flow ─────────
-                    if msg_lower in MENU_TRIGGER:
-                        start_interactive_order(db, customer_phone)
+                    # Menu on demand handled here too (for non-onboarded customers
+                    # who somehow type "menu" — order_service handles it after onboarding)
+                    if message_text.strip().lower() in MENU_TRIGGER:
+                        send_whatsapp_message(customer_phone, generate_menu_template())
                         continue
 
-                    # ── Custom quantity typed (session in awaiting_qty step) ──
-                    session = get_session(db, customer_phone)
-                    if session and session.step.startswith("awaiting_qty:"):
-                        consumed = handle_custom_quantity_text(db, customer_phone, message_text)
-                        if consumed:
-                            continue
-
-                    # ── Normal text order (old flow, still works) ─────────────
                     process_incoming_order(
                         db=db,
                         customer_phone=customer_phone,
