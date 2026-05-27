@@ -69,37 +69,33 @@ def send_whatsapp_message(
 
 def send_order_confirmation(
     customer_phone: str,
-    parsed: dict
+    parsed: dict,
+    restaurant_name: str = None,
 ) -> bool:
-    """
-    Send order confirmation back to customer
-    immediately after order received.
-    """
 
-    items = parsed.get("items", [])
-    delivery_date = parsed.get("delivery_date", "")
+    items         = parsed.get("items", [])
     delivery_time = parsed.get("delivery_time", "")
 
     items_text = ""
     for item in items:
-        items_text += (
-            f"• {item['product']} "
-            f"— {item['quantity']} "
-            f"{item['unit']}\n"
-        )
+        qty = item["quantity"]
+        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+        items_text += f"• {item['product']} — {qty_str} {item['unit']}\n"
 
-    if delivery_date and delivery_time:
-        delivery_text = f"🕐 Delivery: {delivery_date} at {delivery_time}"
-    elif delivery_date:
-        delivery_text = f"🕐 Delivery: {delivery_date}"
-    else:
-        delivery_text = "🕐 Delivery: As per usual schedule"
+    delivery_text = (
+        f"🕒 Delivery: {delivery_time}"
+        if delivery_time
+        else "🕒 Delivery: As per usual schedule"
+    )
+
+    name_line = f"🏪 {restaurant_name}\n\n" if restaurant_name else ""
 
     message = (
-        f"✅ *Order Received — {PLANT_NAME}*\n\n"
+        f"✅ *Order Confirmed — {PLANT_NAME}*\n\n"
+        f"{name_line}"
         f"{items_text}\n"
         f"{delivery_text}\n\n"
-        f"Thank you! We will process your order shortly.\n\n"
+        f"📞 Contact us if you need to make any changes.\n\n"
         f"— {PLANT_NAME} Team"
     )
 
@@ -160,4 +156,57 @@ def send_unclear_order_alert(
     )
 
     result = send_whatsapp_message(manager_phone, message)
+    return result is not None
+
+
+def send_replace_confirmation_request(
+    customer_phone: str,
+    existing_items: list,
+    new_items: list,
+) -> bool:
+    """
+    Ask customer if they want to replace their existing order.
+    Called when a second order arrives on the same day.
+    """
+    def fmt(items):
+        lines = ""
+        for item in items:
+            qty = item["quantity"]
+            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            lines += f"• {item['product']} — {qty_str} {item['unit']}\n"
+        return lines
+
+    message = (
+        f"⚠️ *You already placed an order today — {PLANT_NAME}*\n\n"
+        f"*Current order:*\n{fmt(existing_items)}\n"
+        f"*New order:*\n{fmt(new_items)}\n"
+        f"Reply *yes* to replace your order, or *no* to keep the current one."
+    )
+    result = send_whatsapp_message(customer_phone, message)
+    return result is not None
+
+
+def send_repeat_order_confirmation_request(
+    customer_phone: str,
+    items: list,
+) -> bool:
+    """
+    Ask customer to confirm repeating their last order.
+    Called when customer sends 'same' or 'repeat'.
+    """
+    def fmt(items):
+        lines = ""
+        for item in items:
+            qty = item["quantity"]
+            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            lines += f"• {item['product']} — {qty_str} {item['unit']}\n"
+        return lines
+
+    message = (
+        f"🔁 *Repeat Last Order — {PLANT_NAME}*\n\n"
+        f"Your last order was:\n\n"
+        f"{fmt(items)}\n"
+        f"Reply *yes* to confirm, or type *order* to place a new one."
+    )
+    result = send_whatsapp_message(customer_phone, message)
     return result is not None

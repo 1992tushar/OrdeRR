@@ -28,18 +28,13 @@ PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 # ── 22:00 — Customer reminders ───────────────────────────────────────────────
 
 def send_customer_reminders(db: Session, delivery_date: date | None = None):
-    """
-    Sends a WhatsApp reminder to every pending customer at 10 PM.
-    Only active, daily-order, assigned customers are messaged.
-    (Unassigned customers — grouped[None] — are silently skipped.)
-    """
+    from app.services.product_catalog import generate_order_template
 
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
     grouped = get_pending_customers(db, delivery_date)
 
-    # Flatten all assigned customers only
     pending_customers = [
         c
         for sp_id, customers in grouped.items()
@@ -49,15 +44,16 @@ def send_customer_reminders(db: Session, delivery_date: date | None = None):
 
     print(f"\n⏰ Customer Reminders — {len(pending_customers)} pending customers")
 
+    template = generate_order_template()
     sent = 0
+
     for customer in pending_customers:
         message = (
-            f"🐔 *{PLANT_NAME} — Order Reminder*\n\n"
+            f"⏰ *Reminder — {PLANT_NAME} Orders*\n\n"
             f"Hi {customer.restaurant_name},\n\n"
-            f"We haven't received your order for tomorrow yet.\n"
-            f"Please place your order before 11:00 PM.\n\n"
-            f"Reply with your order or type *order* to get the menu.\n\n"
-            f"— {PLANT_NAME} Team"
+            f"You haven't placed your order for tomorrow yet.\n\n"
+            f"👇 Send your order now:\n\n"
+            f"{template}"
         )
         result = send_whatsapp_message(customer.phone_number, message)
         if result:
@@ -65,7 +61,6 @@ def send_customer_reminders(db: Session, delivery_date: date | None = None):
             print(f"   ✅ Reminder sent → {customer.restaurant_name} ({customer.phone_number})")
 
     print(f"   📤 Reminders sent: {sent}/{len(pending_customers)}\n")
-
 
 # ── 23:05 — Salesperson notifications ───────────────────────────────────────
 

@@ -36,6 +36,7 @@ def dashboard(
     orders = db.query(Order).filter(
         func.date(Order.created_at) == target_date,
         Order.is_cancelled == False,
+        Order.status.notin_(["pending_replace", "pending_repeat"]),
     ).order_by(Order.created_at.desc()).all()
 
     for order in orders:
@@ -49,7 +50,7 @@ def dashboard(
         for item in order.items_parsed:
             product  = item.get("product", "Unknown")
             quantity = item.get("quantity", 0)
-            unit     = item.get("unit", "kg")
+            unit     = item.get("unit", "kg").lower()  # normalize KG → kg for display
             key      = f"{product}__{unit}"
             if key not in product_summary:
                 product_summary[key] = {"product": product, "unit": unit, "total_quantity": 0, "orders_count": 0}

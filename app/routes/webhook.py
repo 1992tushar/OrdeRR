@@ -82,12 +82,14 @@ async def meta_webhook_verify(request: Request):
 @router.post("/meta")
 async def meta_webhook(request: Request, db: Session = Depends(get_db)):
     body      = await request.body()
+    print("=== RAW PAYLOAD ===", body.decode())  # add this
     signature = request.headers.get("X-Hub-Signature-256", "")
     if not verify_meta_signature(body, signature):
         raise HTTPException(status_code=403, detail="Invalid webhook signature")
 
     try:
         payload = json.loads(body)
+        print("=== PARSED PAYLOAD ===", payload)     # and this
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
                 value    = change.get("value", {})

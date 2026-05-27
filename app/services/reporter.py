@@ -45,7 +45,8 @@ def generate_daily_report(db: Session) -> str:
     today = date.today()
 
     orders = db.query(Order).filter(
-    func.date(Order.created_at) == today
+        func.date(Order.created_at) == today,
+        Order.status.notin_(["pending_replace", "pending_repeat"]),
     ).order_by(Order.created_at.asc()).all()
 
     if not orders:

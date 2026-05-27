@@ -8,19 +8,22 @@ from sqlalchemy import func
 
 from app.models.order import Order
 from app.models.customer import Customer
-from app.services.parser import parse_order
 from app.services.notifier import (
     send_order_confirmation,
     send_manager_alert,
     send_unclear_order_alert,
     send_whatsapp_message,
+    send_replace_confirmation_request,
+    send_repeat_order_confirmation_request,
 )
-from app.services.template_parser import parse_template_order
+from app.services.template_parser import parse_template_order, build_error_message
 from app.services.customer_service import get_customer_by_phone, create_new_customer
 
-MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
-PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
-IST           = timezone(timedelta(hours=5, minutes=30))
+MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
+PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
+IST                  = timezone(timedelta(hours=5, minutes=30))
+DISPATCH_CUTOFF_HOUR = int(os.getenv("DISPATCH_CUTOFF_HOUR", "9"))
+
 
 # ── Keyword sets ──────────────────────────────────────────────────────────────
 
@@ -31,17 +34,19 @@ CANCEL_KEYWORDS = {
     "order nahi", "nahi chahiye",
 }
 
-EDIT_PREFIXES = [
-    "change order", "edit order", "update order", "modify order",
-    "order change", "order update", "order modify",
-    "change karo", "update karo", "change kar",
-    "galat order", "wrong order", "correction",
-]
-
 MENU_KEYWORDS = {
     "menu", "order", "show menu", "send menu", "place order",
     "kya hai", "product", "list", "rate", "rate list",
 }
+
+REPEAT_KEYWORDS = {
+    "same", "repeat", "same order", "repeat order",
+    "same as yesterday", "same as last time",
+    "wahi bhejo", "wahi order", "same bhejo",
+}
+
+CONFIRM_YES = {"yes", "haan", "ha", "haa", "ok", "okay", "confirm", "okk"}
+CONFIRM_NO  = {"no", "nahi", "nope", "cancel", "don't", "dont"}
 
 GREETINGS = {
     "hi", "hello", "hey", "hii", "hiii", "hiiii", "helo", "helloo",
@@ -74,12 +79,10 @@ def get_today_ist() -> date:
 
 
 def get_delivery_date_str() -> str:
-    """Returns today's date as YYYY-MM-DD. No cutoff logic — plant decides."""
     return get_today_ist().strftime("%Y-%m-%d")
 
 
 def get_todays_active_order(db: Session, customer_phone: str) -> Order | None:
-    """Most recent non-cancelled order placed today."""
     today_str = get_today_ist().strftime("%Y-%m-%d")
     return (
         db.query(Order)
@@ -87,10 +90,110 @@ def get_todays_active_order(db: Session, customer_phone: str) -> Order | None:
             Order.customer_phone == customer_phone,
             Order.delivery_date  == today_str,
             Order.is_cancelled   == False,
+            Order.status.notin_(["pending_replace", "pending_repeat"]),
         )
         .order_by(Order.created_at.desc())
         .first()
     )
+
+
+def get_last_order(db: Session, customer_phone: str) -> Order | None:
+    """Most recent completed (non-cancelled, non-unclear) order ever."""
+    return (
+        db.query(Order)
+        .filter(
+            Order.customer_phone == customer_phone,
+            Order.is_cancelled   == False,
+            Order.is_unclear     == False,
+        )
+        .order_by(Order.created_at.desc())
+        .first()
+    )
+
+
+def _save_and_notify(
+    db: Session,
+    customer: Customer,
+    parsed: dict,
+    raw_message: str,
+    is_photo: bool = False,
+    is_edit: bool = False,
+) -> dict:
+    """
+    Central save + notify. Called from multiple paths.
+    """
+    customer_phone  = customer.phone_number
+    restaurant_name = customer.restaurant_name
+
+    order = Order(
+        plant_name     = PLANT_NAME,
+        customer_name  = restaurant_name,
+        customer_phone = customer_phone,
+        raw_message    = raw_message,
+        is_photo_order = is_photo,
+        parsed_items   = json.dumps(parsed.get("items", [])),
+        delivery_date  = get_delivery_date_str(),
+        delivery_time  = parsed.get("delivery_time"),
+        is_unclear     = parsed.get("is_unclear", False),
+        unclear_reason = parsed.get("unclear_reason"),
+        status         = "received",
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    if parsed.get("is_unclear"):
+        send_unclear_order_alert(
+            manager_phone  = MANAGER_PHONE,
+            customer_phone = customer_phone,
+            raw_message    = raw_message,
+            unclear_reason = parsed.get("unclear_reason", "Unknown reason"),
+        )
+    elif is_edit:
+        items_text = "\n".join(
+            f"• {i['product']} — {i['quantity']} {i['unit']}"
+            for i in parsed.get("items", [])
+        )
+        send_whatsapp_message(
+            customer_phone,
+            f"✅ *Order Updated — {PLANT_NAME}*\n\n"
+            f"Your previous order has been replaced with:\n\n"
+            f"{items_text}\n\nThank you!",
+        )
+        try:
+            send_whatsapp_message(
+                MANAGER_PHONE,
+                f"✏️ *Order Updated — {PLANT_NAME}*\n\n"
+                f"🏪 {restaurant_name}\n📱 {customer_phone}\n\n"
+                f"New order:\n{items_text}",
+            )
+        except Exception:
+            pass
+    else:
+        send_order_confirmation(
+            customer_phone  = customer_phone,
+            parsed          = parsed,
+            restaurant_name = restaurant_name,
+        )
+        send_manager_alert(
+            manager_phone   = MANAGER_PHONE,
+            customer_phone  = customer_phone,
+            parsed          = parsed,
+            restaurant_name = restaurant_name,
+        )
+
+    order.confirmation_sent    = True
+    order.forwarded_to_manager = True
+    db.commit()
+
+    return {
+        "order_id"      : order.id,
+        "customer_phone": customer_phone,
+        "parsed"        : parsed,
+        "status"        : order.status,
+        "is_edit"       : is_edit,
+        "saved"         : True,
+    }
 
 
 def validate_restaurant_name(name: str) -> str | None:
@@ -167,14 +270,19 @@ def process_incoming_order(
         customer.onboarding_status = "active"
         db.commit()
 
+        from app.services.product_catalog import generate_order_template
         send_whatsapp_message(
             customer_phone,
             f"✅ Welcome *{customer.restaurant_name}*!\n\n"
-            f"You can now place your orders.\n\n"
-            f"Type *order* to see our menu.",
+            f"To place your order:\n\n"
+            f"1️⃣ Copy the template below\n"
+            f"2️⃣ Fill in your quantities\n"
+            f"3️⃣ Delete items you don't need\n"
+            f"4️⃣ Send it back\n\n"
+            f"👇 *Your order template:*\n\n"
+            f"{generate_order_template()}",
         )
 
-        # Alert manager about new customer
         try:
             send_whatsapp_message(
                 MANAGER_PHONE,
@@ -188,10 +296,10 @@ def process_incoming_order(
 
         return {"order_id": None, "status": "customer_onboarded", "parsed": None}
 
-    # ── 3. Menu on demand ─────────────────────────────────────────────────────
+    # ── 3. Menu / order template trigger ─────────────────────────────────────
     if msg_lower in MENU_KEYWORDS:
-        from app.services.product_catalog import generate_menu_template
-        send_whatsapp_message(customer_phone, generate_menu_template())
+        from app.services.product_catalog import generate_order_template
+        send_whatsapp_message(customer_phone, generate_order_template())
         return {"order_id": None, "status": "menu_sent", "parsed": None}
 
     # ── 4. Cancel order ───────────────────────────────────────────────────────
@@ -211,8 +319,8 @@ def process_incoming_order(
 
         send_whatsapp_message(
             customer_phone,
-            "✅ Your order has been cancelled.\n\n"
-            "If you need to place a new order, just send it anytime.",
+            f"✅ Your order has been cancelled.\n\n"
+            f"To place a new order, just type *order* anytime.",
         )
         try:
             send_whatsapp_message(
@@ -227,120 +335,262 @@ def process_incoming_order(
 
         return {"order_id": existing.id, "status": "order_cancelled", "parsed": None}
 
-    # ── 5. Detect edit intent ─────────────────────────────────────────────────
-    is_edit = False
-    for kw in EDIT_PREFIXES:
-        if msg_lower == kw or msg_lower.startswith(kw + " ") or msg_lower.startswith(kw + "\n"):
-            is_edit = True
-            # Strip the edit keyword so we parse only the new order text
-            tail = message.strip()[len(kw):].strip()
-            if tail:
-                message   = tail
-                msg_lower = tail.lower()
-            break
+    # ── 5. Repeat last order ──────────────────────────────────────────────────
+    if msg_lower in REPEAT_KEYWORDS:
+        last = get_last_order(db, customer_phone)
+        if not last or not last.parsed_items:
+            send_whatsapp_message(
+                customer_phone,
+                f"ℹ️ No previous order found.\n\nType *order* to place a new one.",
+            )
+            return {"order_id": None, "status": "no_last_order", "parsed": None}
 
-    # ── 6. Parse order ────────────────────────────────────────────────────────
-    restaurant_name = customer.restaurant_name
-    template_keywords = ["whole broiler", "breast boneless", "leg boneless", "wings", "drumsticks"]
-    is_template = any(kw in msg_lower for kw in template_keywords)
-
-    if is_template:
-        parsed = parse_template_order(customer_phone, message)
-        if parsed.get("is_unclear"):
-            parsed = parse_order(customer_phone, message)
-    else:
-        parsed = parse_order(customer_phone, message)
-
-    existing_order = get_todays_active_order(db, customer_phone)
-
-    # ── 7. Cancel old order on edit ───────────────────────────────────────────
-    if is_edit and existing_order:
-        existing_order.is_cancelled = True
-        existing_order.cancelled_at = datetime.now(IST)
-        existing_order.status       = "cancelled"
+        items = json.loads(last.parsed_items)
+        pending = Order(
+            plant_name     = PLANT_NAME,
+            customer_name  = customer.restaurant_name,
+            customer_phone = customer_phone,
+            raw_message    = "repeat",
+            parsed_items   = json.dumps(items),
+            delivery_date  = get_delivery_date_str(),
+            is_unclear     = False,
+            status         = "pending_repeat",
+        )
+        db.add(pending)
         db.commit()
 
-    # ── 8. Duplicate detection (not an edit) ──────────────────────────────────
-    if not is_edit and existing_order and not parsed.get("is_unclear"):
-        try:
-            send_whatsapp_message(
-                MANAGER_PHONE,
-                f"⚠️ *Duplicate Order — {PLANT_NAME}*\n\n"
-                f"🏪 {restaurant_name}\n"
-                f"📱 {customer_phone}\n\n"
-                f"This customer already placed an order today.\n"
-                f"New order saved — please check dashboard.",
+        send_repeat_order_confirmation_request(customer_phone, items)
+        return {"order_id": pending.id, "status": "repeat_requested", "parsed": None}
+
+    # ── 6. Handle yes/no replies ──────────────────────────────────────────────
+    if msg_lower in CONFIRM_YES or msg_lower in CONFIRM_NO:
+
+        # Check for pending_repeat
+        pending_repeat = (
+            db.query(Order)
+            .filter(
+                Order.customer_phone == customer_phone,
+                Order.status         == "pending_repeat",
+                Order.delivery_date  == get_delivery_date_str(),
             )
-        except Exception:
-            pass
-
-    # ── 9. Save order ─────────────────────────────────────────────────────────
-    order = Order(
-        plant_name     = PLANT_NAME,
-        customer_name  = restaurant_name,
-        customer_phone = customer_phone,
-        raw_message    = message,
-        is_photo_order = is_photo,
-        parsed_items   = json.dumps(parsed.get("items", [])),
-        delivery_date  = get_delivery_date_str(),
-        delivery_time  = parsed.get("delivery_time"),
-        is_unclear     = parsed.get("is_unclear", False),
-        unclear_reason = parsed.get("unclear_reason"),
-        status         = "received",
-    )
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-
-    # ── 10. Send confirmations ────────────────────────────────────────────────
-    if parsed.get("is_unclear"):
-        send_unclear_order_alert(
-            manager_phone  = MANAGER_PHONE,
-            customer_phone = customer_phone,
-            raw_message    = message,
-            unclear_reason = parsed.get("unclear_reason", "Unknown reason"),
+            .order_by(Order.created_at.desc())
+            .first()
         )
-    elif is_edit:
-        items_text = "\n".join(
-            f"• {i['product']} — {i['quantity']} {i['unit']}"
-            for i in parsed.get("items", [])
+
+        if pending_repeat:
+            if msg_lower in CONFIRM_NO:
+                pending_repeat.is_cancelled = True
+                pending_repeat.cancelled_at = datetime.now(IST)
+                pending_repeat.status       = "cancelled"
+                db.commit()
+                from app.services.product_catalog import generate_order_template
+                send_whatsapp_message(
+                    customer_phone,
+                    f"No problem! Type *order* to place a fresh order.\n\n"
+                    f"{generate_order_template()}",
+                )
+                return {"order_id": None, "status": "repeat_cancelled", "parsed": None}
+
+            # Yes — confirm the repeat
+            items  = json.loads(pending_repeat.parsed_items)
+            parsed = {
+                "items":          items,
+                "delivery_date":  None,
+                "delivery_time":  None,
+                "is_unclear":     False,
+                "unclear_reason": None,
+            }
+            pending_repeat.status = "received"
+            db.commit()
+
+            send_order_confirmation(
+                customer_phone  = customer_phone,
+                parsed          = parsed,
+                restaurant_name = customer.restaurant_name,
+            )
+            send_manager_alert(
+                manager_phone   = MANAGER_PHONE,
+                customer_phone  = customer_phone,
+                parsed          = parsed,
+                restaurant_name = customer.restaurant_name,
+            )
+            pending_repeat.confirmation_sent    = True
+            pending_repeat.forwarded_to_manager = True
+            db.commit()
+
+            return {"order_id": pending_repeat.id, "status": "repeat_confirmed", "parsed": parsed}
+
+        # Check for pending_replace
+        pending_replace = (
+            db.query(Order)
+            .filter(
+                Order.customer_phone == customer_phone,
+                Order.status         == "pending_replace",
+                Order.delivery_date  == get_delivery_date_str(),
+            )
+            .order_by(Order.created_at.desc())
+            .first()
         )
+
+        if pending_replace:
+            if msg_lower in CONFIRM_NO:
+                pending_replace.is_cancelled = True
+                pending_replace.cancelled_at = datetime.now(IST)
+                pending_replace.status       = "cancelled"
+                db.commit()
+                send_whatsapp_message(
+                    customer_phone,
+                    "✅ Kept your original order. No changes made.",
+                )
+                return {"order_id": None, "status": "replace_cancelled", "parsed": None}
+
+            # Yes — cancel old order and confirm new one
+            old_order = (
+                db.query(Order)
+                .filter(
+                    Order.customer_phone == customer_phone,
+                    Order.delivery_date  == get_delivery_date_str(),
+                    Order.is_cancelled   == False,
+                    Order.status         != "pending_replace",
+                    Order.status         != "pending_repeat",
+                )
+                .order_by(Order.created_at.asc())
+                .first()
+            )
+            if old_order:
+                old_order.is_cancelled = True
+                old_order.cancelled_at = datetime.now(IST)
+                old_order.status       = "cancelled"
+
+            items  = json.loads(pending_replace.parsed_items)
+            parsed = {
+                "items":          items,
+                "delivery_date":  None,
+                "delivery_time":  pending_replace.delivery_time,
+                "is_unclear":     False,
+                "unclear_reason": None,
+            }
+            pending_replace.status = "received"
+            db.commit()
+
+            send_order_confirmation(
+                customer_phone  = customer_phone,
+                parsed          = parsed,
+                restaurant_name = customer.restaurant_name,
+            )
+            send_manager_alert(
+                manager_phone   = MANAGER_PHONE,
+                customer_phone  = customer_phone,
+                parsed          = parsed,
+                restaurant_name = customer.restaurant_name,
+            )
+            pending_replace.confirmation_sent    = True
+            pending_replace.forwarded_to_manager = True
+            db.commit()
+
+            return {"order_id": pending_replace.id, "status": "replace_confirmed", "parsed": parsed}
+
+    # ── 7. Parse order ────────────────────────────────────────────────────────
+    parsed = parse_template_order(customer_phone, message)
+
+    # If completely unclear — send template + instruction
+    if parsed["is_unclear"]:
+        from app.services.product_catalog import generate_order_template
         send_whatsapp_message(
             customer_phone,
-            f"✅ *Order Updated — {PLANT_NAME}*\n\n"
-            f"Your previous order has been replaced with:\n\n"
-            f"{items_text}\n\nThank you!",
+            f"ℹ️ I couldn't read that as an order.\n\n"
+            f"Please use this template:\n\n"
+            f"{generate_order_template()}",
         )
-        try:
-            send_whatsapp_message(
-                MANAGER_PHONE,
-                f"✏️ *Order Updated — {PLANT_NAME}*\n\n"
-                f"🏪 {restaurant_name}\n📱 {customer_phone}\n\n"
-                f"New order:\n{items_text}",
+        return {"order_id": None, "status": "unclear_message", "parsed": None}
+
+    # Partial errors — accept good items, flag bad ones
+    errors = parsed.get("errors", [])
+
+    # ── 8. Duplicate / replace flow ───────────────────────────────────────────
+    existing_order = get_todays_active_order(db, customer_phone)
+
+    if existing_order:
+        current_time_ist = datetime.now(IST)
+        cutoff_time = current_time_ist.replace(hour=DISPATCH_CUTOFF_HOUR, minute=0, second=0, microsecond=0)
+
+        if current_time_ist < cutoff_time:
+            # Before 9 AM — customer is amending, ask to replace
+            existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
+
+            pending = Order(
+                plant_name     = PLANT_NAME,
+                customer_name  = customer.restaurant_name,
+                customer_phone = customer_phone,
+                raw_message    = message,
+                parsed_items   = json.dumps(parsed.get("items", [])),
+                delivery_date  = get_delivery_date_str(),
+                delivery_time  = parsed.get("delivery_time"),
+                is_unclear     = False,
+                status         = "pending_replace",
             )
-        except Exception:
-            pass
-    else:
-        send_order_confirmation(customer_phone=customer_phone, parsed=parsed)
-        send_manager_alert(
-            manager_phone   = MANAGER_PHONE,
-            customer_phone  = customer_phone,
-            parsed          = parsed,
-            restaurant_name = restaurant_name,
-        )
+            db.add(pending)
+            db.commit()
 
-    order.confirmation_sent    = True
-    order.forwarded_to_manager = True
-    db.commit()
+            send_replace_confirmation_request(
+                customer_phone = customer_phone,
+                existing_items = existing_items,
+                new_items      = parsed.get("items", []),
+            )
+            return {"order_id": pending.id, "status": "replace_requested", "parsed": parsed}
 
-    return {
-        "order_id"      : order.id,
-        "customer_phone": customer_phone,
-        "parsed"        : parsed,
-        "status"        : order.status,
-        "is_edit"       : is_edit,
-        "saved"         : True,
-    }
+        else:
+            # After 9 AM — post-dispatch, treat as fresh additional order
+            result = _save_and_notify(
+                db          = db,
+                customer    = customer,
+                parsed      = parsed,
+                raw_message = message,
+                is_photo    = is_photo,
+                is_edit     = False,
+            )
+
+            existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
+            existing_items_text = "\n".join(
+                f"• {i['product']} — {i['quantity']} {i['unit']}"
+                for i in existing_items
+            )
+            new_items_text = "\n".join(
+                f"• {i['product']} — {i['quantity']} {i['unit']}"
+                for i in parsed.get("items", [])
+            )
+            try:
+                send_whatsapp_message(
+                    MANAGER_PHONE,
+                    f"⚠️ *Additional Order — {PLANT_NAME}*\n\n"
+                    f"🏪 {customer.restaurant_name}\n"
+                    f"📱 {customer_phone}\n\n"
+                    f"*Original order* (placed at {existing_order.created_at.strftime('%I:%M %p')}):\n"
+                    f"{existing_items_text}\n\n"
+                    f"*Additional order:*\n"
+                    f"{new_items_text}\n\n"
+                    f"Please check if this can be fulfilled.",
+                )
+            except Exception:
+                pass
+
+            return result
+
+    # ── 9. Save order ─────────────────────────────────────────────────────────
+    result = _save_and_notify(
+        db          = db,
+        customer    = customer,
+        parsed      = parsed,
+        raw_message = message,
+        is_photo    = is_photo,
+        is_edit     = False,
+    )
+
+    # Send partial error feedback after confirmation if needed
+    if errors:
+        send_whatsapp_message(customer_phone, build_error_message(errors))
+
+    return result
 
 
 # ── Query helpers ─────────────────────────────────────────────────────────────
@@ -350,24 +600,37 @@ def get_all_orders(db: Session) -> list:
 
 
 def get_unclear_orders(db: Session) -> list:
-    return db.query(Order).filter(
-        Order.is_unclear.is_(True)
-    ).order_by(Order.created_at.desc()).all()
+    return (
+        db.query(Order)
+        .filter(Order.is_unclear.is_(True))
+        .order_by(Order.created_at.desc())
+        .all()
+    )
 
 
 def get_todays_orders(db: Session) -> list:
     today = get_today_ist()
-    return db.query(Order).filter(
-        func.date(Order.created_at) == today,
-        Order.is_cancelled == False,
-    ).order_by(Order.created_at.asc()).all()
+    return (
+        db.query(Order)
+        .filter(
+            func.date(Order.created_at) == today,
+            Order.is_cancelled == False,
+        )
+        .order_by(Order.created_at.asc())
+        .all()
+    )
 
 
 def get_orders_by_date(db: Session, target_date: date) -> list:
-    return db.query(Order).filter(
-        func.date(Order.created_at) == target_date,
-        Order.is_cancelled == False,
-    ).order_by(Order.created_at.asc()).all()
+    return (
+        db.query(Order)
+        .filter(
+            func.date(Order.created_at) == target_date,
+            Order.is_cancelled == False,
+        )
+        .order_by(Order.created_at.asc())
+        .all()
+    )
 
 
 def get_customer_order_history(db: Session, customer_id: int) -> list:
