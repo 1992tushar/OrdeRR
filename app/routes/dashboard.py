@@ -3,7 +3,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-
 from app.database import get_db
 from app.models.order import Order
 from app.auth import require_auth
@@ -23,7 +22,6 @@ def dashboard(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    # Determine which date to show
     today = datetime.now(IST).date()
     if view_date:
         try:
@@ -50,17 +48,42 @@ def dashboard(
         for item in order.items_parsed:
             product  = item.get("product", "Unknown")
             quantity = item.get("quantity", 0)
-            unit     = item.get("unit", "kg").lower()  # normalize KG → kg for display
+            unit     = item.get("unit", "kg").lower()
             key      = f"{product}__{unit}"
             if key not in product_summary:
                 product_summary[key] = {"product": product, "unit": unit, "total_quantity": 0, "orders_count": 0}
             product_summary[key]["total_quantity"] += quantity
             product_summary[key]["orders_count"]   += 1
 
-    # Date navigation helpers
     yesterday = (target_date - timedelta(days=1)).isoformat()
     tomorrow  = (target_date + timedelta(days=1)).isoformat()
     is_today  = (target_date == today)
+
+    # ── Reliability data for Failed tab ──────────────────────────────────────
+    failed_messages   = []
+    reliability_stats = {"has_issues": False, "total_today": 0, "confirmed_today": 0, "failed_today": 0, "manual_review_total": 0}
+
+    try:
+        from app.models.inbound_message import InboundMessage
+        from app.services.message_journal import get_reliability_stats, get_all_failed_messages
+
+        reliability_stats = get_reliability_stats(db)
+
+        for m in get_all_failed_messages(db, limit=100):
+            failed_messages.append({
+                "id":                m.id,
+                "customer_phone":    m.customer_phone,
+                "raw_message":       (m.raw_message or "")[:400],
+                "received_at":       m.received_at.strftime("%d %b %Y %I:%M %p") if m.received_at else "",
+                "processing_status": m.processing_status,
+                "failure_reason":    m.failure_reason or "Unknown error",
+                "attempts":          m.processing_attempts,
+                "ack_failed":        m.ack_failed,
+                "linked_order_id":   m.linked_order_id,
+            })
+    except Exception:
+        # inbound_messages table not yet migrated — degrade gracefully
+        pass
 
     return templates.TemplateResponse(
         request=request,
@@ -80,5 +103,8 @@ def dashboard(
             "tomorrow"           : tomorrow,
             "dashboard_username" : os.getenv("DASHBOARD_USERNAME", ""),
             "dashboard_password" : os.getenv("DASHBOARD_PASSWORD", ""),
+            # Reliability
+            "failed_messages"    : failed_messages,
+            "reliability_stats"  : reliability_stats,
         },
     )
