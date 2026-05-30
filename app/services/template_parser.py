@@ -375,9 +375,11 @@ def parse_template_order(customer_phone: str, message: str) -> dict:
 
         # Strip placeholder tokens (__) but don't skip the line entirely —
         # customers often leave "__ 10 kg" instead of replacing the placeholder.
-        # After stripping, if only __ remains (no quantity), skip silently.
         line_clean = re.sub(r'__+', '', line).strip()
-        if not line_clean:
+
+        # If no digits remain, this is an unfilled template line — skip silently.
+        # e.g. "W/O Skin Tandoor (700-900g) -  nos" has no quantity, ignore it.
+        if not line_clean or not re.search(r'\d', line_clean):
             continue
 
         # Pattern: <product name> <separator?> <quantity> [unit]

@@ -214,35 +214,16 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
 
                     result_status = result.get("status", "")
 
-                    # Send ACK only for real confirmed orders — skip for
-                    # onboarding flows, unclear messages, cancellations, etc.
-                    # process_incoming_order() handles its own replies for those.
-                    is_real_order = (
-                        not is_onboarding
-                        and result.get("order_id") is not None
-                        and result_status not in NON_ORDER_STATUSES
-                    )
-
-                    if is_real_order:
+                    if result.get("order_id"):
                         inbound_msg.linked_order_id = result["order_id"]
-                        try:
-                            send_acknowledgement(db, inbound_msg)
-                        except Exception as ack_error:
-                            logger.warning(
-                                "Ack failed for msg id=%s: %s",
-                                inbound_msg.id,
-                                ack_error,
-                            )
 
-                    inbound_msg.processing_status = "CONFIRMED"
                     db.commit()
 
                     logger.info(
-                        "msg id=%s → order_id=%s status=%s ack_sent=%s",
+                        "msg id=%s → order_id=%s status=%s",
                         inbound_msg.id,
                         result.get("order_id"),
                         result_status,
-                        is_real_order,
                     )
 
                 except Exception as e:
