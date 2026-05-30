@@ -115,14 +115,14 @@ async def lifespan(app: FastAPI):
     # Salesperson notifications — 23:05 IST
     scheduler.add_job(
         salesperson_notification_job,
-        CronTrigger(hour=23, minute=20, timezone="Asia/Kolkata"),
+        CronTrigger(hour=23, minute=28, timezone="Asia/Kolkata"),
         id="salesperson_notifications", name="Salesperson Notifications at 23:05 IST",
     )
 
     # Management summary — 23:10 IST
     scheduler.add_job(
         management_summary_job,
-        CronTrigger(hour=23, minute=20, timezone="Asia/Kolkata"),
+        CronTrigger(hour=23, minute=30, timezone="Asia/Kolkata"),
         id="management_summary", name="Management Summary at 23:10 IST",
     )
 
