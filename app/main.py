@@ -20,11 +20,14 @@ from app.services.pending_notifier import (
     notify_salespersons_pending,
     send_management_summary,
 )
+from app.services.retry_scheduler import retry_failed_messages
+from app.services.webhook_health import check_webhook_health
 
 # Import ALL models — order matters for FK resolution
 from app.models.salesperson import Salesperson
 from app.models.customer import Customer
 from app.models.order import Order
+from app.models.inbound_message import InboundMessage  # ← reliability layer
 
 Base.metadata.create_all(bind=engine)
 
@@ -74,16 +77,28 @@ def management_summary_job():
         db.close()
 
 
+def retry_failed_messages_job():
+    retry_failed_messages()  # manages its own DB session internally
+
+
+def webhook_health_job():
+    db = SessionLocal()
+    try:
+        check_webhook_health(db)
+    finally:
+        db.close()
+
+
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    report_time    = os.getenv("REPORT_TIME", "22:00")
-    hour, minute   = map(int, report_time.split(":"))
-    scheduler      = BackgroundScheduler()
+    report_time  = os.getenv("REPORT_TIME", "22:00")
+    hour, minute = map(int, report_time.split(":"))
+    scheduler    = BackgroundScheduler()
 
-    # Daily report (configurable time)
+    # Daily report (configurable via REPORT_TIME env var)
     scheduler.add_job(
         daily_report_job,
         CronTrigger(hour=hour, minute=minute, timezone="Asia/Kolkata"),
@@ -93,7 +108,7 @@ async def lifespan(app: FastAPI):
     # Customer reminders — 22:00 IST
     scheduler.add_job(
         customer_reminders_job,
-        CronTrigger(hour=22, minute=50, timezone="Asia/Kolkata"),
+        CronTrigger(hour=22, minute=0, timezone="Asia/Kolkata"),
         id="customer_reminders", name="Customer Reminders at 22:00 IST",
     )
 
@@ -111,11 +126,25 @@ async def lifespan(app: FastAPI):
         id="management_summary", name="Management Summary at 23:10 IST",
     )
 
-    # Keep-alive ping — every 10 min (prevents Render free tier spin-down)
+    # Keep-alive ping — every 10 min (prevents Render spin-down)
     scheduler.add_job(
         lambda: print("💓 keep-alive ping"),
         IntervalTrigger(minutes=10),
         id="keep_alive", name="Keep-Alive Ping",
+    )
+
+    # Retry failed messages — every 1 min (reliability layer)
+    scheduler.add_job(
+        retry_failed_messages_job,
+        IntervalTrigger(minutes=1),
+        id="retry_failed_messages", name="Retry Failed Messages",
+    )
+
+    # Webhook health check — every 30 min (reliability layer)
+    scheduler.add_job(
+        webhook_health_job,
+        IntervalTrigger(minutes=30),
+        id="webhook_health", name="Webhook Health Check",
     )
 
     scheduler.start()
@@ -126,7 +155,9 @@ async def lifespan(app: FastAPI):
     print(f"   🔔 Customer reminders    → Every day at 22:00 IST")
     print(f"   📋 Salesperson alerts    → Every day at 23:05 IST")
     print(f"   📊 Management summary    → Every day at 23:10 IST")
-    print(f"   💓 Keep-alive ping       → Every 10 minutes\n")
+    print(f"   💓 Keep-alive ping       → Every 10 minutes")
+    print(f"   🔁 Retry failed msgs     → Every 1 minute")
+    print(f"   🩺 Webhook health check  → Every 30 minutes\n")
 
     yield
 
@@ -139,13 +170,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OrdeRR",
     description="WhatsApp Order Automation for Fluffy Plant",
-    version="2.1.0",
+    version="2.2.0",
     lifespan=lifespan,
 )
 
-app.include_router(webhook.router,  prefix="/webhook", tags=["Webhook"])
+app.include_router(webhook.router,   prefix="/webhook",   tags=["Webhook"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
-app.include_router(admin_router,     prefix="/admin",    tags=["Admin"])
+app.include_router(admin_router,     prefix="/admin",     tags=["Admin"])
 
 
 @app.get("/")
@@ -159,10 +190,6 @@ def root():
 
 @app.get("/health")
 def health_check():
-    """
-    Health check endpoint — used by Render uptime monitoring.
-    Returns DB status, scheduler job count, last report time.
-    """
     from app.database import SessionLocal
     from sqlalchemy import text
 
@@ -174,8 +201,8 @@ def health_check():
     except Exception as e:
         db_status = f"error: {str(e)}"
 
-    scheduler   = app.state.scheduler if hasattr(app.state, "scheduler") else None
-    job_count   = len(scheduler.get_jobs()) if scheduler else 0
+    scheduler    = app.state.scheduler if hasattr(app.state, "scheduler") else None
+    job_count    = len(scheduler.get_jobs()) if scheduler else 0
     sched_status = "running" if (scheduler and scheduler.running) else "stopped"
 
     return {
