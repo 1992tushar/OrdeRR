@@ -29,6 +29,26 @@ router = APIRouter()
 
 MENU_TRIGGER = {"menu", "order", "show menu", "send menu", "place order"}
 
+# Statuses returned by process_incoming_order() that are NOT real orders.
+# For these, we skip the "✅ Order received. Processing now." ACK entirely —
+# process_incoming_order() already sends its own contextual reply.
+NON_ORDER_STATUSES = {
+    "awaiting_restaurant_name",
+    "invalid_restaurant_name",
+    "customer_onboarded",
+    "menu_sent",
+    "unclear_message",
+    "no_order_to_cancel",
+    "order_cancelled",
+    "no_last_order",
+    "repeat_requested",
+    "replace_requested",
+    "repeat_cancelled",
+    "replace_cancelled",
+    "repeat_confirmed",   # confirmation sent inside process_incoming_order
+    "replace_confirmed",  # confirmation sent inside process_incoming_order
+}
+
 
 def verify_meta_signature(body: bytes, signature_header: str) -> bool:
     app_secret = os.getenv("META_APP_SECRET", "")
@@ -156,10 +176,6 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                 msg_lower       = raw_message.strip().lower()
                 is_menu_trigger = msg_lower in MENU_TRIGGER
 
-                # ── REQ 2.1: IMMEDIATE ACK BEFORE PARSING ────────────────────
-                if not is_menu_trigger:
-                    send_acknowledgement(db, inbound_msg)
-
                 # ── MENU TRIGGER ──────────────────────────────────────────────
                 if is_menu_trigger:
                     try:
@@ -168,6 +184,22 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     except Exception as e:
                         record_failure(db, inbound_msg, f"Menu send failed: {e}")
                     continue
+
+                # ── PRE-CHECK: Should we send the generic ACK? ────────────────
+                # Skip ACK for customers who are new or mid-onboarding.
+                # process_incoming_order() sends its own contextual reply for
+                # these cases, so a generic "Order received" ACK would be wrong
+                # and confusing (as seen in the screenshot bug).
+                from app.models.customer import Customer as CustomerModel
+                existing_customer = (
+                    db.query(CustomerModel)
+                    .filter(CustomerModel.phone_number == customer_phone)
+                    .first()
+                )
+                is_onboarding = (
+                    existing_customer is None
+                    or getattr(existing_customer, "onboarding_status", None) == "awaiting_name"
+                )
 
                 # ── PARSING ───────────────────────────────────────────────────
                 transition(inbound_msg, "PARSING", db)
@@ -180,17 +212,51 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                         is_photo       = (message_type == "image"),
                     )
 
-                    if result.get("order_id"):
+                    result_status = result.get("status", "")
+
+                    # Send ACK only for real confirmed orders — skip for
+                    # onboarding flows, unclear messages, cancellations, etc.
+                    # process_incoming_order() handles its own replies for those.
+                    is_real_order = (
+                        not is_onboarding
+                        and result.get("order_id") is not None
+                        and result_status not in NON_ORDER_STATUSES
+                    )
+
+                    if is_real_order:
                         inbound_msg.linked_order_id = result["order_id"]
+                        try:
+                            send_acknowledgement(db, inbound_msg)
+                        except Exception as ack_error:
+                            logger.warning(
+                                "Ack failed for msg id=%s: %s",
+                                inbound_msg.id,
+                                ack_error,
+                            )
 
                     inbound_msg.processing_status = "CONFIRMED"
                     db.commit()
 
-                    logger.info("msg id=%s → order_id=%s", inbound_msg.id, result.get("order_id"))
+                    logger.info(
+                        "msg id=%s → order_id=%s status=%s ack_sent=%s",
+                        inbound_msg.id,
+                        result.get("order_id"),
+                        result_status,
+                        is_real_order,
+                    )
 
                 except Exception as e:
-                    logger.exception("Processing failed for msg id=%s phone=%s", inbound_msg.id, customer_phone)
-                    record_failure(db, inbound_msg, reason=f"{type(e).__name__}: {str(e)[:300]}")
+                    logger.exception(
+                        "Processing failed for msg id=%s phone=%s",
+                        inbound_msg.id,
+                        customer_phone,
+                    )
+
+                    record_failure(
+                        db,
+                        inbound_msg,
+                        reason=f"{type(e).__name__}: {str(e)[:300]}"
+                    )
 
     return {"status": "ok"}
 
