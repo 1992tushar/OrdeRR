@@ -82,11 +82,8 @@ def retry_failed_messages_job():
 
 
 def webhook_health_job():
-    db = SessionLocal()
-    try:
-        check_webhook_health(db)
-    finally:
-        db.close()
+    check_webhook_health()
+
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
