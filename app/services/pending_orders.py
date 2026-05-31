@@ -62,7 +62,10 @@ def get_pending_customers(db: Session, delivery_date: date) -> dict:
 
     ordered_phones = (
         db.query(Order.customer_phone)
-        .filter(Order.delivery_date == delivery_date_str)
+        .filter(
+            Order.delivery_date == delivery_date_str,
+            Order.is_cancelled == False,   # cancelled orders don't count
+        )
         .distinct()
         .all()
     )
