@@ -165,8 +165,27 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     logger.info("Duplicate webhook meta_id=%s — safe skip", meta_message_id)
                     continue
 
+                # ── PHOTO MESSAGE — notify customer, no order processing ──────
+                if message_type == "image":
+                    try:
+                        from app.services.product_catalog import generate_order_template
+                        send_whatsapp_message(
+                            customer_phone,
+                            f"📸 Sorry, we cannot process photo orders.
+
+"
+                            f"Please type your order using the template below:
+
+"
+                            f"{generate_order_template()}"
+                        )
+                        transition(inbound_msg, "CONFIRMED", db)
+                    except Exception as e:
+                        record_failure(db, inbound_msg, f"Photo reply failed: {e}")
+                    continue
+
                 # Unsupported type — persisted for audit, no processing
-                if message_type not in ("text", "image"):
+                if message_type != "text":
                     logger.info("Unsupported type %s from %s — persisted only", message_type, customer_phone)
                     continue
 

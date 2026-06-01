@@ -33,11 +33,10 @@ TEMPLATE_MANAGER_SUMMARY     = "manager_daily_summary"
 
 def send_customer_reminders(db: Session, delivery_date: date | None = None):
     """
-    Free-form reminder to customers — always within 24hr window
+    Short nudge reminder to customers — always within 24hr window
     since customers message us to place orders daily.
+    Sends a brief message only — customer types *order* to get the template.
     """
-    from app.services.product_catalog import generate_order_template
-
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
@@ -52,16 +51,15 @@ def send_customer_reminders(db: Session, delivery_date: date | None = None):
 
     print(f"\n⏰ Customer Reminders — {len(pending_customers)} pending customers")
 
-    template = generate_order_template()
     sent = 0
 
     for customer in pending_customers:
         message = (
             f"⏰ *Reminder — {PLANT_NAME} Orders*\n\n"
             f"Hi {customer.restaurant_name},\n\n"
-            f"You haven't placed your order for today yet.\n\n"
-            f"👇 Send your order now:\n\n"
-            f"{template}"
+            f"You haven't placed your order yet today.\n\n"
+            f"Type *order* to place your order now.\n\n"
+            f"— {PLANT_NAME} Team"
         )
         result = send_whatsapp_message(customer.phone_number, message)
         if result:
