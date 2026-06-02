@@ -78,7 +78,7 @@ def notify_salespersons_pending(db: Session, delivery_date: date | None = None):
     Template: salesperson_pending_orders
     {{1}} = PLANT_NAME
     {{2}} = salesperson name
-    {{3}} = customer list
+    {{3}} = customer list (single line, comma-separated)
     {{4}} = pending count
     """
     if delivery_date is None:
@@ -105,7 +105,8 @@ def notify_salespersons_pending(db: Session, delivery_date: date | None = None):
             print(f"   ⚠️  Salesperson id={salesperson_id} not found or inactive — skipped")
             continue
 
-        customer_list = "\n".join(
+        # Single line — Meta rejects newlines/tabs in template parameters
+        customer_list = ", ".join(
             f"{i + 1}. {c.restaurant_name}" + (f" ({c.area})" if c.area else "")
             for i, c in enumerate(customers)
         )
@@ -134,7 +135,7 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
     {{3}} = total customers
     {{4}} = orders received
     {{5}} = pending count
-    {{6}} = area breakdown
+    {{6}} = area breakdown (single line, pipe-separated — Meta rejects newlines)
     """
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
@@ -155,28 +156,29 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
         .count()
     )
 
-    all_pending   = [c for customers in grouped.values() for c in customers]
-    total_pending = len(all_pending)
+    all_pending    = [c for customers in grouped.values() for c in customers]
+    total_pending  = len(all_pending)
     total_received = total_active - total_pending
 
-    # Area-wise breakdown
+    # Area-wise breakdown — single line, pipe-separated
+    # e.g. "Talegaon (2 pending): Neha Hotel, Shubhada Hotel | Unassigned: 1 pending"
     area_customers: dict = {}
     for c in all_pending:
         area = c.area or "Unassigned"
         area_customers.setdefault(area, []).append(c.restaurant_name)
 
     if area_customers:
-        area_lines = ""
+        parts = []
         for area, names in sorted(area_customers.items()):
-            area_lines += f"{area} ({len(names)} pending)\n"
-            for i, name in enumerate(names, 1):
-                area_lines += f"  {i}. {name}\n"
+            names_str = ", ".join(names)
+            parts.append(f"{area} ({len(names)} pending): {names_str}")
+        area_breakdown = " | ".join(parts)
     else:
-        area_lines = "None — all orders received"
+        area_breakdown = "None — all orders received"
 
     unassigned_pending = len(grouped.get(None, []))
     if unassigned_pending > 0:
-        area_lines += f"\nUnassigned customers pending: {unassigned_pending}"
+        area_breakdown += f" | Unassigned: {unassigned_pending} pending"
 
     date_str = delivery_date.strftime("%d %B %Y")
 
@@ -189,7 +191,7 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
             str(total_active),
             str(total_received),
             str(total_pending),
-            area_lines,
+            area_breakdown,
         ],
     )
 
