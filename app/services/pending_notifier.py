@@ -40,7 +40,6 @@ def send_customer_reminders(db: Session, delivery_date: date | None = None):
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
-    //grouped = get_pending_customers(db, delivery_date)
 
     pending_customers = (
         db.query(Customer)
