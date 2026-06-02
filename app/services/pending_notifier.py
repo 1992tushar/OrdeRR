@@ -40,14 +40,17 @@ def send_customer_reminders(db: Session, delivery_date: date | None = None):
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
-    grouped = get_pending_customers(db, delivery_date)
+    //grouped = get_pending_customers(db, delivery_date)
 
-    pending_customers = [
-        c
-        for sp_id, customers in grouped.items()
-        if sp_id is not None
-        for c in customers
-    ]
+    pending_customers = (
+        db.query(Customer)
+        .filter(
+            Customer.is_active == True,
+            Customer.is_daily_order_customer == True,
+            Customer.onboarding_status == "active",
+        )
+        .all()
+    )
 
     print(f"\n⏰ Customer Reminders — {len(pending_customers)} pending customers")
 

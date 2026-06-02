@@ -95,7 +95,6 @@ async def lifespan(app: FastAPI):
     hour, minute = map(int, report_time.split(":"))
     scheduler    = BackgroundScheduler()
 
-    # ⚠️  TEST TIMINGS — restore to production values after testing
     # Daily report (configurable via REPORT_TIME env var)
     scheduler.add_job(
         daily_report_job,
@@ -103,24 +102,24 @@ async def lifespan(app: FastAPI):
         id="daily_report", name=f"Daily Report at {report_time} IST",
     )
 
-    # Customer reminders — TEST: 10:28 IST  (PROD: hour=22, minute=50)
+    # Customer reminders — PROD: hour=22, minute=50
     scheduler.add_job(
         customer_reminders_job,
-        CronTrigger(hour=10, minute=28, timezone="Asia/Kolkata"),
+        CronTrigger(hour=22, minute=00, timezone="Asia/Kolkata"),
         id="customer_reminders", name="Customer Reminders at 22:00 IST",
     )
 
-    # Salesperson notifications — TEST: 10:30 IST  (PROD: hour=23, minute=28)
+    # Salesperson notifications PROD: hour=23, minute=00
     scheduler.add_job(
         salesperson_notification_job,
-        CronTrigger(hour=10, minute=30, timezone="Asia/Kolkata"),
+        CronTrigger(hour=23, minute=00, timezone="Asia/Kolkata"),
         id="salesperson_notifications", name="Salesperson Notifications at 23:05 IST",
     )
 
-    # Management summary — TEST: 10:32 IST  (PROD: hour=23, minute=30)
+    # Management summary — TEST: 10:32 IST  (PROD: hour=23, minute=00)
     scheduler.add_job(
         management_summary_job,
-        CronTrigger(hour=10, minute=32, timezone="Asia/Kolkata"),
+        CronTrigger(hour=23, minute=00, timezone="Asia/Kolkata"),
         id="management_summary", name="Management Summary at 23:10 IST",
     )
 
