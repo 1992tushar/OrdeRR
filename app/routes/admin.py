@@ -266,3 +266,33 @@ def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(g
         total += len(customers)
 
     return {"delivery_date": target_date.isoformat(), "total_pending": total, "groups": result}
+
+
+# ── Test notifications ────────────────────────────────────────────────────────
+
+from app.services.pending_notifier import (
+    send_customer_reminders,
+    notify_salespersons_pending,
+    send_management_summary,
+)
+from app.services.reporter import send_daily_report
+
+@router.post("/test-notifications/customer-reminders")
+def test_customer_reminders(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    send_customer_reminders(db)
+    return {"status": "sent"}
+
+@router.post("/test-notifications/salesperson-pending")
+def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    notify_salespersons_pending(db)
+    return {"status": "sent"}
+
+@router.post("/test-notifications/management-summary")
+def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    send_management_summary(db)
+    return {"status": "sent"}
+
+@router.post("/test-notifications/daily-report")
+def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    send_daily_report(db)
+    return {"status": "sent"}
