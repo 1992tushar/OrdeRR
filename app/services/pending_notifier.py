@@ -19,12 +19,13 @@ from sqlalchemy.orm import Session
 from app.models.salesperson import Salesperson
 from app.models.customer import Customer
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
-from app.services.notifier import send_whatsapp_message, send_whatsapp_template
+from app.services.notifier import send_whatsapp_template
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
 
 # ── Approved template names ───────────────────────────────────────────────────
+TEMPLATE_CUSTOMER_REMINDER   = "customer_daily_reminder"
 TEMPLATE_SALESPERSON_PENDING = "salesperson_pending_orders"
 TEMPLATE_MANAGER_SUMMARY     = "manager_daily_summary"
 
@@ -33,42 +34,36 @@ TEMPLATE_MANAGER_SUMMARY     = "manager_daily_summary"
 
 def send_customer_reminders(db: Session, delivery_date: date | None = None):
     """
-    Short nudge reminder to customers — always within 24hr window
-    since customers message us to place orders daily.
-    Sends a brief message only — customer types *order* to get the template.
+    Short nudge reminder to customers using an approved Meta utility template.
+    Bypasses the 24hr window restriction for inactive/silent customers.
+    
+    Template: customer_daily_reminder
+    {{1}} = PLANT_NAME
+    {{2}} = restaurant_name
     """
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
+    # FIX: Instead of raw querying ALL active customers, filter using the pending list engine
+    grouped = get_pending_customers(db, delivery_date)
+    all_pending_customers = [c for customers in grouped.values() for c in customers]
 
-    pending_customers = (
-        db.query(Customer)
-        .filter(
-            Customer.is_active == True,
-            Customer.is_daily_order_customer == True,
-            Customer.onboarding_status == "active",
-        )
-        .all()
-    )
-
-    print(f"\n⏰ Customer Reminders — {len(pending_customers)} pending customers")
+    print(f"\n⏰ Customer Reminders — {len(all_pending_customers)} pending customers identified")
 
     sent = 0
 
-    for customer in pending_customers:
-        message = (
-            f"⏰ *Reminder — {PLANT_NAME} Orders*\n\n"
-            f"Hi {customer.restaurant_name},\n\n"
-            f"You haven't placed your order yet today.\n\n"
-            f"Type *order* to place your order now.\n\n"
-            f"— {PLANT_NAME} Team"
+    for customer in all_pending_customers:
+        # Using the approved template to send exactly what was used in the free-form structure safely
+        result = send_whatsapp_template(
+            customer.phone_number,
+            TEMPLATE_CUSTOMER_REMINDER,
+            [PLANT_NAME, customer.restaurant_name]
         )
-        result = send_whatsapp_message(customer.phone_number, message)
         if result:
             sent += 1
-            print(f"   ✅ Reminder sent → {customer.restaurant_name} ({customer.phone_number})")
+            print(f"   ✅ Template reminder sent → {customer.restaurant_name} ({customer.phone_number})")
 
-    print(f"   📤 Reminders sent: {sent}/{len(pending_customers)}\n")
+    print(f"   📤 Reminders sent: {sent}/{len(all_pending_customers)}\n")
 
 
 # ── 23:05 — Salesperson notifications ────────────────────────────────────────
