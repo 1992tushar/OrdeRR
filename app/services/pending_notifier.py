@@ -19,13 +19,15 @@ from sqlalchemy.orm import Session
 from app.models.salesperson import Salesperson
 from app.models.customer import Customer
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
-from app.services.notifier import send_whatsapp_template
+from app.services.notifier import send_whatsapp_template, send_whatsapp_message
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
 
 # ── Approved template names ───────────────────────────────────────────────────
-TEMPLATE_CUSTOMER_REMINDER   = "customer_daily_reminder"
+# NOTE: customer_daily_reminder is MARKETING category — cannot deliver without opt-in.
+#       Customer reminders now use free-form messages instead (customers always
+#       message during the day to order, keeping the 24hr window open at 10 PM).
 TEMPLATE_SALESPERSON_PENDING = "salesperson_pending_orders"
 TEMPLATE_MANAGER_SUMMARY     = "manager_daily_summary"
 
@@ -34,17 +36,21 @@ TEMPLATE_MANAGER_SUMMARY     = "manager_daily_summary"
 
 def send_customer_reminders(db: Session, delivery_date: date | None = None):
     """
-    Short nudge reminder to customers using an approved Meta utility template.
-    Bypasses the 24hr window restriction for inactive/silent customers.
-    
-    Template: customer_daily_reminder
-    {{1}} = PLANT_NAME
-    {{2}} = restaurant_name
+    Free-form reminder to pending customers at 22:00 IST.
+
+    Uses send_whatsapp_message() (not a template) because the customer_daily_reminder
+    template was approved as MARKETING category by Meta, which requires explicit opt-in
+    and silently fails delivery to customers who haven't messaged first.
+
+    This works reliably because active daily customers always message during the day
+    to place orders, keeping the 24hr free-form window open at 10 PM.
+
+    Edge case: brand-new customers onboarded today with no order yet will NOT receive
+    this reminder on their first day — acceptable behaviour.
     """
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
-    # FIX: Instead of raw querying ALL active customers, filter using the pending list engine
     grouped = get_pending_customers(db, delivery_date)
     all_pending_customers = [c for customers in grouped.values() for c in customers]
 
@@ -53,15 +59,17 @@ def send_customer_reminders(db: Session, delivery_date: date | None = None):
     sent = 0
 
     for customer in all_pending_customers:
-        # Using the approved template to send exactly what was used in the free-form structure safely
-        result = send_whatsapp_template(
-            customer.phone_number,
-            TEMPLATE_CUSTOMER_REMINDER,
-            [PLANT_NAME, customer.restaurant_name]
+        message = (
+            f"⏰ Reminder - {PLANT_NAME} Orders\n\n"
+            f"Hi {customer.restaurant_name},\n\n"
+            f"You haven't placed your order yet today.\n\n"
+            f"Type *order* to place your order now.\n\n"
+            f"— {PLANT_NAME} Team"
         )
+        result = send_whatsapp_message(customer.phone_number, message)
         if result:
             sent += 1
-            print(f"   ✅ Template reminder sent → {customer.restaurant_name} ({customer.phone_number})")
+            print(f"   ✅ Reminder sent → {customer.restaurant_name} ({customer.phone_number})")
 
     print(f"   📤 Reminders sent: {sent}/{len(all_pending_customers)}\n")
 
