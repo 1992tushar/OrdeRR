@@ -105,6 +105,27 @@
         .failed-card-meta { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .failed-card-actions { display:flex; gap:8px; margin-top:12px; }
         .tab-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#c62828; margin-left:5px; vertical-align:middle; }
+
+        /* ── Window Status styles ── */
+        .window-filter-bar { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+        .filter-btn { padding:6px 14px; border-radius:20px; border:1px solid #ddd; background:white; font-size:12px; cursor:pointer; font-weight:600; color:#888; transition:all .15s; }
+        .filter-btn.active { border-color:#075e54; background:#075e54; color:white; }
+        .window-row { display:flex; align-items:center; gap:0; padding:11px 16px; border-bottom:1px solid #f0f0f0; font-size:14px; }
+        .window-row:last-child { border-bottom:none; }
+        .window-dot { width:11px; height:11px; border-radius:50%; flex-shrink:0; margin-right:12px; }
+        .dot-open    { background:#27ae60; }
+        .dot-atrisk  { background:#e67e22; }
+        .dot-closed  { background:#c62828; }
+        .window-name { font-weight:600; min-width:160px; }
+        .window-role { font-size:12px; color:#aaa; min-width:100px; }
+        .window-phone { font-size:12px; color:#aaa; min-width:130px; }
+        .window-last { font-size:12px; color:#aaa; min-width:110px; }
+        .window-status { font-size:13px; font-weight:600; min-width:130px; }
+        .ws-open   { color:#27ae60; }
+        .ws-atrisk { color:#e67e22; }
+        .ws-closed { color:#c62828; }
+        .window-action { margin-left:auto; font-size:12px; color:#c62828; font-weight:600; }
+        .window-checked { font-size:12px; color:#aaa; padding:12px 16px 4px; }
     </style>
 </head>
 <body>
@@ -118,6 +139,7 @@
     <button class="tab-btn" onclick="switchTab('pending',this)">⏳ Pending</button>
     <button class="tab-btn" onclick="switchTab('customers',this)">👥 Customers</button>
     <button class="tab-btn" onclick="switchTab('salespersons',this)">🧑 Salespersons</button>
+    <button class="tab-btn" onclick="switchTab('window',this)" id="window-tab-btn">📡 WA Windows</button>
     <button class="tab-btn" onclick="switchTab('failed',this)" id="failed-tab-btn">
         ⚠️ Failed{% if reliability_stats.has_issues %}<span class="tab-dot"></span>{% endif %}
     </button>
@@ -257,6 +279,57 @@
     </div>
 </div>
 
+<!-- WA Windows Tab -->
+<div id="tab-window" class="tab-pane">
+    <div class="cards">
+        <div class="card success"><div class="number" id="win-open">—</div><div class="label">Window Open</div></div>
+        <div class="card warning"><div class="number" id="win-atrisk">—</div><div class="label">At Risk</div></div>
+        <div class="card danger"><div class="number" id="win-closed">—</div><div class="label">Window Closed</div></div>
+        <div class="card"><div class="number" id="win-total">—</div><div class="label">Total Stakeholders</div></div>
+    </div>
+    <div class="section">
+        <h2>📡 WhatsApp 24hr Window Status
+            <button class="section-btn" onclick="loadWindowStatus()">↻ Refresh</button>
+        </h2>
+
+        <div class="window-filter-bar">
+            <button class="filter-btn active" onclick="filterWindow('all',this)">All</button>
+            <button class="filter-btn" onclick="filterWindow('manager',this)">Manager</button>
+            <button class="filter-btn" onclick="filterWindow('salesperson',this)">Salespersons</button>
+            <button class="filter-btn" onclick="filterWindow('customer',this)">Customers</button>
+            <button class="filter-btn" onclick="filterWindow('CLOSED',this)" style="border-color:#c62828;color:#c62828">🔴 Closed Only</button>
+            <button class="filter-btn" onclick="filterWindow('AT_RISK',this)" style="border-color:#e67e22;color:#e67e22">🟡 At Risk Only</button>
+        </div>
+
+        <div class="summary-table" id="window-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:14px"></th>
+                        <th>Name</th>
+                        <th>Role</th>
+                        <th>Phone</th>
+                        <th>Last Message</th>
+                        <th>Window</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="window-tbody">
+                    <tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>
+                </tbody>
+            </table>
+            <div class="window-checked" id="window-checked"></div>
+        </div>
+
+        <div style="background:#fff8e1;border-radius:10px;padding:14px 18px;font-size:13px;color:#7b5800;line-height:1.7;margin-top:4px">
+            <strong>💡 How to read this:</strong><br>
+            🟢 <strong>Open</strong> — more than 4 hrs left. Free-form messages deliver fine.<br>
+            🟡 <strong>At Risk</strong> — less than 4 hrs left. Call them before 10 PM to ask them to send a WhatsApp message to the Fluffy number.<br>
+            🔴 <strong>Closed</strong> — window expired. Only approved UTILITY templates will deliver. Call them and ask to send "Hi" to +91 77699 77565.
+        </div>
+    </div>
+</div>
+
 <!-- Failed Messages Tab -->
 <div id="tab-failed" class="tab-pane">
     <div class="cards">
@@ -355,6 +428,7 @@
 <script>
 let allSalespersons = [];
 let currentAssignId = null;
+let windowData = [];
 
 function switchTab(name, btn) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
@@ -365,6 +439,7 @@ function switchTab(name, btn) {
     if (name === 'salespersons') { loadSalespersons(); }
     if (name === 'pending')      { loadPending(); }
     if (name === 'failed')       { loadFailedMessages(); }
+    if (name === 'window')       { loadWindowStatus(); }
 }
 
 function showToast(msg, type='') {
@@ -383,6 +458,86 @@ async function api(method, path, body) {
 
 function closeModal(id) { document.getElementById(id).classList.remove('open'); if(id==='assign-modal') currentAssignId=null; }
 document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener('click', e => { if(e.target===el) el.classList.remove('open'); }); });
+
+// ── Window Status ──────────────────────────────────────────────────────────
+
+async function loadWindowStatus() {
+    document.getElementById('window-tbody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
+    try {
+        const data = await api('GET', '/admin/window-status');
+        windowData = data.stakeholders || [];
+
+        const open   = windowData.filter(s => s.status === 'OPEN').length;
+        const atRisk = windowData.filter(s => s.status === 'AT_RISK').length;
+        const closed = windowData.filter(s => s.status === 'CLOSED').length;
+
+        document.getElementById('win-open').textContent   = open;
+        document.getElementById('win-atrisk').textContent = atRisk;
+        document.getElementById('win-closed').textContent = closed;
+        document.getElementById('win-total').textContent  = data.total;
+        document.getElementById('window-checked').textContent = 'Last checked: ' + data.checked_at;
+
+        // Update tab dot if any closed or at risk
+        const tabBtn = document.getElementById('window-tab-btn');
+        const existingDot = tabBtn.querySelector('.tab-dot');
+        if (closed > 0 || atRisk > 0) {
+            if (!existingDot) {
+                const dot = document.createElement('span');
+                dot.className = 'tab-dot';
+                dot.style.background = closed > 0 ? '#c62828' : '#e67e22';
+                tabBtn.appendChild(dot);
+            }
+        } else {
+            existingDot?.remove();
+        }
+
+        renderWindowRows(windowData);
+    } catch(e) {
+        document.getElementById('window-tbody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:24px">Failed to load window status</td></tr>';
+    }
+}
+
+function renderWindowRows(rows) {
+    const tbody = document.getElementById('window-tbody');
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">No stakeholders found</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(s => {
+        const dotClass  = s.status === 'OPEN' ? 'dot-open' : s.status === 'AT_RISK' ? 'dot-atrisk' : 'dot-closed';
+        const statClass = s.status === 'OPEN' ? 'ws-open'  : s.status === 'AT_RISK' ? 'ws-atrisk'  : 'ws-closed';
+        const label     = s.status === 'OPEN' ? s.status_label : s.status === 'AT_RISK' ? '⚠️ ' + s.status_label : '🔴 Closed';
+        const roleLabel = s.role === 'manager' ? '👔 Manager' : s.role === 'salesperson' ? '🧑 Salesperson' : '🏪 Customer';
+        const action    = (s.status === 'CLOSED' || s.status === 'AT_RISK')
+            ? `<span class="window-action">📞 Ask to send Hi</span>`
+            : `<span style="color:#27ae60;font-size:12px">✓ OK</span>`;
+
+        return `<tr>
+            <td><span class="window-dot ${dotClass}"></span></td>
+            <td><strong>${s.name}</strong></td>
+            <td style="font-size:12px;color:#888">${roleLabel}</td>
+            <td style="font-size:12px;color:#aaa">${s.phone}</td>
+            <td style="font-size:12px;color:#aaa">${s.last_seen_display}</td>
+            <td class="${statClass}" style="font-weight:600;font-size:13px">${label}</td>
+            <td>${action}</td>
+        </tr>`;
+    }).join('');
+}
+
+function filterWindow(filter, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    let filtered = windowData;
+    if (filter === 'CLOSED')      filtered = windowData.filter(s => s.status === 'CLOSED');
+    else if (filter === 'AT_RISK') filtered = windowData.filter(s => s.status === 'AT_RISK');
+    else if (filter !== 'all')    filtered = windowData.filter(s => s.role === filter);
+
+    renderWindowRows(filtered);
+}
+
+// ── Salespersons ───────────────────────────────────────────────────────────
 
 async function loadSalespersons() {
     try {
@@ -413,6 +568,8 @@ async function toggleSP(id,active) {
     try { await api('PUT',`/admin/salespersons/${id}`,{active}); showToast(active?'✅ Activated':'Deactivated','success'); loadSalespersons(); }
     catch(e){showToast('Update failed','error');}
 }
+
+// ── Customers ──────────────────────────────────────────────────────────────
 
 async function loadCustomers() {
     const tbody=document.getElementById('customer-tbody');
@@ -468,6 +625,8 @@ async function openHistory(cid,rname) {
     } catch(e){document.getElementById('history-body').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';}
 }
 
+// ── Pending ────────────────────────────────────────────────────────────────
+
 async function loadPending() {
     document.getElementById('pending-content').innerHTML='<div class="empty">Loading...</div>';
     try {
@@ -479,6 +638,8 @@ async function loadPending() {
         document.getElementById('pending-content').innerHTML=groups.map(g=>`<div class="pending-group"><h3><span>${g.salesperson_id?'👤 '+g.salesperson_name:'⚠️ Unassigned'}</span><span class="badge pending-badge">${g.pending_count} pending</span></h3><ul class="pending-list">${g.customers.map(c=>`<li><span>🏪 ${c.restaurant_name}</span><span style="font-size:12px;color:#aaa">${c.area||''}</span></li>`).join('')}</ul></div>`).join('');
     } catch(e){document.getElementById('pending-content').innerHTML='<div class="empty" style="color:#e67e22">Failed to load pending orders</div>';}
 }
+
+// ── Failed Messages ────────────────────────────────────────────────────────
 
 async function loadFailedMessages() {
     const list=document.getElementById('failed-list');

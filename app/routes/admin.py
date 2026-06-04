@@ -9,6 +9,7 @@ Customer:     GET /admin/customers
               POST /admin/customers/{id}/assign
               PUT  /admin/customers/{id}/status
 Pending:      GET /admin/pending
+Window:       GET /admin/window-status
 """
 
 import os
@@ -26,12 +27,14 @@ from app.database import get_db
 from app.models.customer import Customer
 from app.models.order import Order
 from app.models.salesperson import Salesperson
+from app.models.inbound_message import InboundMessage
 from app.services.customer_service import normalize_phone
 from app.services.notifier import send_whatsapp_message
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 
-router    = APIRouter()
+router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
+MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 IST        = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -142,7 +145,6 @@ def list_customers(db: Session = Depends(get_db), username: str = Depends(requir
         .order_by(Customer.restaurant_name)
         .all()
     )
-    # Which phones have ordered today
     ordered_today = {
         row[0] for row in
         db.query(Order.customer_phone)
@@ -178,7 +180,7 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
         db.query(Order)
         .filter(Order.customer_phone == customer.phone_number)
         .order_by(Order.created_at.desc())
-        .limit(60)   # last 60 orders — ~2 months for daily customers
+        .limit(60)
         .all()
     )
 
@@ -266,6 +268,154 @@ def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(g
         total += len(customers)
 
     return {"delivery_date": target_date.isoformat(), "total_pending": total, "groups": result}
+
+
+# ── WhatsApp Window Status ────────────────────────────────────────────────────
+
+def _window_status(last_inbound: datetime | None, now: datetime) -> dict:
+    """
+    Calculate 24hr window status from last inbound message timestamp.
+    Returns status, hours_remaining, minutes_remaining, last_seen_ist.
+    """
+    if last_inbound is None:
+        return {
+            "status": "CLOSED",
+            "status_label": "Never messaged",
+            "hours_remaining": 0,
+            "minutes_remaining": 0,
+            "last_seen_ist": None,
+            "last_seen_display": "Never",
+        }
+
+    # Ensure timezone-aware
+    if last_inbound.tzinfo is None:
+        last_inbound = last_inbound.replace(tzinfo=timezone.utc)
+
+    window_expires = last_inbound + timedelta(hours=24)
+    remaining = window_expires - now
+
+    if remaining.total_seconds() <= 0:
+        return {
+            "status": "CLOSED",
+            "status_label": "Closed",
+            "hours_remaining": 0,
+            "minutes_remaining": 0,
+            "last_seen_ist": last_inbound.astimezone(IST).isoformat(),
+            "last_seen_display": last_inbound.astimezone(IST).strftime("%d %b %H:%M"),
+        }
+
+    total_minutes = int(remaining.total_seconds() // 60)
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+
+    if hours >= 4:
+        status = "OPEN"
+    elif hours >= 1:
+        status = "AT_RISK"
+    else:
+        status = "AT_RISK"
+
+    return {
+        "status": status,
+        "status_label": f"{hours}h {minutes}m left",
+        "hours_remaining": hours,
+        "minutes_remaining": minutes,
+        "last_seen_ist": last_inbound.astimezone(IST).isoformat(),
+        "last_seen_display": last_inbound.astimezone(IST).strftime("%d %b %H:%M"),
+    }
+
+
+@router.get("/window-status")
+def get_window_status(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    """
+    Returns 24hr WhatsApp window status for all stakeholders:
+    - Manager (from MANAGER_PHONE env var)
+    - All active salespersons
+    - All active customers
+
+    Status values: OPEN (>4hrs), AT_RISK (0–4hrs), CLOSED (expired or never)
+    """
+    now = datetime.now(timezone.utc)
+
+    # Collect all phones we need to check
+    stakeholders = []
+
+    # Manager
+    if MANAGER_PHONE:
+        stakeholders.append({
+            "name": "Manager",
+            "phone": MANAGER_PHONE,
+            "role": "manager",
+        })
+
+    # Active salespersons
+    salespersons = db.query(Salesperson).filter(Salesperson.active == True).all()
+    for sp in salespersons:
+        stakeholders.append({
+            "name": sp.name,
+            "phone": sp.phone,
+            "role": "salesperson",
+        })
+
+    # Active customers
+    customers = (
+        db.query(Customer)
+        .filter(
+            Customer.is_active == True,
+            Customer.onboarding_status == "active",
+        )
+        .order_by(Customer.restaurant_name)
+        .all()
+    )
+    for c in customers:
+        stakeholders.append({
+            "name": c.restaurant_name or c.phone_number,
+            "phone": c.phone_number,
+            "role": "customer",
+        })
+
+    # Fetch last inbound message timestamp for each phone in one query
+    all_phones = [s["phone"] for s in stakeholders]
+
+    last_seen_map = {}
+    if all_phones:
+        rows = (
+            db.query(
+                InboundMessage.customer_phone,
+                func.max(InboundMessage.received_at).label("last_seen"),
+            )
+            .filter(InboundMessage.customer_phone.in_(all_phones))
+            .group_by(InboundMessage.customer_phone)
+            .all()
+        )
+        last_seen_map = {row.customer_phone: row.last_seen for row in rows}
+
+    # Build result
+    result = []
+    closed_count = 0
+    at_risk_count = 0
+
+    for s in stakeholders:
+        last_inbound = last_seen_map.get(s["phone"])
+        window = _window_status(last_inbound, now)
+        result.append({
+            "name"            : s["name"],
+            "phone"           : s["phone"],
+            "role"            : s["role"],
+            **window,
+        })
+        if window["status"] == "CLOSED":
+            closed_count += 1
+        elif window["status"] == "AT_RISK":
+            at_risk_count += 1
+
+    return {
+        "stakeholders"  : result,
+        "total"         : len(result),
+        "closed_count"  : closed_count,
+        "at_risk_count" : at_risk_count,
+        "checked_at"    : datetime.now(IST).strftime("%d %b %Y %H:%M IST"),
+    }
 
 
 # ── Test notifications ────────────────────────────────────────────────────────
