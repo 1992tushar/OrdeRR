@@ -125,7 +125,7 @@ async def lifespan(app: FastAPI):
 
     # Keep-alive ping — every 10 min (prevents Render spin-down)
     scheduler.add_job(
-        lambda: print("💓 keep-alive ping"),q2
+        lambda: print("💓 keep-alive ping"),
         IntervalTrigger(minutes=10),
         id="keep_alive", name="Keep-Alive Ping",
     )
