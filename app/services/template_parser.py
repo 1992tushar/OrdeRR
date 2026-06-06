@@ -72,6 +72,7 @@ PRODUCT_DEFINITIONS = [
         "chota chicken", "chota chik",
         # Noisy variants
         "tandor", "tanduri", "tandoor cut", "tandoor size", "tandoor bird",
+        "tandur",
     ]),
 
     ("WS Regular Chicken", "nos", [
@@ -93,6 +94,7 @@ PRODUCT_DEFINITIONS = [
         "murgi", "murg", "kombdi", "kombadi",
         # Noisy variants
         "reguler", "reglar", "big bird", "large bird",
+        "chiken",
     ]),
 
     # ── Boneless ──────────────────────────────────────────────
@@ -101,6 +103,10 @@ PRODUCT_DEFINITIONS = [
         # Full names
         "breast boneless", "boneless breast", "breast",
         "breast piece", "breast boneless piece", "chicken breast",
+        # Chest variants (common mispronunciation/transliteration)
+        "chest boneless", "chest bonless", "cast bonlas",
+        # Standalone boneless (assumed breast)
+        "bonless", "boneless",
         # Shortcodes
         "bb", "cb",
         "bl breast", "breast bl", "b/l breast", "b.l breast",
@@ -113,11 +119,11 @@ PRODUCT_DEFINITIONS = [
         "leg boneless", "boneless leg",
         "thigh boneless", "thigh", "boneless thigh",
         "chicken thigh", "dark meat",
+        # Noisy variants
+        "lag bonlas", "leg bonless", "leg bnls", "bonless leg",
         # Shortcodes
         "lb",
         "bl leg", "leg bl", "b/l leg", "b.l leg",
-        # Noisy variants
-        "leg bnls", "thigh bnls", "bonless leg",
     ]),
 
     # ── Wings ─────────────────────────────────────────────────
@@ -138,7 +144,7 @@ PRODUCT_DEFINITIONS = [
         # Shortcodes
         "lp",
         # Noisy variants
-        "loli", "lolypop",
+        "loli", "lolypop", "lpop",
     ]),
 
     # ── Bone Products ─────────────────────────────────────────
@@ -149,6 +155,8 @@ PRODUCT_DEFINITIONS = [
         "frame", "chicken frame",
         # Common aliases
         "haddi", "bones", "chicken bones", "bone",
+        # Transliteration variants
+        "cat pis", "cat piece", "cat pieces",
         # Noisy variants
         "haddi chicken",
     ]),
@@ -163,8 +171,12 @@ PRODUCT_DEFINITIONS = [
         "cc", "c/c", "c.c",
         # Hindi/Marathi
         "kari cut", "kadi cut", "kari", "rassa cut", "rassa",
-        # Noisy variants
-        "cury", "curry",
+        # Thali variants (small cut pieces — common hotel alias)
+        "thali", "thali chicken", "thali cut",
+        # Noisy variants — customer typing "chikn" for curry cut pieces
+        "chikn", "cury", "curry",
+        # pcs as product name (3 customers ordering curry cut by piece count)
+        "pcs",
     ]),
 
     ("Biryani Cut", "kg", [
@@ -186,9 +198,9 @@ PRODUCT_DEFINITIONS = [
         "drumstick", "drumsticks", "drum stick", "drum sticks",
         "chicken drumstick",
         # Shortcodes
-        "ds", "drum",
+        "ds", "drum", "drums",
         # Noisy variants
-        "drmstk", "drumstik",
+        "drmstk", "drumstik", "darmistk",
     ]),
 
     ("Whole Leg", "nos", [
@@ -197,6 +209,8 @@ PRODUCT_DEFINITIONS = [
         "leg piece", "complete leg",
         # Shortcodes
         "wl",
+        # Hindi/Marathi / common hotel alias
+        "tangdi", "tangadi", "t leg",
         # Noisy variants
         "wholeleg", "fullleg",
     ]),
@@ -207,7 +221,7 @@ PRODUCT_DEFINITIONS = [
         # Full names
         "liver", "chicken liver", "liver piece",
         # Hindi/Marathi
-        "kaleji", "kaleja",
+        "kaleji", "kaleja", "kalgi",
         # Shortcodes
         "liv", "lvr",
         # Noisy variants
@@ -309,10 +323,10 @@ UNIT_ALIASES = {
     "nos":       "nos",
     "no":        "nos",
     "nos.":      "nos",
-    "pcs":       "nos",
-    "pc":        "nos",
-    "pieces":    "nos",
-    "piece":     "nos",
+    "pcs":       "pcs",
+    "pc":        "pcs",
+    "pieces":    "pcs",
+    "piece":     "pcs",
     "number":    "nos",
     "numbers":   "nos",
 }
@@ -378,9 +392,11 @@ def parse_template_order(customer_phone: str, message: str) -> dict:
         line_clean = re.sub(r'__+', '', line).strip()
 
         # If no digits remain, this is an unfilled template line — skip silently.
-        # e.g. "W/O Skin Tandoor (700-900g) -  nos" has no quantity, ignore it.
         if not line_clean or not re.search(r'\d', line_clean):
             continue
+
+        # Handle "3k" style quantity (e.g. "Chicken 3k" → product=Chicken, qty=3, unit=kg)
+        line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
 
         # Pattern: <product name> <separator?> <quantity> [unit]
         split_match = re.match(
@@ -428,23 +444,28 @@ def parse_template_order(customer_phone: str, message: str) -> dict:
 
         # Unit mismatch — only flag if customer explicitly typed a wrong unit
         if raw_unit and raw_unit != expected_unit:
-            errors.append({
-                "line":       line,
-                "reason":     f"*{display_name}* is ordered in *{expected_unit}* (you sent {raw_unit})",
-                "suggestion": f"{display_name} - {int(qty) if qty == int(qty) else qty} {expected_unit}",
-            })
-            continue
+            # Special case: pcs is valid for Curry Cut even though default is kg
+            if not (display_name == "Curry Cut" and raw_unit == "pcs"):
+                errors.append({
+                    "line":       line,
+                    "reason":     f"*{display_name}* is ordered in *{expected_unit}* (you sent {raw_unit})",
+                    "suggestion": f"{display_name} - {int(qty) if qty == int(qty) else qty} {expected_unit}",
+                })
+                continue
+
+        # Use explicitly typed unit if valid, otherwise fall back to catalog default
+        final_unit = raw_unit if raw_unit else expected_unit
 
         # Merge duplicates
         for item in items:
-            if item["product"] == display_name:
+            if item["product"] == display_name and item["unit"] == final_unit:
                 item["quantity"] += qty
                 break
         else:
             items.append({
                 "product":  display_name,
                 "quantity": qty,
-                "unit":     expected_unit,
+                "unit":     final_unit,
             })
 
     is_unclear = len(items) == 0
