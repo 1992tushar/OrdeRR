@@ -38,6 +38,8 @@ PRODUCT_DEFINITIONS = [
         "no skin tandoor", "no skin td",
         # Shortcodes
         "sl tandoor", "wos tandoor",
+        # Al faham (without skin tandoor style)
+        "al faham", "al-faham", "alfaham",
         # Noisy
         "skin remove tandoor",
     ]),
@@ -46,6 +48,9 @@ PRODUCT_DEFINITIONS = [
         # Full names
         "without skin regular", "without skin whole chicken regular",
         "wo skin regular", "w/o skin regular",
+        # Whole chicken without skin (common hotel phrasing)
+        "whole chicken without skin", "whole chicken no skin",
+        "whole chicken skin out", "whole chicken skinless",
         # Skinless variants
         "skinless regular", "skinless regular chicken",
         "regular skinless", "skin out regular",
@@ -64,7 +69,7 @@ PRODUCT_DEFINITIONS = [
         "with skin whole chicken tandoor", "ws whole chicken tandoor",
         "with skin tandoor", "whole chicken tandoor",
         "ws tandoor chicken", "ws tandoor", "tandoor chicken",
-        "skin tandoor",
+        "skin tandoor", "chicken tandoori",
         # Primary shortcodes
         "tandoor", "tandoori", "td", "tdr",
         # Size aliases
@@ -105,6 +110,8 @@ PRODUCT_DEFINITIONS = [
         "breast piece", "breast boneless piece", "chicken breast",
         # Chest variants (common mispronunciation/transliteration)
         "chest boneless", "chest bonless", "cast bonlas",
+        # Berst variants (common misspelling)
+        "berst boneless", "berst",
         # Standalone boneless (assumed breast)
         "bonless", "boneless",
         # Shortcodes
@@ -137,19 +144,19 @@ PRODUCT_DEFINITIONS = [
 
     # ── Ready Lollipop ────────────────────────────────────────
 
-    ("Ready Lollipop", "nos", [
+    ("Ready Lollipop", "kg", [
         # Full names
         "lollipop", "ready lollipop", "lollypop", "lolipop",
         "chicken lollipop", "ready lollypop",
         # Shortcodes
-        "lp",
+        "lp", "lpop",
         # Noisy variants
-        "loli", "lolypop", "lpop",
+        "loli", "lolypop",
     ]),
 
     # ── Bone Products ─────────────────────────────────────────
 
-    ("Carcass", "nos", [
+    ("Carcass", "kg", [
         # Full names
         "carcass", "carcus", "chicken carcass",
         "frame", "chicken frame",
@@ -239,6 +246,17 @@ PRODUCT_DEFINITIONS = [
         "gizerd",
     ]),
 
+    # ── Mince ─────────────────────────────────────────────────
+
+    ("Kheema", "kg", [
+        # Full names
+        "kheema", "keema", "chicken kheema", "chicken keema",
+        # English
+        "mince", "chicken mince", "minced chicken",
+        # Noisy variants
+        "khima", "qeema",
+    ]),
+
 ]
 
 
@@ -312,6 +330,8 @@ def _match_product(raw_name: str):
 
 # ── Unit normalization ────────────────────────────────────────────────────────
 
+# nos and pcs are treated as the same unit throughout the system.
+# pcs is normalized to nos for storage consistency.
 UNIT_ALIASES = {
     "kg":        "kg",
     "kgs":       "kg",
@@ -323,10 +343,11 @@ UNIT_ALIASES = {
     "nos":       "nos",
     "no":        "nos",
     "nos.":      "nos",
-    "pcs":       "pcs",
-    "pc":        "pcs",
-    "pieces":    "pcs",
-    "piece":     "pcs",
+    "pcs":       "nos",
+    "pc":        "nos",
+    "pis":       "nos",
+    "pieces":    "nos",
+    "piece":     "nos",
     "number":    "nos",
     "numbers":   "nos",
 }
@@ -380,10 +401,11 @@ def parse_template_order(customer_phone: str, message: str) -> dict:
                     delivery_time = t
             continue
 
-        # Skip header/instruction lines
+        # Skip header/instruction/note lines
         if any(skip in lower for skip in [
             "place your order", "copy below", "fill in", "example",
             "delete what", "delivery time", "fluffy", "order —",
+            "note -", "note-",
         ]):
             continue
 
@@ -400,7 +422,7 @@ def parse_template_order(customer_phone: str, message: str) -> dict:
 
         # Pattern: <product name> <separator?> <quantity> [unit]
         split_match = re.match(
-            r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|nos|no|pcs|pc|pieces|piece|k)?\s*$",
+            r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|nos|no|nos\.|pcs|pc|pis|pieces|piece|k)?\s*$",
             line_clean,
             re.IGNORECASE,
         )
@@ -442,21 +464,20 @@ def parse_template_order(customer_phone: str, message: str) -> dict:
             })
             continue
 
-        # Unit mismatch — only flag if customer explicitly typed a wrong unit
+        # Unit mismatch — only flag if customer explicitly typed a wrong unit.
+        # pcs is already normalized to nos above so nos/pcs mismatches never fire.
         if raw_unit and raw_unit != expected_unit:
-            # Special case: pcs is valid for Curry Cut even though default is kg
-            if not (display_name == "Curry Cut" and raw_unit == "pcs"):
-                errors.append({
-                    "line":       line,
-                    "reason":     f"*{display_name}* is ordered in *{expected_unit}* (you sent {raw_unit})",
-                    "suggestion": f"{display_name} - {int(qty) if qty == int(qty) else qty} {expected_unit}",
-                })
-                continue
+            errors.append({
+                "line":       line,
+                "reason":     f"*{display_name}* is ordered in *{expected_unit}* (you sent {raw_unit_str})",
+                "suggestion": f"{display_name} - {int(qty) if qty == int(qty) else qty} {expected_unit}",
+            })
+            continue
 
         # Use explicitly typed unit if valid, otherwise fall back to catalog default
         final_unit = raw_unit if raw_unit else expected_unit
 
-        # Merge duplicates
+        # Merge duplicates (same product + same unit)
         for item in items:
             if item["product"] == display_name and item["unit"] == final_unit:
                 item["quantity"] += qty
