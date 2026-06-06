@@ -93,13 +93,24 @@ def send_whatsapp_template(phone: str, template_name: str, parameters: list) -> 
         return {"status": "simulated"}
 
 
-def _format_items(items: list) -> str:
+def _format_items_freeform(items: list) -> str:
+    """Newline-separated item list for free-form WhatsApp messages."""
     lines = ""
     for i, item in enumerate(items, 1):
         qty     = item["quantity"]
         qty_str = str(int(qty)) if qty == int(qty) else str(qty)
         lines  += f"{i}. {item['product']} — {qty_str} {item['unit']}\n"
     return lines
+
+
+def _format_items_template(items: list) -> str:
+    """Pipe-separated item list for Meta template parameters (no newlines allowed)."""
+    parts = []
+    for item in items:
+        qty     = item["quantity"]
+        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+        parts.append(f"{item['product']} {qty_str} {item['unit']}")
+    return " | ".join(parts)
 
 
 def send_order_confirmation(
@@ -146,16 +157,16 @@ def send_manager_alert(
     Template: manager_new_order
     {{1}} = PLANT_NAME
     {{2}} = restaurant name + phone
-    {{3}} = items + delivery
+    {{3}} = items + delivery — pipe-separated, no newlines (Meta requirement)
     """
     items         = parsed.get("items", [])
     delivery_time = parsed.get("delivery_time", "As per usual schedule")
 
-    items_text = _format_items(items)
+    items_text    = _format_items_template(items)
     delivery_text = f"Delivery: {delivery_time}" if delivery_time else "Delivery: As per usual schedule"
 
-    restaurant_line = f"{restaurant_name or 'Unknown'} - {customer_phone}"
-    items_with_delivery = f"{items_text}{delivery_text}"
+    restaurant_line      = f"{restaurant_name or 'Unknown'} - {customer_phone}"
+    items_with_delivery  = f"{items_text} | {delivery_text}"
 
     return send_whatsapp_template(
         manager_phone,

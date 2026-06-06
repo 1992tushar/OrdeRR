@@ -18,6 +18,7 @@
         .tab-nav::-webkit-scrollbar { display:none; }
         .tab-btn { padding:13px 14px; border:none; background:none; cursor:pointer; font-size:13px; color:#888; border-bottom:3px solid transparent; margin-bottom:-2px; transition:all .2s; white-space:nowrap; flex-shrink:0; }
         .tab-btn.active { color:#075e54; border-bottom-color:#075e54; font-weight:600; }
+        .tab-btn.hidden { display:none; }
         .tab-pane { display:none; }
         .tab-pane.active { display:block; }
 
@@ -183,7 +184,8 @@
     <button class="tab-btn" onclick="switchTab('customers',this)">👥 Customers</button>
     <button class="tab-btn" onclick="switchTab('salespersons',this)">🧑 Sales</button>
     <button class="tab-btn" onclick="switchTab('window',this)" id="window-tab-btn">📡 Windows</button>
-    <button class="tab-btn" onclick="switchTab('failed',this)" id="failed-tab-btn">⚠️ Failed{% if reliability_stats.has_issues %}<span class="tab-dot"></span>{% endif %}</button>
+    {# Failed tab — only shown when there are active issues #}
+    <button class="tab-btn {% if not reliability_stats.has_issues %}hidden{% endif %}" onclick="switchTab('failed',this)" id="failed-tab-btn">⚠️ Failed<span class="tab-dot"></span></button>
 </div>
 
 <!-- ── Orders Tab ── -->
@@ -721,7 +723,16 @@ async function loadFailedMessages() {
     list.innerHTML='<div class="empty">Loading...</div>';
     try {
         const data=await api('GET','/webhook/reliability/manual-review');
-        if(!data.messages?.length){list.innerHTML='<div class="empty" style="padding:60px">✅ No failed messages.</div>';document.querySelector('#failed-tab-btn .tab-dot')?.remove();return;}
+        const tabBtn=document.getElementById('failed-tab-btn');
+        if(!data.messages?.length){
+            list.innerHTML='<div class="empty" style="padding:60px">✅ No failed messages.</div>';
+            // No issues — hide the tab and switch away to orders
+            tabBtn.classList.add('hidden');
+            switchTab('orders', document.querySelector('.tab-btn'));
+            return;
+        }
+        // Issues exist — make sure tab is visible
+        tabBtn.classList.remove('hidden');
         list.innerHTML=data.messages.map(m=>`
             <div class="failed-card ${m.processing_status==='MANUAL_REVIEW'?'manual':''}" id="fc-${m.id}">
                 <div class="failed-card-header">
@@ -758,7 +769,13 @@ async function resolveMessage(id) {
 
 function checkEmptyFailed() {
     const list=document.getElementById('failed-list');
-    if(!list.querySelector('.failed-card')){list.innerHTML='<div class="empty" style="padding:60px">✅ No failed messages.</div>';document.querySelector('#failed-tab-btn .tab-dot')?.remove();}
+    if(!list.querySelector('.failed-card')){
+        list.innerHTML='<div class="empty" style="padding:60px">✅ No failed messages.</div>';
+        // All resolved — hide the tab and go back to orders
+        const tabBtn=document.getElementById('failed-tab-btn');
+        tabBtn.classList.add('hidden');
+        switchTab('orders', document.querySelector('.tab-btn'));
+    }
 }
 
 setInterval(()=>{ if(document.getElementById('tab-orders').classList.contains('active')) location.reload(); },60000);
