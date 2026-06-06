@@ -35,10 +35,10 @@ def merge_items(items: list) -> list:
     return list(merged.values())
 
 
-def generate_daily_report(db: Session) -> dict | None:
+def generate_daily_report(db: Session) -> dict:
     """
     Generate consolidated daily order report.
-    Returns dict with template parameters or None if no orders.
+    Always returns a dict — sends 'no orders' message when count is zero.
     """
     today = date.today()
 
@@ -46,9 +46,6 @@ def generate_daily_report(db: Session) -> dict | None:
         func.date(Order.created_at) == today,
         Order.status.notin_(["pending_replace", "pending_repeat"]),
     ).order_by(Order.created_at.asc()).all()
-
-    if not orders:
-        return None
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
@@ -67,16 +64,19 @@ def generate_daily_report(db: Session) -> dict | None:
             product_totals[key]["total_quantity"] += quantity
 
     # Product summary string — pipe-separated, no newlines (Meta template requirement)
-    lines = []
-    for data in product_totals.values():
-        qty     = data["total_quantity"]
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        lines.append(f"{data['product']} - {qty_str} {data['unit']}")
+    if not orders:
+        product_summary = "No orders received today"
+    else:
+        lines = []
+        for data in product_totals.values():
+            qty     = data["total_quantity"]
+            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            lines.append(f"{data['product']} - {qty_str} {data['unit']}")
 
-    if unclear_orders:
-        lines.append(f"Unclear: {len(unclear_orders)} (need follow up)")
+        if unclear_orders:
+            lines.append(f"Unclear: {len(unclear_orders)} (need follow up)")
 
-    product_summary = " | ".join(lines)
+        product_summary = " | ".join(lines)
 
     # Total items count
     total_items = sum(
@@ -97,9 +97,6 @@ def send_daily_report(db: Session):
     print("\n⏰ Generating Daily Report...")
 
     data = generate_daily_report(db)
-    if not data:
-        print("ℹ️ No orders found for today — report not sent")
-        return
 
     result = send_whatsapp_template(
         MANAGER_PHONE,
