@@ -18,6 +18,7 @@ from app.services.notifier import (
 )
 from app.services.template_parser import parse_template_order, build_error_message
 from app.services.customer_service import get_customer_by_phone, create_new_customer
+from app.services.adhoc_reporter import is_report_keyword, handle_adhoc_report_request
 
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
@@ -242,6 +243,17 @@ def process_incoming_order(
 ) -> dict:
 
     msg_lower = message.strip().lower()
+
+    # ── 0. Ad hoc report request (manager / salesperson only) ─────────────────
+    # Check before any customer logic — manager/salesperson are not customers.
+    # Returns True if handled (sends report + returns early).
+    # Returns False if unknown phone — falls through to normal pipeline.
+    if is_report_keyword(msg_lower):
+        handled = handle_adhoc_report_request(customer_phone, msg_lower, db)
+        if handled:
+            return {"order_id": None, "status": "adhoc_report_sent", "parsed": None}
+        # Unknown phone with a report keyword → fall through to order pipeline
+        # (words like "today"/"pending" produce no product matches → unclear response)
 
     # ── 1. Lookup / create customer ───────────────────────────────────────────
     customer = get_customer_by_phone(db, customer_phone)
