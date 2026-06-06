@@ -66,15 +66,17 @@ def generate_daily_report(db: Session) -> dict | None:
                 product_totals[key] = {"product": product, "unit": unit, "total_quantity": 0}
             product_totals[key]["total_quantity"] += quantity
 
-    # Product summary string
-    product_summary = ""
+    # Product summary string — pipe-separated, no newlines (Meta template requirement)
+    lines = []
     for data in product_totals.values():
         qty     = data["total_quantity"]
         qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        product_summary += f"{data['product']} - {qty_str} {data['unit']}\n"
+        lines.append(f"{data['product']} - {qty_str} {data['unit']}")
 
     if unclear_orders:
-        product_summary += f"\nUnclear orders: {len(unclear_orders)} (need follow up)"
+        lines.append(f"Unclear: {len(unclear_orders)} (need follow up)")
+
+    product_summary = " | ".join(lines)
 
     # Total items count
     total_items = sum(
@@ -86,7 +88,7 @@ def generate_daily_report(db: Session) -> dict | None:
         "date_str":        today.strftime("%d %B %Y"),
         "total_orders":    str(len(clear_orders)),
         "total_items":     str(total_items),
-        "product_summary": product_summary.strip(),
+        "product_summary": product_summary,
     }
 
 
