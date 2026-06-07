@@ -11,7 +11,6 @@ from app.models.customer import Customer
 from app.services.notifier import (
     send_order_confirmation,
     send_manager_alert,
-    send_unclear_order_alert,
     send_whatsapp_message,
     send_replace_confirmation_request,
     send_repeat_order_confirmation_request,
@@ -112,6 +111,28 @@ def get_last_order(db: Session, customer_phone: str) -> Order | None:
     )
 
 
+def _build_unclear_alert(restaurant_name: str, customer_phone: str, unclear_items: list, parsed_items: list) -> str:
+    """Build a WhatsApp message alerting manager about unclear items in an order."""
+    lines = [
+        f"⚠️ *Unclear Items in Order — {PLANT_NAME}*\n",
+        f"🏪 {restaurant_name}",
+        f"📱 {customer_phone}\n",
+    ]
+    if parsed_items:
+        lines.append("*Parsed items (confirmed):*")
+        for i in parsed_items:
+            qty = int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']
+            lines.append(f"  ✅ {i['product']} — {qty} {i['unit']}")
+        lines.append("")
+
+    lines.append("*Could not understand:*")
+    for raw in unclear_items:
+        lines.append(f"  ❓ {raw}")
+
+    lines.append("\nPlease review on the dashboard and assign correct product names.")
+    return "\n".join(lines)
+
+
 def _save_and_notify(
     db: Session,
     customer: Customer,
@@ -122,9 +143,17 @@ def _save_and_notify(
 ) -> dict:
     """
     Central save + notify. Called from multiple paths.
+
+    Key behaviour change (v2):
+    - Customer ALWAYS gets a clean confirmation (never sees unclear item errors)
+    - If unclear_items exist → manager gets a silent alert
+    - unclear_items stored in order.unclear_items (JSON)
+    - is_unclear on Order is only True when NOTHING was parseable
     """
     customer_phone  = customer.phone_number
     restaurant_name = customer.restaurant_name
+    unclear_items   = parsed.get("unclear_items", [])
+    parsed_items    = parsed.get("items", [])
 
     order = Order(
         plant_name     = PLANT_NAME,
@@ -132,7 +161,8 @@ def _save_and_notify(
         customer_phone = customer_phone,
         raw_message    = raw_message,
         is_photo_order = is_photo,
-        parsed_items   = json.dumps(parsed.get("items", [])),
+        parsed_items   = json.dumps(parsed_items),
+        unclear_items  = json.dumps(unclear_items) if unclear_items else None,
         delivery_date  = get_delivery_date_str(),
         delivery_time  = parsed.get("delivery_time"),
         is_unclear     = parsed.get("is_unclear", False),
@@ -143,17 +173,10 @@ def _save_and_notify(
     db.commit()
     db.refresh(order)
 
-    if parsed.get("is_unclear"):
-        send_unclear_order_alert(
-            manager_phone  = MANAGER_PHONE,
-            customer_phone = customer_phone,
-            raw_message    = raw_message,
-            unclear_reason = parsed.get("unclear_reason", "Unknown reason"),
-        )
-    elif is_edit:
+    if is_edit:
         items_text = "\n".join(
-            f"• {i['product']} — {i['quantity']} {i['unit']}"
-            for i in parsed.get("items", [])
+            f"• {i['product']} — {int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']} {i['unit']}"
+            for i in parsed_items
         )
         send_whatsapp_message(
             customer_phone,
@@ -171,17 +194,31 @@ def _save_and_notify(
         except Exception:
             pass
     else:
+        # Always send clean confirmation to customer
         send_order_confirmation(
             customer_phone  = customer_phone,
             parsed          = parsed,
             restaurant_name = restaurant_name,
         )
+        # Manager alert for the order
         send_manager_alert(
             manager_phone   = MANAGER_PHONE,
             customer_phone  = customer_phone,
             parsed          = parsed,
             restaurant_name = restaurant_name,
         )
+        # If there are unclear items, send a SEPARATE silent alert to manager
+        if unclear_items:
+            try:
+                alert_text = _build_unclear_alert(
+                    restaurant_name = restaurant_name,
+                    customer_phone  = customer_phone,
+                    unclear_items   = unclear_items,
+                    parsed_items    = parsed_items,
+                )
+                send_whatsapp_message(MANAGER_PHONE, alert_text)
+            except Exception as e:
+                print(f"⚠️ Unclear items manager alert failed: {e}")
 
     order.confirmation_sent    = True
     order.forwarded_to_manager = True
@@ -245,15 +282,10 @@ def process_incoming_order(
     msg_lower = message.strip().lower()
 
     # ── 0. Ad hoc report request (manager / salesperson only) ─────────────────
-    # Check before any customer logic — manager/salesperson are not customers.
-    # Returns True if handled (sends report + returns early).
-    # Returns False if unknown phone — falls through to normal pipeline.
     if is_report_keyword(msg_lower):
         handled = handle_adhoc_report_request(customer_phone, msg_lower, db)
         if handled:
             return {"order_id": None, "status": "adhoc_report_sent", "parsed": None}
-        # Unknown phone with a report keyword → fall through to order pipeline
-        # (words like "today"/"pending" produce no product matches → unclear response)
 
     # ── 1. Lookup / create customer ───────────────────────────────────────────
     customer = get_customer_by_phone(db, customer_phone)
@@ -377,7 +409,6 @@ def process_incoming_order(
     # ── 6. Handle yes/no replies ──────────────────────────────────────────────
     if msg_lower in CONFIRM_YES or msg_lower in CONFIRM_NO:
 
-        # Check for pending_repeat
         pending_repeat = (
             db.query(Order)
             .filter(
@@ -403,10 +434,10 @@ def process_incoming_order(
                 )
                 return {"order_id": None, "status": "repeat_cancelled", "parsed": None}
 
-            # Yes — confirm the repeat
             items  = json.loads(pending_repeat.parsed_items)
             parsed = {
                 "items":          items,
+                "unclear_items":  [],
                 "delivery_date":  None,
                 "delivery_time":  None,
                 "is_unclear":     False,
@@ -432,7 +463,6 @@ def process_incoming_order(
 
             return {"order_id": pending_repeat.id, "status": "repeat_confirmed", "parsed": parsed}
 
-        # Check for pending_replace
         pending_replace = (
             db.query(Order)
             .filter(
@@ -456,7 +486,6 @@ def process_incoming_order(
                 )
                 return {"order_id": None, "status": "replace_cancelled", "parsed": None}
 
-            # Yes — cancel old order and confirm new one
             old_order = (
                 db.query(Order)
                 .filter(
@@ -477,6 +506,7 @@ def process_incoming_order(
             items  = json.loads(pending_replace.parsed_items)
             parsed = {
                 "items":          items,
+                "unclear_items":  [],
                 "delivery_date":  None,
                 "delivery_time":  pending_replace.delivery_time,
                 "is_unclear":     False,
@@ -503,10 +533,12 @@ def process_incoming_order(
             return {"order_id": pending_replace.id, "status": "replace_confirmed", "parsed": parsed}
 
     # ── 7. Parse order ────────────────────────────────────────────────────────
-    parsed = parse_template_order(customer_phone, message)
+    # Pass db so parser can check alias table for previously learned items
+    parsed = parse_template_order(customer_phone, message, db=db)
 
-    # If completely unclear — send template + instruction
-    if parsed["is_unclear"]:
+    # If truly nothing parseable (not even a recognisable line) — send template
+    # This is the only case where we ask the customer to retry
+    if parsed["is_unclear"] and not parsed.get("unclear_items"):
         from app.services.product_catalog import generate_order_template
         send_whatsapp_message(
             customer_phone,
@@ -516,26 +548,24 @@ def process_incoming_order(
         )
         return {"order_id": None, "status": "unclear_message", "parsed": None}
 
-    # Partial errors — accept good items, flag bad ones
-    errors = parsed.get("errors", [])
-
     # ── 8. Duplicate / replace flow ───────────────────────────────────────────
     existing_order = get_todays_active_order(db, customer_phone)
 
     if existing_order:
         current_time_ist = datetime.now(IST)
-        cutoff_time = current_time_ist.replace(hour=DISPATCH_CUTOFF_HOUR, minute=0, second=0, microsecond=0)
+        cutoff_time = current_time_ist.replace(
+            hour=DISPATCH_CUTOFF_HOUR, minute=0, second=0, microsecond=0
+        )
 
         if current_time_ist < cutoff_time:
-            # Before 9 AM — customer is amending, ask to replace
             existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
-
             pending = Order(
                 plant_name     = PLANT_NAME,
                 customer_name  = customer.restaurant_name,
                 customer_phone = customer_phone,
                 raw_message    = message,
                 parsed_items   = json.dumps(parsed.get("items", [])),
+                unclear_items  = json.dumps(parsed.get("unclear_items", [])) if parsed.get("unclear_items") else None,
                 delivery_date  = get_delivery_date_str(),
                 delivery_time  = parsed.get("delivery_time"),
                 is_unclear     = False,
@@ -552,7 +582,6 @@ def process_incoming_order(
             return {"order_id": pending.id, "status": "replace_requested", "parsed": parsed}
 
         else:
-            # After 9 AM — post-dispatch, treat as fresh additional order
             result = _save_and_notify(
                 db          = db,
                 customer    = customer,
@@ -589,7 +618,7 @@ def process_incoming_order(
             return result
 
     # ── 9. Save order ─────────────────────────────────────────────────────────
-    result = _save_and_notify(
+    return _save_and_notify(
         db          = db,
         customer    = customer,
         parsed      = parsed,
@@ -597,12 +626,6 @@ def process_incoming_order(
         is_photo    = is_photo,
         is_edit     = False,
     )
-
-    # Send partial error feedback after confirmation if needed
-    if errors:
-        send_whatsapp_message(customer_phone, build_error_message(errors))
-
-    return result
 
 
 # ── Query helpers ─────────────────────────────────────────────────────────────
@@ -612,9 +635,15 @@ def get_all_orders(db: Session) -> list:
 
 
 def get_unclear_orders(db: Session) -> list:
+    """Orders that have any unclear_items (partial or total)."""
     return (
         db.query(Order)
-        .filter(Order.is_unclear.is_(True))
+        .filter(
+            Order.unclear_items.isnot(None),
+            Order.unclear_items != "[]",
+            Order.unclear_items != "null",
+            Order.is_cancelled == False,
+        )
         .order_by(Order.created_at.desc())
         .all()
     )

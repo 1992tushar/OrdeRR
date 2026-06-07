@@ -37,17 +37,15 @@
         @media(min-width:600px){ .section { padding:0 24px 24px; } }
         .section h2 { font-size:15px; color:#555; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid #075e54; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
 
-        /* ── Tables — hidden on mobile, replaced by cards ── */
+        /* ── Tables ── */
         .summary-table { background:white; border-radius:12px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.1); margin-bottom:20px; }
         .summary-table table { width:100%; border-collapse:collapse; }
         .summary-table th { background:#075e54; color:white; padding:10px 12px; text-align:left; font-size:12px; }
         .summary-table td { padding:10px 12px; border-bottom:1px solid #f0f0f0; font-size:13px; vertical-align:middle; }
         .summary-table tr:last-child td { border-bottom:none; }
-
-        /* Product summary table always visible (simple, few columns) */
         .product-table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 
-        /* ── Mobile Cards for Customers/Salespersons/Windows ── */
+        /* ── Mobile Cards ── */
         .mobile-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #075e54; }
         .mobile-card.inactive { opacity:.6; border-left-color:#ccc; }
         .mobile-card-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; }
@@ -55,7 +53,7 @@
         .mobile-card-sub { font-size:12px; color:#888; margin-top:2px; }
         .mobile-card-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
 
-        /* Desktop table visibility */
+        /* Desktop/mobile visibility */
         .desktop-only { display:none; }
         @media(min-width:700px){ .desktop-only { display:block; } .mobile-only { display:none !important; } }
         .mobile-only { display:block; }
@@ -81,6 +79,7 @@
         .badge.manual-badge   { background:#fff3e0; color:#e65100; }
         .badge.attempts-badge { background:#f5f5f5; color:#757575; }
         .badge.ack-badge      { background:#fff3e0; color:#e65100; }
+        .badge-count { display:inline-block; background:#e53e3e; color:white; border-radius:9999px; padding:1px 6px; font-size:11px; margin-left:4px; font-weight:700; }
 
         /* ── Buttons ── */
         .btn { border:none; border-radius:6px; padding:7px 13px; font-size:12px; cursor:pointer; font-weight:600; transition:background .15s; white-space:nowrap; }
@@ -143,6 +142,25 @@
         .failed-card-meta { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
         .failed-card-actions { display:flex; gap:8px; margin-top:12px; }
 
+        /* ── Unclear Tab ── */
+        .unclear-order-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #e53e3e; }
+        .unclear-order-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; gap:8px; flex-wrap:wrap; }
+        .unclear-order-name { font-weight:700; font-size:15px; color:#222; }
+        .unclear-order-meta { font-size:12px; color:#888; margin-top:2px; }
+        .unclear-section-label { font-size:12px; font-weight:700; margin-bottom:6px; }
+        .unclear-parsed-label { color:#38a169; }
+        .unclear-raw-label { color:#e53e3e; }
+        .unclear-item-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+        .unclear-raw-pill { font-size:13px; font-family:monospace; background:#fff5f5; border:1px solid #fed7d7; border-radius:6px; padding:4px 10px; color:#c53030; flex:1; min-width:120px; word-break:break-all; }
+        .unclear-select { font-size:13px; padding:5px 8px; border:1px solid #e2e8f0; border-radius:6px; flex:1; min-width:150px; max-width:240px; background:white; }
+        .unclear-save-btn { font-size:12px; background:#3182ce; color:white; border:none; border-radius:6px; padding:5px 12px; cursor:pointer; white-space:nowrap; font-weight:600; }
+        .unclear-save-btn:disabled { opacity:.6; cursor:not-allowed; }
+        .unclear-save-btn.done { background:#38a169; }
+        .aliases-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .aliases-table th { text-align:left; padding:6px 8px; color:#718096; font-weight:600; border-bottom:1px solid #e2e8f0; }
+        .aliases-table td { padding:6px 8px; border-bottom:1px solid #f7fafc; }
+        .alias-raw { font-family:monospace; color:#c53030; }
+
         /* ── Modals ── */
         .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:500; align-items:flex-end; justify-content:center; }
         .modal-overlay.open { display:flex; }
@@ -152,7 +170,7 @@
         .modal-header { padding:16px 20px 14px; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; align-items:center; }
         .modal-header h3 { color:#075e54; font-size:15px; }
         .modal-body { overflow-y:auto; padding:14px 20px; flex:1; -webkit-overflow-scrolling:touch; }
-        .modal-body input, .modal-body select { font-size:16px; } /* prevent iOS zoom */
+        .modal-body input, .modal-body select { font-size:16px; }
         .history-item { padding:12px 0; border-bottom:1px solid #f5f5f5; }
         .history-item:last-child { border-bottom:none; }
         .history-date { font-size:13px; font-weight:600; color:#075e54; margin-bottom:4px; }
@@ -181,14 +199,16 @@
 <div class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('orders',this)">📦 Orders</button>
     <button class="tab-btn" onclick="switchTab('pending',this)">⏳ Pending</button>
+    <button class="tab-btn" onclick="switchTab('unclear',this)" id="unclear-tab-btn">⚠️ Unclear</button>
     <button class="tab-btn" onclick="switchTab('customers',this)">👥 Customers</button>
     <button class="tab-btn" onclick="switchTab('salespersons',this)">🧑 Sales</button>
     <button class="tab-btn" onclick="switchTab('window',this)" id="window-tab-btn">📡 Windows</button>
-    {# Failed tab — only shown when there are active issues #}
     <button class="tab-btn {% if not reliability_stats.has_issues %}hidden{% endif %}" onclick="switchTab('failed',this)" id="failed-tab-btn">⚠️ Failed<span class="tab-dot"></span></button>
 </div>
 
-<!-- ── Orders Tab ── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     ORDERS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-orders" class="tab-pane active">
     <div class="cards">
         <div class="card"><div class="number">{{ orders|length }}</div><div class="label">Total Orders</div></div>
@@ -230,7 +250,12 @@
             {% for order in clear_orders %}
             <div class="order-card">
                 <div class="order-header">
-                    <span style="font-weight:bold;font-size:15px">{{ order.customer_name or order.customer_phone }}</span>
+                    <div>
+                        <span style="font-weight:bold;font-size:15px">{{ order.customer_name or order.customer_phone }}</span>
+                        {% if order.has_unclear_items %}
+                        <span class="badge unclear" style="margin-left:6px;font-size:10px">⚠️ partial</span>
+                        {% endif %}
+                    </div>
                     <span style="font-size:11px;color:#888">
                         {% if order.delivery_date and order.delivery_time %}{{ order.delivery_date }} · {{ order.delivery_time }}
                         {% elif order.delivery_date %}{{ order.delivery_date }}
@@ -238,6 +263,20 @@
                     </span>
                 </div>
                 <div class="items">{% for item in order.items_parsed %}{{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}</div>
+                {% if order.has_unclear_items %}
+                <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #fed7d7;">
+                    <div style="font-size:12px; font-weight:700; color:#e53e3e; margin-bottom:4px;">❓ Unresolved items (not counted in summary):</div>
+                    {% for raw in order.unclear_items_list %}
+                    <div style="font-size:12px; font-family:monospace; color:#c53030; padding:2px 0;">• {{ raw }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if order.raw_message and order.has_unclear_items %}
+                <details style="margin-top:8px;">
+                    <summary style="font-size:12px;color:#aaa;cursor:pointer;">📄 Raw message</summary>
+                    <div class="raw-message">{{ order.raw_message }}</div>
+                </details>
+                {% endif %}
             </div>
             {% endfor %}
         {% else %}
@@ -260,7 +299,9 @@
     </div>
 </div>
 
-<!-- ── Pending Tab ── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PENDING TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-pending" class="tab-pane">
     <div class="cards">
         <div class="card warning"><div class="number" id="pending-total">—</div><div class="label">Pending</div></div>
@@ -273,7 +314,40 @@
     </div>
 </div>
 
-<!-- ── Customers Tab ── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     UNCLEAR ITEMS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-unclear" class="tab-pane">
+    <div class="cards">
+        <div class="card danger"><div class="number" id="unclear-count">—</div><div class="label">Unclear Orders</div></div>
+        <div class="card warning"><div class="number" id="unclear-items-count">—</div><div class="label">Unresolved Items</div></div>
+        <div class="card success"><div class="number" id="unclear-aliases-count">—</div><div class="label">Saved Aliases</div></div>
+    </div>
+    <div class="section">
+        <h2>⚠️ Unclear Items <button class="section-btn" onclick="loadUnclearOrders()">↻</button></h2>
+        <p style="font-size:13px;color:#718096;margin-bottom:16px;line-height:1.6;">
+            These orders had items the parser couldn't recognise. The customer received a normal "✅ Order received" confirmation.
+            Assign the correct product below — the system will learn it and retroactively update all past orders with the same text.
+        </p>
+
+        <div id="unclear-orders-container">
+            <div class="empty">Loading...</div>
+        </div>
+
+        <!-- Saved aliases section -->
+        <div style="margin-top:24px;">
+            <h2>📖 Saved Aliases</h2>
+            <p style="font-size:13px;color:#718096;margin-bottom:12px;">These mappings are applied automatically by the parser from now on.</p>
+            <div id="aliases-container">
+                <div class="empty">Loading...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     CUSTOMERS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-customers" class="tab-pane">
     <div class="cards">
         <div class="card"><div class="number" id="stat-total">—</div><div class="label">Total</div></div>
@@ -283,7 +357,6 @@
     </div>
     <div class="section">
         <h2>👥 Customers <button class="section-btn" onclick="loadCustomers()">↻</button></h2>
-        <!-- Desktop table -->
         <div class="desktop-only">
             <div class="summary-table">
                 <table>
@@ -292,12 +365,13 @@
                 </table>
             </div>
         </div>
-        <!-- Mobile cards -->
         <div class="mobile-only" id="customer-cards"><div class="empty">Loading...</div></div>
     </div>
 </div>
 
-<!-- ── Salespersons Tab ── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SALESPERSONS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-salespersons" class="tab-pane">
     <div class="section" style="padding-top:16px">
         <h2>🧑 Salespersons <button class="section-btn" onclick="toggleAddSP()">+ Add</button></h2>
@@ -312,7 +386,6 @@
                 </div>
             </div>
         </div>
-        <!-- Desktop table -->
         <div class="desktop-only">
             <div class="summary-table">
                 <table>
@@ -321,12 +394,13 @@
                 </table>
             </div>
         </div>
-        <!-- Mobile cards -->
         <div class="mobile-only" id="sp-cards"><div class="empty">Loading...</div></div>
     </div>
 </div>
 
-<!-- ── WA Windows Tab ── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     WA WINDOWS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-window" class="tab-pane">
     <div class="cards">
         <div class="card success"><div class="number" id="win-open">—</div><div class="label">Open</div></div>
@@ -355,7 +429,9 @@
     </div>
 </div>
 
-<!-- ── Failed Tab ── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     FAILED TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-failed" class="tab-pane">
     <div class="cards">
         <div class="card"><div class="number">{{ reliability_stats.total_today or 0 }}</div><div class="label">Today</div></div>
@@ -394,7 +470,9 @@
     </div>
 </div>
 
-<!-- ── Assign Modal ── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODALS
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="assign-modal" class="modal-overlay">
     <div class="modal-box">
         <div class="modal-header">
@@ -417,7 +495,6 @@
     </div>
 </div>
 
-<!-- ── History Modal ── -->
 <div id="history-modal" class="modal-overlay">
     <div class="modal-box">
         <div class="modal-header">
@@ -437,17 +514,21 @@
 let allSalespersons = [];
 let currentAssignId = null;
 let windowData = [];
+let productNames = [];
+
+// ── Core ────────────────────────────────────────────────────────────────────
 
 function switchTab(name, btn) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
-    btn.classList.add('active');
+    if (btn) btn.classList.add('active');
     if (name === 'customers')    { loadSalespersons().then(loadCustomers); }
     if (name === 'salespersons') { loadSalespersons(); }
     if (name === 'pending')      { loadPending(); }
     if (name === 'failed')       { loadFailedMessages(); }
     if (name === 'window')       { loadWindowStatus(); }
+    if (name === 'unclear')      { loadUnclearOrders(); loadAliases(); }
 }
 
 function showToast(msg, type='') {
@@ -466,15 +547,19 @@ async function api(method, path, body) {
 
 function isMobile() { return window.innerWidth < 700; }
 
+function esc(str) {
+    return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function closeModal(id) {
     document.getElementById(id).classList.remove('open');
-    if(id==='assign-modal') currentAssignId=null;
+    if (id === 'assign-modal') currentAssignId = null;
 }
 document.querySelectorAll('.modal-overlay').forEach(el => {
     el.addEventListener('click', e => { if(e.target===el) el.classList.remove('open'); });
 });
 
-// ── Salespersons ──────────────────────────────────────────────────────────
+// ── Salespersons ─────────────────────────────────────────────────────────────
 
 async function loadSalespersons() {
     try {
@@ -485,33 +570,31 @@ async function loadSalespersons() {
         if (sel) {
             sel.innerHTML = '<option value="">— Select —</option>';
             allSalespersons.filter(s=>s.active).forEach(s => {
-                sel.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+                sel.innerHTML += `<option value="${s.id}">${esc(s.name)}</option>`;
             });
         }
     } catch(e) { console.error(e); }
 }
 
 function renderSalespersons(list) {
-    // Desktop
     const tbody = document.getElementById('sp-tbody');
     if (tbody) {
         if (!list.length) { tbody.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">No salespersons yet</td></tr>'; }
         else tbody.innerHTML = list.map(s=>`<tr>
-            <td><strong>${s.name}</strong></td>
-            <td style="color:#888;font-size:13px">${s.phone}</td>
+            <td><strong>${esc(s.name)}</strong></td>
+            <td style="color:#888;font-size:13px">${esc(s.phone)}</td>
             <td>${s.customer_count}</td>
             <td>${s.active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
             <td>${s.active?`<button class="btn btn-deactivate" onclick="toggleSP(${s.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="toggleSP(${s.id},true)">Activate</button>`}</td>
         </tr>`).join('');
     }
-    // Mobile
     const cards = document.getElementById('sp-cards');
     if (cards) {
         if (!list.length) { cards.innerHTML='<div class="empty">No salespersons yet</div>'; return; }
         cards.innerHTML = list.map(s=>`
             <div class="mobile-card ${!s.active?'inactive':''}">
                 <div class="mobile-card-row">
-                    <div><div class="mobile-card-name">${s.name}</div><div class="mobile-card-sub">${s.phone} · ${s.customer_count} customers</div></div>
+                    <div><div class="mobile-card-name">${esc(s.name)}</div><div class="mobile-card-sub">${esc(s.phone)} · ${s.customer_count} customers</div></div>
                     ${s.active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}
                 </div>
                 <div class="mobile-card-actions">
@@ -541,7 +624,7 @@ async function toggleSP(id,active) {
     catch(e){showToast('Update failed','error');}
 }
 
-// ── Customers ──────────────────────────────────────────────────────────────
+// ── Customers ─────────────────────────────────────────────────────────────────
 
 async function loadCustomers() {
     document.getElementById('customer-tbody').innerHTML='<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
@@ -559,44 +642,42 @@ function renderCustomers(customers) {
     document.getElementById('stat-inactive').textContent=customers.filter(c=>!c.is_active).length;
     document.getElementById('stat-ordered').textContent=customers.filter(c=>c.ordered_today).length;
 
-    // Desktop table
     const tbody=document.getElementById('customer-tbody');
     if(!customers.length){tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';}
     else tbody.innerHTML=customers.map(c=>{
-        const sp=c.salesperson_name?`<span style="font-size:13px">${c.salesperson_name}</span>`:'<span class="badge unassigned">Unassigned</span>';
+        const sp=c.salesperson_name?`<span style="font-size:13px">${esc(c.salesperson_name)}</span>`:'<span class="badge unassigned">Unassigned</span>';
         const today=c.ordered_today?'<span class="badge ordered-badge">✅</span>':'<span class="badge pending-badge">⏳</span>';
         const toggle=c.is_active?`<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="setStatus(${c.id},true)">Activate</button>`;
-        return `<tr class="${!c.is_active?'':''}">
-            <td><strong>${c.restaurant_name||'—'}</strong></td>
-            <td style="font-size:12px;color:#888">${c.phone_number}</td>
-            <td>${c.area||'<span style="color:#ccc">—</span>'}</td>
+        return `<tr>
+            <td><strong>${esc(c.restaurant_name||'—')}</strong></td>
+            <td style="font-size:12px;color:#888">${esc(c.phone_number)}</td>
+            <td>${esc(c.area||'')}</td>
             <td>${sp}</td><td>${today}</td>
             <td>${c.is_active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
             <td style="display:flex;gap:5px;flex-wrap:wrap">
-                <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${c.area||''}')">Assign</button>
+                <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
                 ${toggle}
                 <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
             </td>
         </tr>`;
     }).join('');
 
-    // Mobile cards
     const cards=document.getElementById('customer-cards');
     if(!customers.length){cards.innerHTML='<div class="empty">No customers yet</div>';return;}
     cards.innerHTML=customers.map(c=>{
         const todayBadge=c.ordered_today?'<span class="badge ordered-badge">✅ Ordered</span>':'<span class="badge pending-badge">⏳ Pending</span>';
-        const spText=c.salesperson_name?`👤 ${c.salesperson_name}`:'Unassigned';
+        const spText=c.salesperson_name?`👤 ${esc(c.salesperson_name)}`:'Unassigned';
         const toggle=c.is_active?`<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="setStatus(${c.id},true)">Activate</button>`;
         return `<div class="mobile-card ${!c.is_active?'inactive':''}">
             <div class="mobile-card-row">
                 <div>
-                    <div class="mobile-card-name">${c.restaurant_name||'—'}</div>
-                    <div class="mobile-card-sub">${c.phone_number}${c.area?' · '+c.area:''} · ${spText}</div>
+                    <div class="mobile-card-name">${esc(c.restaurant_name||'—')}</div>
+                    <div class="mobile-card-sub">${esc(c.phone_number)}${c.area?' · '+esc(c.area):''} · ${spText}</div>
                 </div>
                 ${todayBadge}
             </div>
             <div class="mobile-card-actions">
-                <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${c.area||''}')">Assign</button>
+                <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
                 ${toggle}
                 <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
             </div>
@@ -634,15 +715,21 @@ async function openHistory(cid,rname) {
         const orders=data.orders||[];
         if(!orders.length){document.getElementById('history-body').innerHTML='<div class="empty">No orders found</div>';return;}
         document.getElementById('history-body').innerHTML=orders.map(o=>{
-            const items=(o.items||[]).map(i=>`${i.product} — ${i.quantity} ${i.unit}`).join('<br>');
+            const items=(o.items||[]).map(i=>`${esc(i.product)} — ${i.quantity} ${esc(i.unit)}`).join('<br>');
             const dl=o.delivery_date||(o.created_at?o.created_at.substring(0,10):'—');
-            const tag=o.is_cancelled?'<span class="badge inactive" style="font-size:10px">Cancelled</span>':o.is_unclear?'<span class="badge unclear" style="font-size:10px">Unclear</span>':'<span class="badge active" style="font-size:10px">OK</span>';
-            return `<div class="history-item ${o.is_cancelled?'history-cancelled':''}"><div class="history-date">${dl} ${tag}</div><div class="history-items">${items||'<em style="color:#aaa">No items</em>'}</div>${o.is_unclear?`<div style="font-size:11px;color:#e67e22;margin-top:4px">${o.unclear_reason||''}</div>`:''}</div>`;
+            const unclearItems=o.unclear_items||[];
+            const tag=o.is_cancelled?'<span class="badge inactive" style="font-size:10px">Cancelled</span>':o.is_unclear?'<span class="badge unclear" style="font-size:10px">Unclear</span>':unclearItems.length?'<span class="badge unclear" style="font-size:10px">Partial</span>':'<span class="badge active" style="font-size:10px">OK</span>';
+            return `<div class="history-item ${o.is_cancelled?'history-cancelled':''}">
+                <div class="history-date">${dl} ${tag}</div>
+                <div class="history-items">${items||'<em style="color:#aaa">No parsed items</em>'}</div>
+                ${unclearItems.length?`<div style="font-size:11px;color:#e53e3e;margin-top:4px;">❓ ${unclearItems.map(r=>`<span style="font-family:monospace">${esc(r)}</span>`).join(', ')}</div>`:''}
+                ${o.is_unclear?`<div style="font-size:11px;color:#e67e22;margin-top:4px">${esc(o.unclear_reason||'')}</div>`:''}
+            </div>`;
         }).join('');
     } catch(e){document.getElementById('history-body').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';}
 }
 
-// ── Pending ────────────────────────────────────────────────────────────────
+// ── Pending ───────────────────────────────────────────────────────────────────
 
 async function loadPending() {
     document.getElementById('pending-content').innerHTML='<div class="empty">Loading...</div>';
@@ -655,13 +742,13 @@ async function loadPending() {
         if(!data.total_pending){document.getElementById('pending-content').innerHTML='<div class="empty">✅ All customers have ordered today!</div>';return;}
         document.getElementById('pending-content').innerHTML=groups.map(g=>`
             <div class="pending-group">
-                <h3><span>${g.salesperson_id?'👤 '+g.salesperson_name:'⚠️ Unassigned'}</span><span class="badge pending-badge">${g.pending_count} pending</span></h3>
-                <ul class="pending-list">${g.customers.map(c=>`<li><span>🏪 ${c.restaurant_name}</span><span style="font-size:12px;color:#aaa">${c.area||''}</span></li>`).join('')}</ul>
+                <h3><span>${g.salesperson_id?'👤 '+esc(g.salesperson_name):'⚠️ Unassigned'}</span><span class="badge pending-badge">${g.pending_count} pending</span></h3>
+                <ul class="pending-list">${g.customers.map(c=>`<li><span>🏪 ${esc(c.restaurant_name)}</span><span style="font-size:12px;color:#aaa">${esc(c.area||'')}</span></li>`).join('')}</ul>
             </div>`).join('');
     } catch(e){document.getElementById('pending-content').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';}
 }
 
-// ── Window Status ──────────────────────────────────────────────────────────
+// ── Window Status ─────────────────────────────────────────────────────────────
 
 async function loadWindowStatus() {
     document.getElementById('window-list').innerHTML='<div class="empty">Loading...</div>';
@@ -697,8 +784,8 @@ function renderWindowCards(rows) {
         return `<div class="window-mobile-card">
             <span class="window-dot ${dotClass}"></span>
             <div class="window-info">
-                <div class="window-info-name">${s.name}</div>
-                <div class="window-info-sub">${roleLabel} · ${s.phone} · Last: ${s.last_seen_display}</div>
+                <div class="window-info-name">${esc(s.name)}</div>
+                <div class="window-info-sub">${roleLabel} · ${esc(s.phone)} · Last: ${esc(s.last_seen_display)}</div>
                 ${action}
             </div>
             <div class="window-status-text ${statClass}">${label}</div>
@@ -716,7 +803,183 @@ function filterWindow(filter, btn) {
     renderWindowCards(filtered);
 }
 
-// ── Failed Messages ────────────────────────────────────────────────────────
+// ── Unclear Items ─────────────────────────────────────────────────────────────
+
+async function fetchProductNames() {
+    if (productNames.length > 0) return productNames;
+    try {
+        const names = await api('GET', '/admin/product-names');
+        productNames = names;
+    } catch(e) { console.error('Failed to load product names', e); }
+    return productNames;
+}
+
+async function loadUnclearOrders() {
+    const container = document.getElementById('unclear-orders-container');
+    container.innerHTML = '<div class="empty">Loading...</div>';
+    try {
+        const [orders, products] = await Promise.all([
+            api('GET', '/admin/unclear-items'),
+            fetchProductNames(),
+        ]);
+
+        // Update stats
+        const totalItems = orders.reduce((s, o) => s + o.unclear_items.length, 0);
+        document.getElementById('unclear-count').textContent = orders.length;
+        document.getElementById('unclear-items-count').textContent = totalItems;
+
+        // Update tab badge
+        const tabBtn = document.getElementById('unclear-tab-btn');
+        const existingDot = tabBtn.querySelector('.tab-dot');
+        if (orders.length > 0) {
+            if (!existingDot) {
+                const d = document.createElement('span');
+                d.className = 'tab-dot';
+                tabBtn.appendChild(d);
+            }
+        } else {
+            existingDot?.remove();
+        }
+
+        if (orders.length === 0) {
+            container.innerHTML = `<div class="empty" style="color:#38a169;">✅ All orders fully parsed — no unclear items!</div>`;
+            return;
+        }
+
+        const productOptions = products.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+
+        container.innerHTML = orders.map(order => {
+            const parsedSection = order.parsed_items.length ? `
+                <div style="margin-bottom:12px;">
+                    <div class="unclear-section-label unclear-parsed-label">✅ Parsed items (included in product summary):</div>
+                    ${order.parsed_items.map(i => `
+                        <div style="font-size:13px;color:#2d3748;padding:2px 0;">
+                            &nbsp;&nbsp;• ${esc(i.product)} — ${Number.isInteger(i.quantity) || i.quantity%1===0 ? parseInt(i.quantity) : i.quantity} ${esc(i.unit)}
+                        </div>`).join('')}
+                </div>` : '';
+
+            const unclearSection = `
+                <div>
+                    <div class="unclear-section-label unclear-raw-label">❓ Unresolved items — assign correct product:</div>
+                    ${order.unclear_items.map((rawLine, idx) => `
+                        <div class="unclear-item-row">
+                            <div class="unclear-raw-pill">${esc(rawLine)}</div>
+                            <select class="unclear-select" id="sel-${order.order_id}-${idx}">
+                                <option value="">— select product —</option>
+                                ${productOptions}
+                            </select>
+                            <button class="unclear-save-btn"
+                                onclick="resolveItem('${esc(rawLine).replace(/'/g,"\\'")}', 'sel-${order.order_id}-${idx}', this)">
+                                Save &amp; Apply
+                            </button>
+                        </div>`).join('')}
+                </div>`;
+
+            return `
+                <div class="unclear-order-card">
+                    <div class="unclear-order-header">
+                        <div>
+                            <div class="unclear-order-name">🏪 ${esc(order.customer_name)}</div>
+                            <div class="unclear-order-meta">📱 ${esc(order.customer_phone)} &nbsp;·&nbsp; ${esc(order.delivery_date)}</div>
+                        </div>
+                        <span class="badge unclear">${order.unclear_items.length} unclear</span>
+                    </div>
+                    ${parsedSection}
+                    ${unclearSection}
+                    <details style="margin-top:10px;">
+                        <summary style="font-size:12px;color:#aaa;cursor:pointer;">📄 Full raw message</summary>
+                        <pre style="font-size:12px;color:#4a5568;background:#f7fafc;border-radius:6px;padding:8px;margin-top:6px;white-space:pre-wrap;word-break:break-word;">${esc(order.raw_message)}</pre>
+                    </details>
+                </div>`;
+        }).join('');
+
+    } catch(e) {
+        container.innerHTML = `<div class="empty" style="color:#e53e3e;">Failed to load: ${esc(e.message)}</div>`;
+    }
+}
+
+async function resolveItem(rawText, selectId, btn) {
+    const select = document.getElementById(selectId);
+    const canonical = select ? select.value : '';
+    if (!canonical) { showToast('Please select a product first', 'error'); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+        const data = await api('POST', '/admin/unclear-items/resolve', {
+            raw_text: rawText,
+            canonical_product_name: canonical,
+        });
+        btn.textContent = `✅ ${data.orders_patched} order${data.orders_patched !== 1 ? 's' : ''} updated`;
+        btn.classList.add('done');
+        showToast(`✅ "${rawText}" → ${canonical} (${data.orders_patched} orders updated)`, 'success');
+        // Reload after a moment so resolved items disappear
+        setTimeout(() => { loadUnclearOrders(); loadAliases(); }, 1500);
+    } catch(e) {
+        btn.disabled = false;
+        btn.textContent = 'Save & Apply';
+        let msg = e.message;
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_){}
+        showToast('❌ ' + msg, 'error');
+    }
+}
+
+async function loadAliases() {
+    const container = document.getElementById('aliases-container');
+    try {
+        const aliases = await api('GET', '/admin/unclear-items/aliases');
+        document.getElementById('unclear-aliases-count').textContent = aliases.length;
+
+        if (!aliases.length) {
+            container.innerHTML = '<div class="empty" style="padding:16px">No aliases saved yet.</div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="summary-table">
+                <table class="aliases-table">
+                    <thead>
+                        <tr>
+                            <th>Customer typed</th>
+                            <th>Maps to</th>
+                            <th>Saved on</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${aliases.map(a => `
+                            <tr id="alias-row-${a.id}">
+                                <td class="alias-raw">${esc(a.raw_text)}</td>
+                                <td style="color:#2d3748;font-weight:600;">${esc(a.canonical_product_name)}</td>
+                                <td style="color:#aaa;font-size:12px;">${a.created_at ? a.created_at.substring(0,10) : '—'}</td>
+                                <td>
+                                    <button onclick="deleteAlias(${a.id})"
+                                        style="font-size:11px;color:#e53e3e;background:none;border:1px solid #e53e3e;border-radius:4px;padding:2px 8px;cursor:pointer;">
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    } catch(e) {
+        container.innerHTML = '<div class="empty" style="color:#e53e3e;">Failed to load aliases.</div>';
+    }
+}
+
+async function deleteAlias(id) {
+    if (!confirm('Delete this alias? Future orders with this text will be flagged unclear again.')) return;
+    try {
+        await api('DELETE', `/admin/unclear-items/aliases/${id}`);
+        showToast('Alias deleted', '');
+        document.getElementById(`alias-row-${id}`)?.remove();
+        const count = document.querySelectorAll('[id^="alias-row-"]').length;
+        document.getElementById('unclear-aliases-count').textContent = count;
+        if (count === 0) loadAliases(); // show empty state
+    } catch(e) { showToast('Delete failed', 'error'); }
+}
+
+// ── Failed Messages ────────────────────────────────────────────────────────────
 
 async function loadFailedMessages() {
     const list=document.getElementById('failed-list');
@@ -726,21 +989,19 @@ async function loadFailedMessages() {
         const tabBtn=document.getElementById('failed-tab-btn');
         if(!data.messages?.length){
             list.innerHTML='<div class="empty" style="padding:60px">✅ No failed messages.</div>';
-            // No issues — hide the tab and switch away to orders
             tabBtn.classList.add('hidden');
             switchTab('orders', document.querySelector('.tab-btn'));
             return;
         }
-        // Issues exist — make sure tab is visible
         tabBtn.classList.remove('hidden');
         list.innerHTML=data.messages.map(m=>`
             <div class="failed-card ${m.processing_status==='MANUAL_REVIEW'?'manual':''}" id="fc-${m.id}">
                 <div class="failed-card-header">
-                    <span class="failed-card-phone">📱 ${m.customer_phone}</span>
+                    <span class="failed-card-phone">📱 ${esc(m.customer_phone)}</span>
                     <span class="failed-card-time">${m.received_at?new Date(m.received_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}):''}</span>
                 </div>
-                <div class="failed-card-message">${m.raw_message?`"${m.raw_message.substring(0,300)}${m.raw_message.length>300?'…':''}"` :'<em style="color:#aaa">No text</em>'}</div>
-                <div class="failed-card-reason ${m.processing_status==='MANUAL_REVIEW'?'orange':''}">❗ ${m.failure_reason||'Unknown'}</div>
+                <div class="failed-card-message">${m.raw_message?`"${esc(m.raw_message.substring(0,300))}${m.raw_message.length>300?'…':''}"` :'<em style="color:#aaa">No text</em>'}</div>
+                <div class="failed-card-reason ${m.processing_status==='MANUAL_REVIEW'?'orange':''}">❗ ${esc(m.failure_reason||'Unknown')}</div>
                 <div class="failed-card-meta">
                     <span class="badge ${m.processing_status==='MANUAL_REVIEW'?'manual-badge':'failed-badge'}">${m.processing_status}</span>
                     <span class="badge attempts-badge">${m.attempts} attempt${m.attempts!==1?'s':''}</span>
@@ -771,14 +1032,33 @@ function checkEmptyFailed() {
     const list=document.getElementById('failed-list');
     if(!list.querySelector('.failed-card')){
         list.innerHTML='<div class="empty" style="padding:60px">✅ No failed messages.</div>';
-        // All resolved — hide the tab and go back to orders
         const tabBtn=document.getElementById('failed-tab-btn');
         tabBtn.classList.add('hidden');
         switchTab('orders', document.querySelector('.tab-btn'));
     }
 }
 
-setInterval(()=>{ if(document.getElementById('tab-orders').classList.contains('active')) location.reload(); },60000);
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+// Badge check on page load — silently check for unclear items
+(async function initUnclearBadge() {
+    try {
+        const orders = await api('GET', '/admin/unclear-items');
+        if (orders && orders.length > 0) {
+            const tabBtn = document.getElementById('unclear-tab-btn');
+            if (!tabBtn.querySelector('.tab-dot')) {
+                const d = document.createElement('span');
+                d.className = 'tab-dot';
+                tabBtn.appendChild(d);
+            }
+        }
+    } catch(e) {}
+})();
+
+// Auto-reload orders tab every 60s
+setInterval(() => {
+    if (document.getElementById('tab-orders').classList.contains('active')) location.reload();
+}, 60000);
 </script>
 </body>
 </html>
