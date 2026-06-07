@@ -10,9 +10,15 @@ Customer:     GET /admin/customers
               PUT  /admin/customers/{id}/status
 Pending:      GET /admin/pending
 Window:       GET /admin/window-status
+Unclear:      GET /admin/unclear-items
+              GET /admin/unclear-items/aliases
+              GET /admin/product-names
+              POST /admin/unclear-items/resolve
+              DELETE /admin/unclear-items/aliases/{id}
 """
 
 import os
+import re
 import json
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
@@ -28,9 +34,11 @@ from app.models.customer import Customer
 from app.models.order import Order
 from app.models.salesperson import Salesperson
 from app.models.inbound_message import InboundMessage
+from app.models.unclear_item_alias import UnclearItemAlias
 from app.services.customer_service import normalize_phone
 from app.services.notifier import send_whatsapp_message
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
+from app.services.template_parser import PRODUCT_DEFINITIONS
 
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
@@ -186,6 +194,7 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
 
     result = []
     for o in orders:
+        unclear_items = json.loads(o.unclear_items) if getattr(o, 'unclear_items', None) else []
         result.append({
             "id"            : o.id,
             "delivery_date" : o.delivery_date,
@@ -194,6 +203,7 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
             "is_cancelled"  : o.is_cancelled,
             "is_unclear"    : o.is_unclear,
             "unclear_reason": o.unclear_reason,
+            "unclear_items" : unclear_items,
             "raw_message"   : o.raw_message,
             "items"         : json.loads(o.parsed_items) if o.parsed_items else [],
             "created_at"    : o.created_at.isoformat() if o.created_at else None,
@@ -273,10 +283,6 @@ def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(g
 # ── WhatsApp Window Status ────────────────────────────────────────────────────
 
 def _window_status(last_inbound: datetime | None, now: datetime) -> dict:
-    """
-    Calculate 24hr window status from last inbound message timestamp.
-    Returns status, hours_remaining, minutes_remaining, last_seen_ist.
-    """
     if last_inbound is None:
         return {
             "status": "CLOSED",
@@ -287,7 +293,6 @@ def _window_status(last_inbound: datetime | None, now: datetime) -> dict:
             "last_seen_display": "Never",
         }
 
-    # Ensure timezone-aware
     if last_inbound.tzinfo is None:
         last_inbound = last_inbound.replace(tzinfo=timezone.utc)
 
@@ -307,13 +312,7 @@ def _window_status(last_inbound: datetime | None, now: datetime) -> dict:
     total_minutes = int(remaining.total_seconds() // 60)
     hours = total_minutes // 60
     minutes = total_minutes % 60
-
-    if hours >= 4:
-        status = "OPEN"
-    elif hours >= 1:
-        status = "AT_RISK"
-    else:
-        status = "AT_RISK"
+    status = "OPEN" if hours >= 4 else "AT_RISK"
 
     return {
         "status": status,
@@ -327,95 +326,214 @@ def _window_status(last_inbound: datetime | None, now: datetime) -> dict:
 
 @router.get("/window-status")
 def get_window_status(db: Session = Depends(get_db), username: str = Depends(require_auth)):
-    """
-    Returns 24hr WhatsApp window status for all stakeholders:
-    - Manager (from MANAGER_PHONE env var)
-    - All active salespersons
-    - All active customers
-
-    Status values: OPEN (>4hrs), AT_RISK (0–4hrs), CLOSED (expired or never)
-    """
     now = datetime.now(timezone.utc)
-
-    # Collect all phones we need to check
     stakeholders = []
 
-    # Manager
     if MANAGER_PHONE:
-        stakeholders.append({
-            "name": "Manager",
-            "phone": MANAGER_PHONE,
-            "role": "manager",
-        })
+        stakeholders.append({"name": "Manager", "phone": MANAGER_PHONE, "role": "manager"})
 
-    # Active salespersons
-    salespersons = db.query(Salesperson).filter(Salesperson.active == True).all()
-    for sp in salespersons:
-        stakeholders.append({
-            "name": sp.name,
-            "phone": sp.phone,
-            "role": "salesperson",
-        })
+    for sp in db.query(Salesperson).filter(Salesperson.active == True).all():
+        stakeholders.append({"name": sp.name, "phone": sp.phone, "role": "salesperson"})
 
-    # Active customers
-    customers = (
+    for c in (
         db.query(Customer)
-        .filter(
-            Customer.is_active == True,
-            Customer.onboarding_status == "active",
-        )
+        .filter(Customer.is_active == True, Customer.onboarding_status == "active")
         .order_by(Customer.restaurant_name)
         .all()
-    )
-    for c in customers:
-        stakeholders.append({
-            "name": c.restaurant_name or c.phone_number,
-            "phone": c.phone_number,
-            "role": "customer",
-        })
+    ):
+        stakeholders.append({"name": c.restaurant_name or c.phone_number, "phone": c.phone_number, "role": "customer"})
 
-    # Fetch last inbound message timestamp for each phone in one query
     all_phones = [s["phone"] for s in stakeholders]
-
     last_seen_map = {}
     if all_phones:
         rows = (
-            db.query(
-                InboundMessage.customer_phone,
-                func.max(InboundMessage.received_at).label("last_seen"),
-            )
+            db.query(InboundMessage.customer_phone, func.max(InboundMessage.received_at).label("last_seen"))
             .filter(InboundMessage.customer_phone.in_(all_phones))
             .group_by(InboundMessage.customer_phone)
             .all()
         )
         last_seen_map = {row.customer_phone: row.last_seen for row in rows}
 
-    # Build result
     result = []
-    closed_count = 0
-    at_risk_count = 0
-
+    closed_count = at_risk_count = 0
     for s in stakeholders:
-        last_inbound = last_seen_map.get(s["phone"])
-        window = _window_status(last_inbound, now)
-        result.append({
-            "name"            : s["name"],
-            "phone"           : s["phone"],
-            "role"            : s["role"],
-            **window,
-        })
-        if window["status"] == "CLOSED":
-            closed_count += 1
-        elif window["status"] == "AT_RISK":
-            at_risk_count += 1
+        window = _window_status(last_seen_map.get(s["phone"]), now)
+        result.append({"name": s["name"], "phone": s["phone"], "role": s["role"], **window})
+        if window["status"] == "CLOSED":   closed_count += 1
+        elif window["status"] == "AT_RISK": at_risk_count += 1
 
     return {
-        "stakeholders"  : result,
-        "total"         : len(result),
-        "closed_count"  : closed_count,
-        "at_risk_count" : at_risk_count,
-        "checked_at"    : datetime.now(IST).strftime("%d %b %Y %H:%M IST"),
+        "stakeholders" : result,
+        "total"        : len(result),
+        "closed_count" : closed_count,
+        "at_risk_count": at_risk_count,
+        "checked_at"   : datetime.now(IST).strftime("%d %b %Y %H:%M IST"),
     }
+
+
+# ── Unclear Items ─────────────────────────────────────────────────────────────
+
+@router.get("/unclear-items")
+def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    """Orders that have unresolved unclear items."""
+    orders = (
+        db.query(Order)
+        .filter(
+            Order.unclear_items.isnot(None),
+            Order.unclear_items != "[]",
+            Order.unclear_items != "null",
+            Order.is_cancelled == False,
+        )
+        .order_by(Order.created_at.desc())
+        .all()
+    )
+    result = []
+    for o in orders:
+        unclear = json.loads(o.unclear_items) if o.unclear_items else []
+        if not unclear:
+            continue
+        result.append({
+            "order_id"      : o.id,
+            "customer_name" : o.customer_name,
+            "customer_phone": o.customer_phone,
+            "raw_message"   : o.raw_message,
+            "unclear_items" : unclear,
+            "parsed_items"  : json.loads(o.parsed_items) if o.parsed_items else [],
+            "delivery_date" : o.delivery_date,
+            "created_at"    : o.created_at.isoformat() if o.created_at else None,
+        })
+    return result
+
+
+@router.get("/unclear-items/aliases")
+def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    """List all saved aliases."""
+    aliases = db.query(UnclearItemAlias).order_by(UnclearItemAlias.raw_text).all()
+    return [
+        {
+            "id"                    : a.id,
+            "raw_text"              : a.raw_text,
+            "canonical_product_name": a.canonical_product_name,
+            "created_at"            : a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in aliases
+    ]
+
+
+@router.get("/product-names")
+def get_product_names(username: str = Depends(require_auth)):
+    """Valid canonical product names for the alias dropdown."""
+    return sorted([display for display, _, _ in PRODUCT_DEFINITIONS])
+
+
+@router.post("/unclear-items/resolve")
+def resolve_unclear_item(
+    payload: dict,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """
+    Save raw_text → canonical_product_name alias and retroactively
+    patch all past orders that have that raw_text in their unclear_items.
+    """
+    raw_text  = payload.get("raw_text", "").strip().lower()
+    canonical = payload.get("canonical_product_name", "").strip()
+
+    if not raw_text or not canonical:
+        raise HTTPException(status_code=400, detail="raw_text and canonical_product_name are required")
+
+    valid_names = {display for display, _, _ in PRODUCT_DEFINITIONS}
+    if canonical not in valid_names:
+        raise HTTPException(status_code=400, detail=f"'{canonical}' is not a valid product name")
+
+    # Find unit for this canonical product
+    unit = next((u for d, u, _ in PRODUCT_DEFINITIONS if d == canonical), "kg")
+
+    # Upsert alias
+    existing = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw_text).first()
+    if existing:
+        existing.canonical_product_name = canonical
+        existing.updated_at = datetime.now(IST)
+    else:
+        db.add(UnclearItemAlias(raw_text=raw_text, canonical_product_name=canonical))
+    db.commit()
+
+    # Retroactive patch — find all orders with this raw_text in unclear_items
+    orders_to_patch = (
+        db.query(Order)
+        .filter(
+            Order.unclear_items.isnot(None),
+            Order.unclear_items != "[]",
+            Order.unclear_items != "null",
+            Order.is_cancelled == False,
+        )
+        .all()
+    )
+
+    patched_count = 0
+    for order in orders_to_patch:
+        try:
+            unclear = json.loads(order.unclear_items or "[]")
+            remaining = []
+            qty_to_add = 0.0
+
+            for raw_line in unclear:
+                line_clean = re.sub(r'__+', '', raw_line).strip()
+                line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
+                m = re.match(
+                    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pis|pieces|piece|k)?\s*$",
+                    line_clean, re.IGNORECASE,
+                )
+                if m and m.group(1).strip().lower() == raw_text:
+                    try:
+                        qty_to_add += float(m.group(2))
+                    except ValueError:
+                        qty_to_add += 1.0
+                else:
+                    remaining.append(raw_line)
+
+            if qty_to_add > 0:
+                parsed = json.loads(order.parsed_items or "[]")
+                merged = False
+                for item in parsed:
+                    if item["product"] == canonical and item["unit"] == unit:
+                        item["quantity"] += qty_to_add
+                        merged = True
+                        break
+                if not merged:
+                    parsed.append({"product": canonical, "quantity": qty_to_add, "unit": unit})
+                order.parsed_items  = json.dumps(parsed)
+                order.unclear_items = json.dumps(remaining) if remaining else None
+                patched_count += 1
+
+        except Exception as e:
+            print(f"⚠️ Retroactive patch failed for order {order.id}: {e}")
+            continue
+
+    db.commit()
+
+    return {
+        "status"        : "ok",
+        "alias_saved"   : True,
+        "orders_patched": patched_count,
+        "raw_text"      : raw_text,
+        "mapped_to"     : canonical,
+    }
+
+
+@router.delete("/unclear-items/aliases/{alias_id}")
+def delete_alias(
+    alias_id: int,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Delete a saved alias."""
+    alias = db.query(UnclearItemAlias).filter(UnclearItemAlias.id == alias_id).first()
+    if not alias:
+        raise HTTPException(status_code=404, detail="Alias not found")
+    db.delete(alias)
+    db.commit()
+    return {"status": "deleted", "id": alias_id}
 
 
 # ── Test notifications ────────────────────────────────────────────────────────

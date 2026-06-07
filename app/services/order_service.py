@@ -8,6 +8,7 @@ from sqlalchemy import func
 
 from app.models.order import Order
 from app.models.customer import Customer
+from app.models.salesperson import Salesperson
 from app.services.notifier import (
     send_order_confirmation,
     send_manager_alert,
@@ -82,6 +83,21 @@ def get_delivery_date_str() -> str:
     return get_today_ist().strftime("%Y-%m-%d")
 
 
+def get_internal_phones(db: Session) -> set:
+    """
+    Returns a set of phones that belong to internal staff (manager + active salespersons).
+    These should never be registered as customers.
+    """
+    salesperson_phones = {
+        sp.phone for sp in
+        db.query(Salesperson).filter(Salesperson.active == True).all()
+    }
+    internal = salesperson_phones
+    if MANAGER_PHONE:
+        internal = internal | {MANAGER_PHONE}
+    return internal
+
+
 def get_todays_active_order(db: Session, customer_phone: str) -> Order | None:
     today_str = get_today_ist().strftime("%Y-%m-%d")
     return (
@@ -141,15 +157,6 @@ def _save_and_notify(
     is_photo: bool = False,
     is_edit: bool = False,
 ) -> dict:
-    """
-    Central save + notify. Called from multiple paths.
-
-    Key behaviour change (v2):
-    - Customer ALWAYS gets a clean confirmation (never sees unclear item errors)
-    - If unclear_items exist → manager gets a silent alert
-    - unclear_items stored in order.unclear_items (JSON)
-    - is_unclear on Order is only True when NOTHING was parseable
-    """
     customer_phone  = customer.phone_number
     restaurant_name = customer.restaurant_name
     unclear_items   = parsed.get("unclear_items", [])
@@ -200,7 +207,6 @@ def _save_and_notify(
             parsed          = parsed,
             restaurant_name = restaurant_name,
         )
-        # Manager alert for the order
         send_manager_alert(
             manager_phone   = MANAGER_PHONE,
             customer_phone  = customer_phone,
@@ -282,6 +288,7 @@ def process_incoming_order(
     msg_lower = message.strip().lower()
 
     # ── 0. Ad hoc report request (manager / salesperson only) ─────────────────
+    # Handled before any customer logic — manager/salesperson are not customers.
     if is_report_keyword(msg_lower):
         handled = handle_adhoc_report_request(customer_phone, msg_lower, db)
         if handled:
@@ -291,6 +298,18 @@ def process_incoming_order(
     customer = get_customer_by_phone(db, customer_phone)
 
     if not customer:
+        # ── Guard: never register internal staff as customers ─────────────────
+        # Manager and salespersons message the bot to keep their 24hr WhatsApp
+        # window alive (send "Hi" etc). Without this guard they would get
+        # registered as customers and receive onboarding messages.
+        internal_phones = get_internal_phones(db)
+        if customer_phone in internal_phones:
+            # Silently drop — inbound_messages journal already recorded the
+            # message which is all we need for the window-status check.
+            print(f"ℹ️ Ignored message from internal phone {customer_phone} — not a customer")
+            return {"order_id": None, "status": "internal_phone_ignored", "parsed": None}
+
+        # Genuine new customer — register and ask for restaurant name
         customer = create_new_customer(db, customer_phone)
         send_whatsapp_message(
             customer_phone,
@@ -533,11 +552,9 @@ def process_incoming_order(
             return {"order_id": pending_replace.id, "status": "replace_confirmed", "parsed": parsed}
 
     # ── 7. Parse order ────────────────────────────────────────────────────────
-    # Pass db so parser can check alias table for previously learned items
     parsed = parse_template_order(customer_phone, message, db=db)
 
-    # If truly nothing parseable (not even a recognisable line) — send template
-    # This is the only case where we ask the customer to retry
+    # Truly nothing parseable — send template and ask customer to retry
     if parsed["is_unclear"] and not parsed.get("unclear_items"):
         from app.services.product_catalog import generate_order_template
         send_whatsapp_message(
