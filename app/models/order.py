@@ -17,6 +17,7 @@ class Order(Base):
     is_photo_order = Column(Boolean, default=False)
 
     parsed_items  = Column(Text, nullable=True)
+    unclear_items = Column(Text, nullable=True)   # JSON list of raw unparsed lines
 
     # delivery_date always set at order creation as YYYY-MM-DD string
     delivery_date = Column(String, nullable=True, index=True)

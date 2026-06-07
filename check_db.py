@@ -86,6 +86,10 @@ run("ORDERS TABLE COLUMNS", """
     ORDER BY ordinal_position
 """)
 
+
+conn.commit()
+print("Changes committed.")
+
 cur.close()
 conn.close()
 print("\n✅ Done.")
