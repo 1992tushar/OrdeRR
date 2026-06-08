@@ -6,7 +6,7 @@ import hashlib
 
 from fastapi import APIRouter, Request, Depends, HTTPException
 from sqlalchemy.orm import Session
-
+from app.services.customer_service import create_customer_manually
 from app.database import get_db
 from app.services.order_service import process_incoming_order
 from app.services.reporter import send_daily_report
@@ -26,6 +26,8 @@ from app.auth import require_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
+ADD_CUSTOMER_CMD = "add customer"
 
 # Statuses returned by process_incoming_order() that are NOT real orders.
 # For these, we skip the "✅ Order received. Processing now." ACK entirely —
@@ -43,11 +45,19 @@ NON_ORDER_STATUSES = {
     "replace_requested",
     "repeat_cancelled",
     "replace_cancelled",
-    "repeat_confirmed",        # confirmation sent inside process_incoming_order
-    "replace_confirmed",       # confirmation sent inside process_incoming_order
+    "repeat_confirmed",       # confirmation sent inside process_incoming_order
+    "replace_confirmed",      # confirmation sent inside process_incoming_order
     "greeting_ignored",        # greeting/filler — warm reply sent, no order
     "customer_note_received",  # non-order note — acknowledged, stored for daily report
 }
+
+
+def normalize_phone(phone: str) -> str:
+    """
+    Helper to clean up phone string formats.
+    Adjust this if you already import it from another utils module.
+    """
+    return "".join(filter(str.isdigit, phone))
 
 
 def verify_meta_signature(body: bytes, signature_header: str) -> bool:
@@ -78,6 +88,21 @@ async def test_webhook(
         message_text   = payload.get("message", "")
         if not message_text:
             return {"status": "error", "message": "No message provided"}
+            
+        # ── Manager command: ADD CUSTOMER ─────────────────────────────
+        normalized_sender = normalize_phone(customer_phone)
+        normalized_manager = normalize_phone(MANAGER_PHONE) if MANAGER_PHONE else ""
+
+        if (
+            normalized_manager
+            and normalized_sender == normalized_manager
+            and message_text.strip().lower().startswith(ADD_CUSTOMER_CMD)
+        ):
+            reply = handle_manager_add_customer(db, message_text)
+            send_whatsapp_message(customer_phone, reply)
+            # FIXED: replaced illegal 'continue' with a direct API return
+            return {"status": "manager_command_executed", "reply": reply}
+               
         result = process_incoming_order(db=db, customer_phone=customer_phone, message=message_text)
         return {
             "status"    : "success",
@@ -106,8 +131,45 @@ async def meta_webhook_verify(request: Request):
     token     = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
     if mode == "subscribe" and token == os.getenv("META_VERIFY_TOKEN", ""):
-        return int(challenge)
+        # FastAPI maps returned integers directly or expects a Response object.
+        # Returning it as a plain string/int string is safest for Meta's verification challenge.
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(content=str(challenge))
     return {"error": "Invalid token"}
+
+
+def handle_manager_add_customer(db: Session, message_text: str) -> str:
+    """
+    Parse: ADD CUSTOMER <phone> <restaurant name>
+    Returns a reply string to send back to manager.
+    """
+    parts = message_text.strip()[len(ADD_CUSTOMER_CMD):].strip()
+
+    # First token = phone, rest = restaurant name
+    tokens = parts.split(None, 1)
+    if len(tokens) < 2:
+        return (
+            "⚠️ Format: ADD CUSTOMER <phone> <restaurant name>\n"
+            "Example: ADD CUSTOMER 919876543210 Hotel Delicious"
+        )
+
+    phone_raw, restaurant_name = tokens[0], tokens[1]
+
+    try:
+        customer = create_customer_manually(
+            db=db,
+            phone=phone_raw,
+            restaurant_name=restaurant_name,
+        )
+        return (
+            f"✅ Customer added!\n"
+            f"🏪 {customer.restaurant_name}\n"
+            f"📞 {customer.phone_number}"
+        )
+    except ValueError as e:
+        return f"⚠️ {str(e)}"
+    except Exception as e:
+        return f"❌ Failed to add customer: {str(e)}"
 
 
 @router.post("/meta")
@@ -188,8 +250,6 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     continue
 
                 # ── PRE-CHECK: Is this customer new or mid-onboarding? ────────
-                # Used to decide whether to send a generic ACK, and to scope
-                # the menu trigger below to onboarding customers only.
                 from app.models.customer import Customer as CustomerModel
                 existing_customer = (
                     db.query(CustomerModel)
@@ -202,7 +262,6 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                 )
 
                 # ── MENU TRIGGER — onboarding / new customers only ────────────
-                # Active customers type their order directly; no template needed.
                 msg_lower = raw_message.strip().lower()
                 MENU_TRIGGER = {"menu", "order", "show menu", "send menu", "place order"}
                 if is_onboarding and msg_lower in MENU_TRIGGER:

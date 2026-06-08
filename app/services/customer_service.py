@@ -58,3 +58,35 @@ def create_new_customer(
     db.refresh(customer)
 
     return customer
+
+
+def create_customer_manually(
+    db: Session,
+    phone: str,
+    restaurant_name: str,
+    area: str = None,
+    salesperson_id: int = None,
+) -> Customer:
+    """
+    Create a customer record directly (no onboarding flow).
+    Used by dashboard Add Customer form and manager WhatsApp command.
+    Raises ValueError if phone already exists.
+    """
+    normalized = normalize_phone(phone)
+
+    existing = db.query(Customer).filter(Customer.phone_number == normalized).first()
+    if existing:
+        raise ValueError(f"Customer with phone {normalized} already exists.")
+
+    customer = Customer(
+        phone_number=normalized,
+        restaurant_name=restaurant_name.strip(),
+        area=area.strip() if area else None,
+        salesperson_id=salesperson_id,
+        onboarding_status="complete",   # skip onboarding since manager added them
+        is_active=True,
+    )
+    db.add(customer)
+    db.commit()
+    db.refresh(customer)
+    return customer

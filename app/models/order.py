@@ -17,7 +17,6 @@ class Order(Base):
     is_photo_order = Column(Boolean, default=False)
 
     parsed_items  = Column(Text, nullable=True)
-    unclear_items = Column(Text, nullable=True)   # JSON list of raw unparsed lines
 
     # delivery_date always set at order creation as YYYY-MM-DD string
     delivery_date = Column(String, nullable=True, index=True)
@@ -32,6 +31,9 @@ class Order(Base):
 
     is_unclear     = Column(Boolean, default=False)
     unclear_reason = Column(String, nullable=True)
+
+    # Stores JSON array strings of unmapped items needing dashboard evaluation
+    unclear_items  = Column(Text, nullable=True)
 
     confirmation_sent    = Column(Boolean, default=False)
     forwarded_to_manager = Column(Boolean, default=False)

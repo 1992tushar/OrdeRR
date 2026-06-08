@@ -196,6 +196,7 @@ def _save_and_notify(
         except Exception:
             pass
     else:
+        # Always send clean confirmation to customer
         send_order_confirmation(
             customer_phone  = customer_phone,
             parsed          = parsed,
@@ -207,6 +208,7 @@ def _save_and_notify(
             parsed          = parsed,
             restaurant_name = restaurant_name,
         )
+        # If there are unclear items, send a SEPARATE silent alert to manager
         if unclear_items:
             try:
                 alert_text = _build_unclear_alert(
@@ -269,24 +271,6 @@ def validate_restaurant_name(name: str) -> str | None:
     return None
 
 
-def _is_greeting_or_filler(msg_lower: str) -> bool:
-    """Returns True if the message is a known greeting or filler phrase."""
-    if msg_lower in GREETINGS:
-        return True
-    if msg_lower in FILLER_PHRASES:
-        return True
-    # Single word fillers
-    single_word_fillers = {
-        "yes", "no", "ok", "okay", "sure", "fine", "please", "pls",
-        "hi", "hello", "hey", "thanks", "thank", "haan", "nahi",
-        "ji", "ha", "bhai", "yep", "yup", "nope", "good", "great",
-    }
-    words = msg_lower.split()
-    if len(words) >= 2 and all(w in single_word_fillers for w in words):
-        return True
-    return False
-
-
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
 def process_incoming_order(
@@ -299,6 +283,7 @@ def process_incoming_order(
     msg_lower = message.strip().lower()
 
     # ── 0. Ad hoc report request (manager / salesperson only) ─────────────────
+    # Handled before any customer logic — manager/salesperson are not customers.
     if is_report_keyword(msg_lower):
         handled = handle_adhoc_report_request(customer_phone, msg_lower, db)
         if handled:
@@ -308,11 +293,18 @@ def process_incoming_order(
     customer = get_customer_by_phone(db, customer_phone)
 
     if not customer:
+        # ── Guard: never register internal staff as customers ─────────────────
+        # Manager and salespersons message the bot to keep their 24hr WhatsApp
+        # window alive (send "Hi" etc). Without this guard they would get
+        # registered as customers and receive onboarding messages.
         internal_phones = get_internal_phones(db)
         if customer_phone in internal_phones:
+            # Silently drop — inbound_messages journal already recorded the
+            # message which is all we need for the window-status check.
             print(f"ℹ️ Ignored message from internal phone {customer_phone} — not a customer")
             return {"order_id": None, "status": "internal_phone_ignored", "parsed": None}
 
+        # Genuine new customer — register and ask for restaurant name
         customer = create_new_customer(db, customer_phone)
         send_whatsapp_message(
             customer_phone,
@@ -543,22 +535,15 @@ def process_incoming_order(
     # ── 6. Parse order ────────────────────────────────────────────────────────
     parsed = parse_template_order(customer_phone, message, db=db)
 
-    # Zero items parsed — could be a greeting, filler, or a customer note
+    # Truly nothing parseable — ask customer to try again in their own words
     if parsed["is_unclear"] and not parsed.get("unclear_items"):
-
-        # ── 6a. Greeting / filler — acknowledge warmly, silent drop ──────────
-        if _is_greeting_or_filler(msg_lower):
-            send_whatsapp_message(customer_phone, "😊 Anytime!")
-            return {"order_id": None, "status": "greeting_ignored", "parsed": None}
-
-        # ── 6b. Customer note — acknowledge + store for daily report ──────────
-        # The raw message is already persisted in inbound_messages with status NOTE.
-        # reporter.py picks up all NOTE messages when generating the daily report.
         send_whatsapp_message(
             customer_phone,
-            "Noted! We'll pass it on. 😊",
+            f"ℹ️ Sorry, I couldn't understand that as an order.\n\n"
+            f"Please send your order with item names and quantities, for example:\n"
+            f"_2 paneer, 1 curd, 3 butter_",
         )
-        return {"order_id": None, "status": "customer_note_received", "parsed": None}
+        return {"order_id": None, "status": "unclear_message", "parsed": None}
 
     # ── 7. Duplicate / replace flow ───────────────────────────────────────────
     existing_order = get_todays_active_order(db, customer_phone)

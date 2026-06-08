@@ -359,7 +359,12 @@
         <div class="card success"><div class="number" id="stat-ordered">—</div><div class="label">Ordered</div></div>
     </div>
     <div class="section">
-        <h2>👥 Customers <button class="section-btn" onclick="loadCustomers()">↻</button></h2>
+        <h2>👥 Customers
+          <div style="display:flex;gap:8px">
+            <button class="section-btn" onclick="openAddCustomerModal()">＋ Add Customer</button>
+            <button class="section-btn" onclick="loadCustomers()">↻</button>
+          </div>
+        </h2>
         <div class="desktop-only">
             <div class="summary-table">
                 <table>
@@ -509,6 +514,44 @@
         </div>
         <div class="modal-body" id="history-body"><div class="empty">Loading...</div></div>
     </div>
+</div>
+
+<!-- Add Customer Modal -->
+<div id="add-customer-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Add New Customer</h3>
+      <button class="btn btn-cancel-ui" onclick="closeModal('add-customer-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">
+        WhatsApp Number <span style="color:#c62828">*</span>
+      </label>
+      <input id="ac-phone" type="text" placeholder="919876543210"
+        style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">
+        Restaurant Name <span style="color:#c62828">*</span>
+      </label>
+      <input id="ac-name" type="text" placeholder="e.g. Hotel Delicious"
+        style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Area</label>
+      <input id="ac-area" type="text" placeholder="e.g. Baner, Hinjawadi"
+        style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Salesperson</label>
+      <select id="ac-sp"
+        style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:20px;outline:none;background:white">
+        <option value="">— Assign later —</option>
+      </select>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-cancel-ui" onclick="closeModal('add-customer-modal')">Cancel</button>
+        <button class="btn btn-save" onclick="submitAddCustomer()">Add Customer</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -732,6 +775,42 @@ async function openHistory(cid,rname) {
     } catch(e){document.getElementById('history-body').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';}
 }
 
+// ── Add Customer Modal ─────────────────────────────────────────────────────────
+
+function openAddCustomerModal() {
+    const sel = document.getElementById('ac-sp');
+    sel.innerHTML = '<option value="">— Assign later —</option>';
+    allSalespersons.filter(s => s.active).forEach(s => {
+        sel.innerHTML += `<option value="${s.id}">${esc(s.name)}</option>`;
+    });
+    ['ac-phone','ac-name','ac-area'].forEach(id => document.getElementById(id).value = '');
+    sel.value = '';
+    document.getElementById('add-customer-modal').classList.add('open');
+}
+
+async function submitAddCustomer() {
+    const phone = document.getElementById('ac-phone').value.trim();
+    const name  = document.getElementById('ac-name').value.trim();
+    const area  = document.getElementById('ac-area').value.trim();
+    const spId  = document.getElementById('ac-sp').value;
+
+    if (!phone || !name) { showToast('⚠️ Phone and restaurant name are required', 'error'); return; }
+
+    const body = { phone, restaurant_name: name };
+    if (area)  body.area = area;
+    if (spId)  body.salesperson_id = parseInt(spId);
+
+    try {
+        const data = await api('POST', '/admin/customers', body);
+        showToast(`✅ ${data.customer.restaurant_name} added!`, 'success');
+        closeModal('add-customer-modal');
+        loadCustomers();
+    } catch(e) {
+        const msg = (() => { try { return JSON.parse(e.message)?.detail; } catch { return null; } })();
+        showToast('❌ ' + (msg || 'Failed to add customer'), 'error');
+    }
+}
+
 // ── Pending ───────────────────────────────────────────────────────────────────
 
 async function loadPending() {
@@ -826,12 +905,10 @@ async function loadUnclearOrders() {
             fetchProductNames(),
         ]);
 
-        // Update stats
         const totalItems = orders.reduce((s, o) => s + o.unclear_items.length, 0);
         document.getElementById('unclear-count').textContent = orders.length;
         document.getElementById('unclear-items-count').textContent = totalItems;
 
-        // Update tab badge
         const tabBtn = document.getElementById('unclear-tab-btn');
         const existingDot = tabBtn.querySelector('.tab-dot');
         if (orders.length > 0) {
@@ -901,7 +978,6 @@ async function loadUnclearOrders() {
     }
 }
 
-// Extracts just the product name part from a raw line like "raan -5" → "raan"
 function _extractProductName(rawLine) {
     const clean = rawLine.replace(/__+/g, '').trim();
     const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pieces?)?\s*$/i);
@@ -914,7 +990,6 @@ async function resolveItem(rawText, selectId, btn) {
     const canonical = select ? select.value : '';
     if (!canonical) { showToast('Please select a product first', 'error'); return; }
 
-    // Strip quantity from alias key — save "raan" not "raan -5"
     const productName = _extractProductName(rawText);
 
     btn.disabled = true;
@@ -928,7 +1003,6 @@ async function resolveItem(rawText, selectId, btn) {
         btn.textContent = `✅ ${data.orders_patched} order${data.orders_patched !== 1 ? 's' : ''} updated`;
         btn.classList.add('done');
         showToast(`✅ "${productName}" → ${canonical} (${data.orders_patched} orders updated)`, 'success');
-        // Reload after a moment so resolved items disappear
         setTimeout(() => { loadUnclearOrders(); loadAliases(); }, 1500);
     } catch(e) {
         btn.disabled = false;
@@ -989,7 +1063,7 @@ async function deleteAlias(id) {
         document.getElementById(`alias-row-${id}`)?.remove();
         const count = document.querySelectorAll('[id^="alias-row-"]').length;
         document.getElementById('unclear-aliases-count').textContent = count;
-        if (count === 0) loadAliases(); // show empty state
+        if (count === 0) loadAliases();
     } catch(e) { showToast('Delete failed', 'error'); }
 }
 
@@ -1054,7 +1128,6 @@ function checkEmptyFailed() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-// Badge check on page load — silently check for unclear items
 (async function initUnclearBadge() {
     try {
         const orders = await api('GET', '/admin/unclear-items');
@@ -1069,7 +1142,6 @@ function checkEmptyFailed() {
     } catch(e) {}
 })();
 
-// Auto-reload orders tab every 60s
 setInterval(() => {
     if (document.getElementById('tab-orders').classList.contains('active')) location.reload();
 }, 60000);

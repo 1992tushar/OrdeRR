@@ -8,6 +8,7 @@ Customer:     GET /admin/customers
               GET /admin/customers/{id}/orders
               POST /admin/customers/{id}/assign
               PUT  /admin/customers/{id}/status
+              POST /customers
 Pending:      GET /admin/pending
 Window:       GET /admin/window-status
 Unclear:      GET /admin/unclear-items
@@ -39,7 +40,7 @@ from app.services.customer_service import normalize_phone
 from app.services.notifier import send_whatsapp_message
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 from app.services.template_parser import PRODUCT_DEFINITIONS
-
+from app.services.customer_service import create_customer_manually
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
@@ -64,6 +65,11 @@ class CustomerAssign(BaseModel):
 class CustomerStatus(BaseModel):
     is_active: bool
 
+class CustomerCreate(BaseModel):
+    phone: str
+    restaurant_name: str
+    area: Optional[str] = None
+    salesperson_id: Optional[int] = None
 
 # ── Salespersons ──────────────────────────────────────────────────────────────
 
@@ -128,6 +134,20 @@ def deactivate_salesperson(salesperson_id: int, db: Session = Depends(get_db), u
     return {"status": "deactivated", "salesperson_id": salesperson_id, "affected_customers": affected}
 
 
+# ── Hard Delete Extension for Salespersons (Added to support full CRUD without modifying original logic) ──
+@router.delete("/salespersons/{salesperson_id}/purge")
+def hard_delete_salesperson(salesperson_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    sp = db.query(Salesperson).filter(Salesperson.id == salesperson_id).first()
+    if not sp:
+        raise HTTPException(status_code=404, detail="Salesperson not found")
+    
+    # Unassign customers first to prevent foreign key issues
+    db.query(Customer).filter(Customer.salesperson_id == salesperson_id).update({Customer.salesperson_id: None})
+    db.delete(sp)
+    db.commit()
+    return {"status": "purged", "salesperson_id": salesperson_id}
+
+
 # ── Customers ─────────────────────────────────────────────────────────────────
 
 def _customer_row(c: Customer, db: Session) -> dict:
@@ -177,6 +197,23 @@ def list_unassigned_customers(db: Session = Depends(get_db), username: str = Dep
     )
     return {"customers": [_customer_row(c, db) for c in customers], "total": len(customers)}
 
+@router.post("/customers")
+def add_customer_manually(
+    payload: CustomerCreate,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    try:
+        customer = create_customer_manually(
+            db=db,
+            phone=payload.phone,
+            restaurant_name=payload.restaurant_name,
+            area=payload.area,
+            salesperson_id=payload.salesperson_id,
+        )
+        return {"status": "created", "customer": _customer_row(customer, db)}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 @router.get("/customers/{customer_id}/orders")
 def get_customer_orders(customer_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
@@ -450,6 +487,16 @@ def _extract_product_name(raw_line: str) -> tuple[str, float]:
             qty = 1.0
         return name, qty
     return line_clean.lower(), 1.0
+
+
+# ── Missing Helper Function: _lookup_alias (Added back based on code documentation requirements) ──
+def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
+    """
+    Helper utility referenced by resolve_unclear_item documentation.
+    Looks up canonical product names directly via active alias tags.
+    """
+    alias_match = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw_text.strip().lower()).first()
+    return alias_match.canonical_product_name if alias_match else None
 
 
 @router.post("/unclear-items/resolve")
