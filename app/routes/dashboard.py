@@ -44,6 +44,7 @@ def dashboard(
     ).order_by(Order.created_at.desc()).all()
 
     for order in orders:
+        order.created_at = order.created_at.astimezone(IST)
         order.items_parsed      = json.loads(order.parsed_items) if order.parsed_items else []
         order.has_unclear_items = bool(
             getattr(order, "unclear_items", None)
