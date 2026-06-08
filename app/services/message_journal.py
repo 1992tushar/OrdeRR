@@ -23,10 +23,11 @@ ACK_MESSAGE = "✅ Order received. Processing now."
 VALID_TRANSITIONS = {
     "RECEIVED":      {"ACK_SENT", "FAILED"},
     "ACK_SENT":      {"PARSING", "FAILED"},
-    "PARSING":       {"PARSED", "FAILED"},
+    "PARSING":       {"PARSED", "NOTE", "FAILED"},
     "PARSED":        {"ORDER_CREATED", "FAILED"},
     "ORDER_CREATED": {"CONFIRMED", "FAILED"},
     "CONFIRMED":     set(),
+    "NOTE":          set(),   # Terminal — customer sent a non-order note, stored for daily report
     "FAILED":        {"PARSING", "ACK_SENT", "MANUAL_REVIEW"},
     "MANUAL_REVIEW": {"ORDER_CREATED", "CANCELLED"},
     "CANCELLED":     set(),

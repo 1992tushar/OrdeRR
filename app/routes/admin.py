@@ -426,6 +426,32 @@ def get_product_names(username: str = Depends(require_auth)):
     return sorted([display for display, _, _ in PRODUCT_DEFINITIONS])
 
 
+# ── Helper: extract product name part from a raw unclear line ─────────────────
+
+LINE_RE = re.compile(
+    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pis|pieces|piece|k)?\s*$",
+    re.IGNORECASE,
+)
+
+def _extract_product_name(raw_line: str) -> tuple[str, float]:
+    """
+    Given a raw unclear line like "Raan -5" or "kaleji 2kg",
+    returns (product_name_lower, quantity).
+    Falls back to (full_line_lower, 1.0) if no quantity found.
+    """
+    line_clean = re.sub(r'__+', '', raw_line).strip()
+    line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
+    m = LINE_RE.match(line_clean)
+    if m:
+        name = m.group(1).strip().lower()
+        try:
+            qty = float(m.group(2))
+        except (TypeError, ValueError):
+            qty = 1.0
+        return name, qty
+    return line_clean.lower(), 1.0
+
+
 @router.post("/unclear-items/resolve")
 def resolve_unclear_item(
     payload: dict,
@@ -435,6 +461,11 @@ def resolve_unclear_item(
     """
     Save raw_text → canonical_product_name alias and retroactively
     patch all past orders that have that raw_text in their unclear_items.
+
+    raw_text is the PRODUCT NAME PART ONLY (e.g. "raan"), not the full
+    raw line with quantity (e.g. "raan -5"). The dashboard strips the
+    quantity before sending. This ensures the alias matches correctly
+    in both _lookup_alias() and future retroactive patches.
     """
     raw_text  = payload.get("raw_text", "").strip().lower()
     canonical = payload.get("canonical_product_name", "").strip()
@@ -449,7 +480,7 @@ def resolve_unclear_item(
     # Find unit for this canonical product
     unit = next((u for d, u, _ in PRODUCT_DEFINITIONS if d == canonical), "kg")
 
-    # Upsert alias
+    # Upsert alias — key is product name only (no quantity)
     existing = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw_text).first()
     if existing:
         existing.canonical_product_name = canonical
@@ -458,7 +489,9 @@ def resolve_unclear_item(
         db.add(UnclearItemAlias(raw_text=raw_text, canonical_product_name=canonical))
     db.commit()
 
-    # Retroactive patch — find all orders with this raw_text in unclear_items
+    # Retroactive patch — scan all orders with unclear_items
+    # Match by extracting the product name part from each raw line,
+    # then compare against raw_text (product name only).
     orders_to_patch = (
         db.query(Order)
         .filter(
@@ -473,22 +506,14 @@ def resolve_unclear_item(
     patched_count = 0
     for order in orders_to_patch:
         try:
-            unclear = json.loads(order.unclear_items or "[]")
-            remaining = []
+            unclear    = json.loads(order.unclear_items or "[]")
+            remaining  = []
             qty_to_add = 0.0
 
             for raw_line in unclear:
-                line_clean = re.sub(r'__+', '', raw_line).strip()
-                line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
-                m = re.match(
-                    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pis|pieces|piece|k)?\s*$",
-                    line_clean, re.IGNORECASE,
-                )
-                if m and m.group(1).strip().lower() == raw_text:
-                    try:
-                        qty_to_add += float(m.group(2))
-                    except ValueError:
-                        qty_to_add += 1.0
+                product_name, qty = _extract_product_name(raw_line)
+                if product_name == raw_text:
+                    qty_to_add += qty
                 else:
                     remaining.append(raw_line)
 

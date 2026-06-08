@@ -31,14 +31,28 @@ def dashboard(
     else:
         target_date = today
 
+    target_date_str = target_date.strftime("%Y-%m-%d")
+
+    # ── FIX: filter by delivery_date (not created_at date) ───────────────────
+    # Orders are shown for the date they are *for*, not the date they were placed.
+    # A customer placing an order at 11:38 PM IST (= next day UTC) was previously
+    # missing from the dashboard because created_at date in UTC != IST date.
     orders = db.query(Order).filter(
-        func.date(Order.created_at) == target_date,
+        Order.delivery_date == target_date_str,
         Order.is_cancelled == False,
         Order.status.notin_(["pending_replace", "pending_repeat"]),
     ).order_by(Order.created_at.desc()).all()
 
     for order in orders:
-        order.items_parsed = json.loads(order.parsed_items) if order.parsed_items else []
+        order.items_parsed      = json.loads(order.parsed_items) if order.parsed_items else []
+        order.has_unclear_items = bool(
+            getattr(order, "unclear_items", None)
+            and order.unclear_items not in ("[]", "null", "")
+        )
+        order.unclear_items_list = (
+            json.loads(order.unclear_items)
+            if order.has_unclear_items else []
+        )
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
@@ -82,7 +96,6 @@ def dashboard(
                 "linked_order_id":   m.linked_order_id,
             })
     except Exception:
-        # inbound_messages table not yet migrated — degrade gracefully
         pass
 
     return templates.TemplateResponse(

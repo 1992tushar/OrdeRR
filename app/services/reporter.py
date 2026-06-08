@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.models.order import Order
-from app.services.notifier import send_whatsapp_template
+from app.models.inbound_message import InboundMessage
+from app.models.customer import Customer
+from app.services.notifier import send_whatsapp_template, send_whatsapp_message
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
@@ -33,6 +35,43 @@ def merge_items(items: list) -> list:
             merged[key] = {"product": product, "quantity": 0, "unit": unit}
         merged[key]["quantity"] += quantity
     return list(merged.values())
+
+
+def get_todays_customer_notes(db: Session) -> list[dict]:
+    """
+    Fetch all inbound messages marked as NOTE for today.
+    Returns list of dicts: {restaurant_name, phone, note, time}
+    """
+    today = datetime.now(IST).date()
+
+    note_messages = (
+        db.query(InboundMessage)
+        .filter(
+            func.date(InboundMessage.received_at) == today,
+            InboundMessage.processing_status == "NOTE",
+            InboundMessage.is_duplicate == False,
+        )
+        .order_by(InboundMessage.customer_phone, InboundMessage.received_at.asc())
+        .all()
+    )
+
+    if not note_messages:
+        return []
+
+    # Look up restaurant names for each phone
+    phones = list({m.customer_phone for m in note_messages})
+    customers = db.query(Customer).filter(Customer.phone_number.in_(phones)).all()
+    phone_to_name = {c.phone_number: c.restaurant_name or c.phone_number for c in customers}
+
+    notes = []
+    for m in note_messages:
+        notes.append({
+            "restaurant_name": phone_to_name.get(m.customer_phone, m.customer_phone),
+            "phone":           m.customer_phone,
+            "note":            m.raw_message or "",
+            "time":            m.received_at.strftime("%I:%M %p") if m.received_at else "",
+        })
+    return notes
 
 
 def generate_daily_report(db: Session) -> dict:
@@ -93,7 +132,8 @@ def generate_daily_report(db: Session) -> dict:
 
 
 def send_daily_report(db: Session):
-    """Send daily consolidated report to manager via approved template."""
+    """Send daily consolidated report to manager via approved template.
+    If any customer notes were received today, send a follow-up free-form message."""
     print("\n⏰ Generating Daily Report...")
 
     data = generate_daily_report(db)
@@ -112,3 +152,23 @@ def send_daily_report(db: Session):
 
     if result:
         print("✅ Daily report sent!")
+    else:
+        print("❌ Daily report failed!")
+
+    # ── Customer notes follow-up ──────────────────────────────────────────────
+    # If any customer sent a non-order message today, append as a separate
+    # free-form message right after the report template.
+    try:
+        notes = get_todays_customer_notes(db)
+        if notes:
+            lines = [f"📝 *Customer Notes — {PLANT_NAME}*", f"{data['date_str']}", ""]
+            for n in notes:
+                time_str = f" ({n['time']})" if n['time'] else ""
+                lines.append(f"• *{n['restaurant_name']}*{time_str}: {n['note']}")
+            notes_msg = "\n".join(lines)
+            send_whatsapp_message(MANAGER_PHONE, notes_msg)
+            print(f"✅ Customer notes sent ({len(notes)} note(s))")
+        else:
+            print("ℹ️ No customer notes today — skipping notes message")
+    except Exception as e:
+        print(f"⚠️ Customer notes follow-up failed: {e}")

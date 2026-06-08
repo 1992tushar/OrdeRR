@@ -260,6 +260,9 @@
                         {% if order.delivery_date and order.delivery_time %}{{ order.delivery_date }} · {{ order.delivery_time }}
                         {% elif order.delivery_date %}{{ order.delivery_date }}
                         {% else %}No date{% endif %}
+                        {% if order.created_at %}
+                        · <span style="color:#aaa">{{ order.created_at.strftime('%I:%M %p') }}</span>
+                        {% endif %}
                     </span>
                 </div>
                 <div class="items">{% for item in order.items_parsed %}{{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}</div>
@@ -898,22 +901,33 @@ async function loadUnclearOrders() {
     }
 }
 
+// Extracts just the product name part from a raw line like "raan -5" → "raan"
+function _extractProductName(rawLine) {
+    const clean = rawLine.replace(/__+/g, '').trim();
+    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pieces?)?\s*$/i);
+    if (m) return m[1].trim().toLowerCase();
+    return clean.toLowerCase();
+}
+
 async function resolveItem(rawText, selectId, btn) {
     const select = document.getElementById(selectId);
     const canonical = select ? select.value : '';
     if (!canonical) { showToast('Please select a product first', 'error'); return; }
+
+    // Strip quantity from alias key — save "raan" not "raan -5"
+    const productName = _extractProductName(rawText);
 
     btn.disabled = true;
     btn.textContent = 'Saving…';
 
     try {
         const data = await api('POST', '/admin/unclear-items/resolve', {
-            raw_text: rawText,
+            raw_text: productName,
             canonical_product_name: canonical,
         });
         btn.textContent = `✅ ${data.orders_patched} order${data.orders_patched !== 1 ? 's' : ''} updated`;
         btn.classList.add('done');
-        showToast(`✅ "${rawText}" → ${canonical} (${data.orders_patched} orders updated)`, 'success');
+        showToast(`✅ "${productName}" → ${canonical} (${data.orders_patched} orders updated)`, 'success');
         // Reload after a moment so resolved items disappear
         setTimeout(() => { loadUnclearOrders(); loadAliases(); }, 1500);
     } catch(e) {

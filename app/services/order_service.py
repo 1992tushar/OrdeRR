@@ -35,11 +35,6 @@ CANCEL_KEYWORDS = {
     "order nahi", "nahi chahiye",
 }
 
-MENU_KEYWORDS = {
-    "menu", "order", "show menu", "send menu", "place order",
-    "kya hai", "product", "list", "rate", "rate list",
-}
-
 REPEAT_KEYWORDS = {
     "same", "repeat", "same order", "repeat order",
     "same as yesterday", "same as last time",
@@ -201,7 +196,6 @@ def _save_and_notify(
         except Exception:
             pass
     else:
-        # Always send clean confirmation to customer
         send_order_confirmation(
             customer_phone  = customer_phone,
             parsed          = parsed,
@@ -213,7 +207,6 @@ def _save_and_notify(
             parsed          = parsed,
             restaurant_name = restaurant_name,
         )
-        # If there are unclear items, send a SEPARATE silent alert to manager
         if unclear_items:
             try:
                 alert_text = _build_unclear_alert(
@@ -276,6 +269,24 @@ def validate_restaurant_name(name: str) -> str | None:
     return None
 
 
+def _is_greeting_or_filler(msg_lower: str) -> bool:
+    """Returns True if the message is a known greeting or filler phrase."""
+    if msg_lower in GREETINGS:
+        return True
+    if msg_lower in FILLER_PHRASES:
+        return True
+    # Single word fillers
+    single_word_fillers = {
+        "yes", "no", "ok", "okay", "sure", "fine", "please", "pls",
+        "hi", "hello", "hey", "thanks", "thank", "haan", "nahi",
+        "ji", "ha", "bhai", "yep", "yup", "nope", "good", "great",
+    }
+    words = msg_lower.split()
+    if len(words) >= 2 and all(w in single_word_fillers for w in words):
+        return True
+    return False
+
+
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
 def process_incoming_order(
@@ -288,7 +299,6 @@ def process_incoming_order(
     msg_lower = message.strip().lower()
 
     # ── 0. Ad hoc report request (manager / salesperson only) ─────────────────
-    # Handled before any customer logic — manager/salesperson are not customers.
     if is_report_keyword(msg_lower):
         handled = handle_adhoc_report_request(customer_phone, msg_lower, db)
         if handled:
@@ -298,18 +308,11 @@ def process_incoming_order(
     customer = get_customer_by_phone(db, customer_phone)
 
     if not customer:
-        # ── Guard: never register internal staff as customers ─────────────────
-        # Manager and salespersons message the bot to keep their 24hr WhatsApp
-        # window alive (send "Hi" etc). Without this guard they would get
-        # registered as customers and receive onboarding messages.
         internal_phones = get_internal_phones(db)
         if customer_phone in internal_phones:
-            # Silently drop — inbound_messages journal already recorded the
-            # message which is all we need for the window-status check.
             print(f"ℹ️ Ignored message from internal phone {customer_phone} — not a customer")
             return {"order_id": None, "status": "internal_phone_ignored", "parsed": None}
 
-        # Genuine new customer — register and ask for restaurant name
         customer = create_new_customer(db, customer_phone)
         send_whatsapp_message(
             customer_phone,
@@ -333,17 +336,11 @@ def process_incoming_order(
         customer.onboarding_status = "active"
         db.commit()
 
-        from app.services.product_catalog import generate_order_template
         send_whatsapp_message(
             customer_phone,
-            f"✅ Welcome *{customer.restaurant_name}*!\n\n"
-            f"To place your order:\n\n"
-            f"1️⃣ Copy the template below\n"
-            f"2️⃣ Fill in your quantities\n"
-            f"3️⃣ Delete items you don't need\n"
-            f"4️⃣ Send it back\n\n"
-            f"👇 *Your order template:*\n\n"
-            f"{generate_order_template()}",
+            f"✅ *Welcome, {customer.restaurant_name}!*\n\n"
+            f"You're all set. Just send your order anytime — "
+            f"list the items and quantities in your own way and we'll take care of it. 🙌",
         )
 
         try:
@@ -359,13 +356,7 @@ def process_incoming_order(
 
         return {"order_id": None, "status": "customer_onboarded", "parsed": None}
 
-    # ── 3. Menu / order template trigger ─────────────────────────────────────
-    if msg_lower in MENU_KEYWORDS:
-        from app.services.product_catalog import generate_order_template
-        send_whatsapp_message(customer_phone, generate_order_template())
-        return {"order_id": None, "status": "menu_sent", "parsed": None}
-
-    # ── 4. Cancel order ───────────────────────────────────────────────────────
+    # ── 3. Cancel order ───────────────────────────────────────────────────────
     if msg_lower in CANCEL_KEYWORDS:
         existing = get_todays_active_order(db, customer_phone)
         if not existing:
@@ -383,7 +374,7 @@ def process_incoming_order(
         send_whatsapp_message(
             customer_phone,
             f"✅ Your order has been cancelled.\n\n"
-            f"To place a new order, just type *order* anytime.",
+            f"Just send your order anytime to place a new one.",
         )
         try:
             send_whatsapp_message(
@@ -398,13 +389,13 @@ def process_incoming_order(
 
         return {"order_id": existing.id, "status": "order_cancelled", "parsed": None}
 
-    # ── 5. Repeat last order ──────────────────────────────────────────────────
+    # ── 4. Repeat last order ──────────────────────────────────────────────────
     if msg_lower in REPEAT_KEYWORDS:
         last = get_last_order(db, customer_phone)
         if not last or not last.parsed_items:
             send_whatsapp_message(
                 customer_phone,
-                f"ℹ️ No previous order found.\n\nType *order* to place a new one.",
+                f"ℹ️ No previous order found.\n\nJust send your order anytime to place a new one.",
             )
             return {"order_id": None, "status": "no_last_order", "parsed": None}
 
@@ -425,7 +416,7 @@ def process_incoming_order(
         send_repeat_order_confirmation_request(customer_phone, items)
         return {"order_id": pending.id, "status": "repeat_requested", "parsed": None}
 
-    # ── 6. Handle yes/no replies ──────────────────────────────────────────────
+    # ── 5. Handle yes/no replies ──────────────────────────────────────────────
     if msg_lower in CONFIRM_YES or msg_lower in CONFIRM_NO:
 
         pending_repeat = (
@@ -445,11 +436,9 @@ def process_incoming_order(
                 pending_repeat.cancelled_at = datetime.now(IST)
                 pending_repeat.status       = "cancelled"
                 db.commit()
-                from app.services.product_catalog import generate_order_template
                 send_whatsapp_message(
                     customer_phone,
-                    f"No problem! Type *order* to place a fresh order.\n\n"
-                    f"{generate_order_template()}",
+                    f"No problem! Just send your order anytime.",
                 )
                 return {"order_id": None, "status": "repeat_cancelled", "parsed": None}
 
@@ -551,21 +540,27 @@ def process_incoming_order(
 
             return {"order_id": pending_replace.id, "status": "replace_confirmed", "parsed": parsed}
 
-    # ── 7. Parse order ────────────────────────────────────────────────────────
+    # ── 6. Parse order ────────────────────────────────────────────────────────
     parsed = parse_template_order(customer_phone, message, db=db)
 
-    # Truly nothing parseable — send template and ask customer to retry
+    # Zero items parsed — could be a greeting, filler, or a customer note
     if parsed["is_unclear"] and not parsed.get("unclear_items"):
-        from app.services.product_catalog import generate_order_template
+
+        # ── 6a. Greeting / filler — acknowledge warmly, silent drop ──────────
+        if _is_greeting_or_filler(msg_lower):
+            send_whatsapp_message(customer_phone, "😊 Anytime!")
+            return {"order_id": None, "status": "greeting_ignored", "parsed": None}
+
+        # ── 6b. Customer note — acknowledge + store for daily report ──────────
+        # The raw message is already persisted in inbound_messages with status NOTE.
+        # reporter.py picks up all NOTE messages when generating the daily report.
         send_whatsapp_message(
             customer_phone,
-            f"ℹ️ I couldn't read that as an order.\n\n"
-            f"Please use this template:\n\n"
-            f"{generate_order_template()}",
+            "Noted! We'll pass it on. 😊",
         )
-        return {"order_id": None, "status": "unclear_message", "parsed": None}
+        return {"order_id": None, "status": "customer_note_received", "parsed": None}
 
-    # ── 8. Duplicate / replace flow ───────────────────────────────────────────
+    # ── 7. Duplicate / replace flow ───────────────────────────────────────────
     existing_order = get_todays_active_order(db, customer_phone)
 
     if existing_order:
@@ -634,7 +629,7 @@ def process_incoming_order(
 
             return result
 
-    # ── 9. Save order ─────────────────────────────────────────────────────────
+    # ── 8. Save order ─────────────────────────────────────────────────────────
     return _save_and_notify(
         db          = db,
         customer    = customer,

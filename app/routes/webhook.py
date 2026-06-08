@@ -27,8 +27,6 @@ from app.auth import require_auth
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-MENU_TRIGGER = {"menu", "order", "show menu", "send menu", "place order"}
-
 # Statuses returned by process_incoming_order() that are NOT real orders.
 # For these, we skip the "✅ Order received. Processing now." ACK entirely —
 # process_incoming_order() already sends its own contextual reply.
@@ -45,8 +43,10 @@ NON_ORDER_STATUSES = {
     "replace_requested",
     "repeat_cancelled",
     "replace_cancelled",
-    "repeat_confirmed",   # confirmation sent inside process_incoming_order
-    "replace_confirmed",  # confirmation sent inside process_incoming_order
+    "repeat_confirmed",        # confirmation sent inside process_incoming_order
+    "replace_confirmed",       # confirmation sent inside process_incoming_order
+    "greeting_ignored",        # greeting/filler — warm reply sent, no order
+    "customer_note_received",  # non-order note — acknowledged, stored for daily report
 }
 
 
@@ -166,19 +166,13 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     continue
 
                 # ── PHOTO MESSAGE — notify customer, no order processing ──────
-                # ── PHOTO MESSAGE — notify customer, no order processing ──────
                 if message_type == "image":
                     try:
-                        from app.services.product_catalog import generate_order_template
-                        
-                        # Fixed using a triple-quoted multiline f-string
                         send_whatsapp_message(
                             customer_phone,
-                            f"""📸 Sorry, we cannot process photo orders.
-
-                Please type your order using the template below:
-
-                {generate_order_template()}"""
+                            "📸 Sorry, we cannot process photo orders.\n\n"
+                            "Please type your order with item names and quantities, for example:\n"
+                            "_2 paneer, 1 curd, 3 butter_"
                         )
                         transition(inbound_msg, "CONFIRMED", db)
                     except Exception as e:
@@ -193,23 +187,9 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                 if not raw_message:
                     continue
 
-                msg_lower       = raw_message.strip().lower()
-                is_menu_trigger = msg_lower in MENU_TRIGGER
-
-                # ── MENU TRIGGER ──────────────────────────────────────────────
-                if is_menu_trigger:
-                    try:
-                        send_whatsapp_message(customer_phone, generate_menu_template())
-                        transition(inbound_msg, "CONFIRMED", db)
-                    except Exception as e:
-                        record_failure(db, inbound_msg, f"Menu send failed: {e}")
-                    continue
-
-                # ── PRE-CHECK: Should we send the generic ACK? ────────────────
-                # Skip ACK for customers who are new or mid-onboarding.
-                # process_incoming_order() sends its own contextual reply for
-                # these cases, so a generic "Order received" ACK would be wrong
-                # and confusing (as seen in the screenshot bug).
+                # ── PRE-CHECK: Is this customer new or mid-onboarding? ────────
+                # Used to decide whether to send a generic ACK, and to scope
+                # the menu trigger below to onboarding customers only.
                 from app.models.customer import Customer as CustomerModel
                 existing_customer = (
                     db.query(CustomerModel)
@@ -220,6 +200,18 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     existing_customer is None
                     or getattr(existing_customer, "onboarding_status", None) == "awaiting_name"
                 )
+
+                # ── MENU TRIGGER — onboarding / new customers only ────────────
+                # Active customers type their order directly; no template needed.
+                msg_lower = raw_message.strip().lower()
+                MENU_TRIGGER = {"menu", "order", "show menu", "send menu", "place order"}
+                if is_onboarding and msg_lower in MENU_TRIGGER:
+                    try:
+                        send_whatsapp_message(customer_phone, generate_menu_template())
+                        transition(inbound_msg, "CONFIRMED", db)
+                    except Exception as e:
+                        record_failure(db, inbound_msg, f"Menu send failed: {e}")
+                    continue
 
                 # ── PARSING ───────────────────────────────────────────────────
                 transition(inbound_msg, "PARSING", db)
@@ -236,6 +228,12 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
 
                     if result.get("order_id"):
                         inbound_msg.linked_order_id = result["order_id"]
+
+                    # Mark customer notes in the journal so reporter can query them
+                    if result_status == "customer_note_received":
+                        transition(inbound_msg, "NOTE", db)
+                    elif result_status not in NON_ORDER_STATUSES:
+                        transition(inbound_msg, "CONFIRMED", db)
 
                     db.commit()
 
