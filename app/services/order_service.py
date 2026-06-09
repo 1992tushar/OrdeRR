@@ -511,12 +511,6 @@ def process_incoming_order(
 
     msg_lower = message.strip().lower()
 
-    # ── 0. Ad hoc report (manager / salesperson only, before customer lookup) ─
-    if is_report_keyword(msg_lower):
-        handled = handle_adhoc_report_request(customer_phone, msg_lower, db)
-        if handled:
-            return {"order_id": None, "status": "adhoc_report_sent", "parsed": None}
-
     # ── 1. Customer lookup / first-time registration ──────────────────────────
     customer = get_customer_by_phone(db, customer_phone)
 
