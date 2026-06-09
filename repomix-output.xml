@@ -116,74 +116,7 @@ id                   = Column(Integer, primary_key=True, index=True)
 raw_text             = Column(String, unique=True, nullable=False, index=True)
 canonical_product_name = Column(String, nullable=False)
 created_at           = Column(DateTime, default=lambda: datetime.now(IST))
-updated_at           = Column(DateTime, default=lambda: datetime.now(IST),</file><file path="app/routes/__init__.py"></file><file path="app/routes/unclear_items_routes.py">UNCLEAR_ROUTES = &apos;&apos;&apos;</file><file path="app/services/__init__.py"></file><file path="app/services/adhoc_reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-IST           = timezone(timedelta(hours=5, minutes=30))
-⋮----
-TEMPLATE_MANAGER_SUMMARY  = &quot;manager_daily_summary&quot;
-TEMPLATE_MANAGER_REPORT   = &quot;manager_daily_report&quot;
-TEMPLATE_SP_PENDING       = &quot;salesperson_pending_orders&quot;
-⋮----
-REPORT_KEYWORDS = {
-⋮----
-def is_report_keyword(message: str) -&gt; bool
-⋮----
-def _get_sender_role(phone: str, db: Session) -&gt; tuple[str, object]
-⋮----
-normalized = normalize_phone(phone)
-⋮----
-sp = db.query(Salesperson).filter(
-⋮----
-def handle_adhoc_report_request(phone: str, message: str, db: Session) -&gt; bool
-⋮----
-def _send_manager_adhoc_report(manager_phone: str, db: Session)
-⋮----
-delivery_date = get_delivery_date_for_now()
-date_str      = delivery_date.strftime(&quot;%d %B %Y&quot;)
-today_str     = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-# ── Summary ──────────────────────────────────────────────────────────────
-grouped = get_pending_customers(db, delivery_date)
-⋮----
-total_active = (
-⋮----
-all_pending   = [c for customers in grouped.values() for c in customers]
-total_pending = len(all_pending)
-total_received = total_active - total_pending
-⋮----
-area_customers: dict = {}
-⋮----
-area = c.area or &quot;Unassigned&quot;
-⋮----
-parts = [
-area_breakdown = &quot; | &quot;.join(parts)
-⋮----
-area_breakdown = &quot;None — all orders received&quot;
-⋮----
-unassigned_pending = len(grouped.get(None, []))
-⋮----
-orders = (
-⋮----
-product_totals: dict = {}
-⋮----
-items = json.loads(order.parsed_items) if order.parsed_items else []
-⋮----
-items = []
-⋮----
-key = item[&quot;product&quot;]
-⋮----
-total_items_count = sum(product_totals.values())
-items_text  = &quot;, &quot;.join(f&quot;{p} x{int(q) if q == int(q) else q}&quot; for p, q in product_totals.items())
-product_summary = &quot; | &quot;.join(f&quot;{p}: {int(q) if q == int(q) else q}&quot; for p, q in product_totals.items())
-⋮----
-def _send_salesperson_adhoc_report(sp_phone: str, sp: Salesperson, db: Session)
-⋮----
-sp_pending = grouped.get(sp.id, [])
-⋮----
-# All clear — free-form message (customer already messaged, window open)
-⋮----
-# Build pending list — single line, Meta rejects newlines in template params
-customer_list = &quot;, &quot;.join(</file><file path="app/services/intent_classifier.py">class Intent(Enum)
+updated_at           = Column(DateTime, default=lambda: datetime.now(IST),</file><file path="app/routes/__init__.py"></file><file path="app/routes/unclear_items_routes.py">UNCLEAR_ROUTES = &apos;&apos;&apos;</file><file path="app/services/__init__.py"></file><file path="app/services/intent_classifier.py">class Intent(Enum)
 ⋮----
 ADHOC_REPORT     = &quot;adhoc_report&quot;
 ONBOARDING       = &quot;onboarding&quot;
@@ -242,7 +175,140 @@ salesperson_id = Column(
 ⋮----
 is_daily_order_customer = Column(
 ⋮----
-salesperson = relationship(&quot;Salesperson&quot;, back_populates=&quot;customers&quot;)</file><file path="app/services/message_journal.py">logger = logging.getLogger(__name__)
+salesperson = relationship(&quot;Salesperson&quot;, back_populates=&quot;customers&quot;)</file><file path="app/services/adhoc_reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+IST           = timezone(timedelta(hours=5, minutes=30))
+⋮----
+TEMPLATE_MANAGER_SUMMARY  = &quot;manager_daily_summary&quot;
+TEMPLATE_MANAGER_REPORT   = &quot;manager_daily_report&quot;
+TEMPLATE_SP_PENDING       = &quot;salesperson_pending_orders&quot;
+⋮----
+REPORT_KEYWORDS = {
+⋮----
+MANAGER_BUTTON_IDS     = {&quot;mgr_summary&quot;, &quot;mgr_daily_report&quot;, &quot;mgr_add_customer&quot;}
+SALESPERSON_BUTTON_IDS = {&quot;sp_pending&quot;, &quot;sp_help&quot;}
+ALL_BUTTON_IDS         = MANAGER_BUTTON_IDS | SALESPERSON_BUTTON_IDS
+⋮----
+def is_report_keyword(message: str) -&gt; bool
+⋮----
+def is_button_reply_id(button_id: str) -&gt; bool
+⋮----
+def _get_sender_role(phone: str, db: Session) -&gt; tuple[str, object]
+⋮----
+normalized = normalize_phone(phone)
+⋮----
+sp = db.query(Salesperson).filter(
+⋮----
+def handle_button_reply(phone: str, button_id: str, db: Session) -&gt; bool
+⋮----
+bid = button_id.strip().lower()
+⋮----
+name = sp.name if sp else &quot;there&quot;
+⋮----
+# ── Text keyword handler (existing, unchanged) ────────────────────────────────
+⋮----
+def handle_adhoc_report_request(phone: str, message: str, db: Session) -&gt; bool
+⋮----
+&quot;&quot;&quot;
+    Main entry point for text keywords.
+    Returns True if handled (sender is manager/salesperson),
+    False if unknown phone (caller should process as regular message).
+    &quot;&quot;&quot;
+⋮----
+def handle_unrecognized_internal_message(phone: str, db: Session) -&gt; bool
+⋮----
+def _send_manager_adhoc_report(manager_phone: str, db: Session)
+⋮----
+def _send_manager_summary(manager_phone: str, db: Session)
+⋮----
+delivery_date = get_delivery_date_for_now()
+date_str      = delivery_date.strftime(&quot;%d %B %Y&quot;)
+⋮----
+grouped = get_pending_customers(db, delivery_date)
+⋮----
+total_active = (
+⋮----
+all_pending    = [c for customers in grouped.values() for c in customers]
+total_pending  = len(all_pending)
+total_received = total_active - total_pending
+⋮----
+area_customers: dict = {}
+⋮----
+area = c.area or &quot;Unassigned&quot;
+⋮----
+parts = [
+area_breakdown = &quot; | &quot;.join(parts)
+⋮----
+area_breakdown = &quot;None — all orders received&quot;
+⋮----
+unassigned_pending = len(grouped.get(None, []))
+⋮----
+def _send_manager_daily_report_only(manager_phone: str, db: Session)
+⋮----
+today_str     = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+orders = (
+⋮----
+product_totals: dict = {}
+⋮----
+items = json.loads(order.parsed_items) if order.parsed_items else []
+⋮----
+items = []
+⋮----
+key = item[&quot;product&quot;]
+⋮----
+total_items_count = sum(product_totals.values())
+items_text        = &quot;, &quot;.join(f&quot;{p} x{int(q) if q == int(q) else q}&quot; for p, q in product_totals.items())
+product_summary   = &quot; | &quot;.join(f&quot;{p}: {int(q) if q == int(q) else q}&quot; for p, q in product_totals.items())
+⋮----
+def _send_salesperson_adhoc_report(sp_phone: str, sp: Salesperson, db: Session)
+⋮----
+grouped    = get_pending_customers(db, delivery_date)
+sp_pending = grouped.get(sp.id, [])
+⋮----
+customer_list = &quot;, &quot;.join(</file><file path="app/services/webhook_health.py">logger = logging.getLogger(__name__)
+⋮----
+IST                  = timezone(timedelta(hours=5, minutes=30))
+MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;OrdeRR&quot;)
+META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;, &quot;&quot;)
+META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;, &quot;&quot;)
+⋮----
+META_API_URL = f&quot;https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}&quot;
+⋮----
+def check_webhook_health()
+⋮----
+&quot;&quot;&quot;
+    Called by scheduler every 30 minutes.
+    Pings Meta Graph API to verify the access token and phone number are valid.
+    Alerts manager only if the API call actually fails — meaning something is
+    genuinely broken (token expired, number suspended, Meta-side issue).
+    Silence (no inbound messages) is NOT treated as a failure.
+    &quot;&quot;&quot;
+⋮----
+now_ist = datetime.now(IST)
+⋮----
+response = requests.get(
+⋮----
+error_data = response.json() if response.content else {}
+error_msg  = error_data.get(&quot;error&quot;, {}).get(&quot;message&quot;, f&quot;HTTP {response.status_code}&quot;)
+error_code = error_data.get(&quot;error&quot;, {}).get(&quot;code&quot;, &quot;unknown&quot;)
+⋮----
+def _send_failure_alert(now_ist: datetime, error_code, error_msg: str)
+⋮----
+alert = (</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
+⋮----
+DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
+⋮----
+engine = create_engine(
+⋮----
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+⋮----
+class Base(DeclarativeBase)
+⋮----
+def get_db()
+⋮----
+db = SessionLocal()</file><file path="app/services/message_journal.py">logger = logging.getLogger(__name__)
 ⋮----
 IST = timezone(timedelta(hours=5, minutes=30))
 ⋮----
@@ -313,49 +379,7 @@ alert = (
 ⋮----
 def _alert_processing_failure(msg: InboundMessage, reason: str)
 ⋮----
-def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path="app/services/webhook_health.py">logger = logging.getLogger(__name__)
-⋮----
-IST                  = timezone(timedelta(hours=5, minutes=30))
-MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;OrdeRR&quot;)
-META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;, &quot;&quot;)
-META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;, &quot;&quot;)
-⋮----
-META_API_URL = f&quot;https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}&quot;
-⋮----
-def check_webhook_health()
-⋮----
-&quot;&quot;&quot;
-    Called by scheduler every 30 minutes.
-    Pings Meta Graph API to verify the access token and phone number are valid.
-    Alerts manager only if the API call actually fails — meaning something is
-    genuinely broken (token expired, number suspended, Meta-side issue).
-    Silence (no inbound messages) is NOT treated as a failure.
-    &quot;&quot;&quot;
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-response = requests.get(
-⋮----
-error_data = response.json() if response.content else {}
-error_msg  = error_data.get(&quot;error&quot;, {}).get(&quot;message&quot;, f&quot;HTTP {response.status_code}&quot;)
-error_code = error_data.get(&quot;error&quot;, {}).get(&quot;code&quot;, &quot;unknown&quot;)
-⋮----
-def _send_failure_alert(now_ist: datetime, error_code, error_msg: str)
-⋮----
-alert = (</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
-⋮----
-DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
-⋮----
-engine = create_engine(
-⋮----
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-⋮----
-class Base(DeclarativeBase)
-⋮----
-def get_db()
-⋮----
-db = SessionLocal()</file><file path=".gitignore">venv/
+def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path=".gitignore">venv/
 .env
 __pycache__/
 *.pyc
@@ -843,7 +867,16 @@ items_with_delivery  = f&quot;{items_text} | {delivery_text}&quot;
 ⋮----
 &quot;&quot;&quot;Free-form alert — manager always within window via daily interactions.&quot;&quot;&quot;
 ⋮----
-def fmt(items)</file><file path="app/routes/admin.py">router     = APIRouter()
+def fmt(items)
+⋮----
+def send_manager_menu(phone: str) -&gt; dict
+⋮----
+&quot;&quot;&quot;
+    Send an interactive Quick Reply menu to the manager.
+    Buttons: Summary | Daily Report | Add Customer
+    &quot;&quot;&quot;
+⋮----
+def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/routes/admin.py">router     = APIRouter()
 PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 IST        = timezone(timedelta(hours=5, minutes=30))
@@ -953,7 +986,9 @@ customer = db.query(Customer).filter(Customer.id == customer_id).first()
 ⋮----
 orders = (
 ⋮----
-unclear_items = json.loads(o.unclear_items) if getattr(o, &apos;unclear_items&apos;, None) else []
+def safe_json(val)
+⋮----
+result = json.loads(val)
 ⋮----
 @router.post(&quot;/customers/{customer_id}/assign&quot;)
 def assign_customer(customer_id: int, payload: CustomerAssign, db: Session = Depends(get_db), username: str = Depends(require_auth))
@@ -2240,12 +2275,10 @@ payload        = await request.json()
 customer_phone = payload.get(&quot;phone&quot;, &quot;919999999999&quot;)
 message_text   = payload.get(&quot;message&quot;, &quot;&quot;)
 ⋮----
-normalized_sender = normalize_phone(customer_phone)
+normalized_sender  = normalize_phone(customer_phone)
 normalized_manager = normalize_phone(MANAGER_PHONE) if MANAGER_PHONE else &quot;&quot;
 ⋮----
 reply = handle_manager_add_customer(db, message_text)
-⋮----
-# FIXED: replaced illegal &apos;continue&apos; with a direct API return
 ⋮----
 result = process_incoming_order(db=db, customer_phone=customer_phone, message=message_text)
 ⋮----
@@ -2256,61 +2289,14 @@ mode      = request.query_params.get(&quot;hub.mode&quot;)
 token     = request.query_params.get(&quot;hub.verify_token&quot;)
 challenge = request.query_params.get(&quot;hub.challenge&quot;)
 ⋮----
-# FastAPI maps returned integers directly or expects a Response object.
-# Returning it as a plain string/int string is safest for Meta&apos;s verification challenge.
-⋮----
 def handle_manager_add_customer(db: Session, message_text: str) -&gt; str
 ⋮----
 parts = message_text.strip()[len(ADD_CUSTOMER_CMD):].strip()
-⋮----
 tokens = parts.split(None, 1)
 ⋮----
 customer = create_customer_manually(
 ⋮----
-@router.post(&quot;/meta&quot;)
-async def meta_webhook(request: Request, db: Session = Depends(get_db))
-⋮----
-body      = await request.body()
-signature = request.headers.get(&quot;X-Hub-Signature-256&quot;, &quot;&quot;)
-⋮----
-payload = json.loads(body)
-⋮----
-payload_str = body.decode(&quot;utf-8&quot;, errors=&quot;replace&quot;)
-⋮----
-value    = change.get(&quot;value&quot;, {})
-messages = value.get(&quot;messages&quot;, [])
-⋮----
-customer_phone  = message.get(&quot;from&quot;, &quot;&quot;)
-⋮----
-message_type    = message.get(&quot;type&quot;, &quot;&quot;)
-meta_message_id = message.get(&quot;id&quot;)
-⋮----
-raw_message = message.get(&quot;text&quot;, {}).get(&quot;body&quot;, &quot;&quot;)
-⋮----
-raw_message = message.get(&quot;image&quot;, {}).get(&quot;caption&quot;, &quot;Photo order received&quot;)
-⋮----
-raw_message = f&quot;[{message_type} message]&quot;
-⋮----
-# ── REQ 1.1: PERSIST RAW MESSAGE FIRST ───────────────────────
-inbound_msg = persist_raw_message(
-⋮----
-# Unsupported type — persisted for audit, no processing
-⋮----
-existing_customer = (
-is_onboarding = (
-⋮----
-msg_lower = raw_message.strip().lower()
-MENU_TRIGGER = {&quot;menu&quot;, &quot;order&quot;, &quot;show menu&quot;, &quot;send menu&quot;, &quot;place order&quot;}
-⋮----
-# ── PARSING ───────────────────────────────────────────────────
-⋮----
-result = process_incoming_order(
-⋮----
-result_status = result.get(&quot;status&quot;, &quot;&quot;)
-⋮----
-msgs = get_all_failed_messages(db)
-⋮----
-msg = db.query(InboundMessage).filter(InboundMessage.id == msg_id).first()</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 IST                  = timezone(timedelta(hours=5, minutes=30))
 RESET_HOUR           = 20
@@ -2409,8 +2395,6 @@ existing_items = json.loads(existing_order.parsed_items) if existing_order.parse
 business_date = compute_business_date(datetime.now(timezone.utc)).strftime(&quot;%Y-%m-%d&quot;)
 ⋮----
 msg_lower = message.strip().lower()
-⋮----
-handled = handle_adhoc_report_request(customer_phone, msg_lower, db)
 ⋮----
 customer = get_customer_by_phone(db, customer_phone)
 ⋮----
