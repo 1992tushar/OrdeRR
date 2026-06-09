@@ -219,13 +219,18 @@ def _save_and_notify(
             parsed          = parsed,
             restaurant_name = restaurant_name,
         )
-        send_manager_alert(
-            manager_phone   = MANAGER_PHONE,
-            customer_phone  = customer_phone,
-            parsed          = parsed,
-            restaurant_name = restaurant_name,
-        )
-        # If there are unclear items, send a SEPARATE silent alert to manager
+        # Only notify manager via normal alert if order is fully clear
+        # If there are unclear items, suppress the normal alert — manager
+        # will be notified via the unclear alert now, and via order alert
+        # once admin resolves the unclear items from the dashboard.
+        if not unclear_items:
+            send_manager_alert(
+                manager_phone   = MANAGER_PHONE,
+                customer_phone  = customer_phone,
+                parsed          = parsed,
+                restaurant_name = restaurant_name,
+            )
+        # If there are unclear items, send the unclear alert to manager
         if unclear_items:
             try:
                 alert_text = _build_unclear_alert(
