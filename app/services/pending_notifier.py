@@ -19,44 +19,51 @@ from sqlalchemy.orm import Session
 from app.models.salesperson import Salesperson
 from app.models.customer import Customer
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
-from app.services.notifier import send_whatsapp_message
+from app.services.notifier import send_whatsapp_template, send_whatsapp_message
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
-PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
+PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
+
+# ── Approved template names ───────────────────────────────────────────────────
+# NOTE: customer_daily_reminder is MARKETING category — cannot deliver without opt-in.
+#       Customer reminders now use free-form messages instead (customers always
+#       message during the day to order, keeping the 24hr window open at 10 PM).
+TEMPLATE_SALESPERSON_PENDING = "salesperson_pending_orders"
+TEMPLATE_MANAGER_SUMMARY     = "manager_daily_summary"
 
 
 # ── 22:00 — Customer reminders ───────────────────────────────────────────────
 
 def send_customer_reminders(db: Session, delivery_date: date | None = None):
     """
-    Sends a WhatsApp reminder to every pending customer at 10 PM.
-    Only active, daily-order, assigned customers are messaged.
-    (Unassigned customers — grouped[None] — are silently skipped.)
-    """
+    Free-form reminder to pending customers at 22:00 IST.
 
+    Uses send_whatsapp_message() (not a template) because the customer_daily_reminder
+    template was approved as MARKETING category by Meta, which requires explicit opt-in
+    and silently fails delivery to customers who haven't messaged first.
+
+    This works reliably because active daily customers always message during the day
+    to place orders, keeping the 24hr free-form window open at 10 PM.
+
+    Edge case: brand-new customers onboarded today with no order yet will NOT receive
+    this reminder on their first day — acceptable behaviour.
+    """
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
     grouped = get_pending_customers(db, delivery_date)
+    all_pending_customers = [c for customers in grouped.values() for c in customers]
 
-    # Flatten all assigned customers only
-    pending_customers = [
-        c
-        for sp_id, customers in grouped.items()
-        if sp_id is not None
-        for c in customers
-    ]
-
-    print(f"\n⏰ Customer Reminders — {len(pending_customers)} pending customers")
+    print(f"\n⏰ Customer Reminders — {len(all_pending_customers)} pending customers identified")
 
     sent = 0
-    for customer in pending_customers:
+
+    for customer in all_pending_customers:
         message = (
-            f"🐔 *{PLANT_NAME} — Order Reminder*\n\n"
+            f"⏰ Reminder - {PLANT_NAME} Orders\n\n"
             f"Hi {customer.restaurant_name},\n\n"
-            f"We haven't received your order for tomorrow yet.\n"
-            f"Please place your order before 11:00 PM.\n\n"
-            f"Reply with your order or type *order* to get the menu.\n\n"
+            f"You haven't placed your order yet today.\n\n"
+            f"Type *order* to place your order now.\n\n"
             f"— {PLANT_NAME} Team"
         )
         result = send_whatsapp_message(customer.phone_number, message)
@@ -64,23 +71,26 @@ def send_customer_reminders(db: Session, delivery_date: date | None = None):
             sent += 1
             print(f"   ✅ Reminder sent → {customer.restaurant_name} ({customer.phone_number})")
 
-    print(f"   📤 Reminders sent: {sent}/{len(pending_customers)}\n")
+    print(f"   📤 Reminders sent: {sent}/{len(all_pending_customers)}\n")
 
 
-# ── 23:05 — Salesperson notifications ───────────────────────────────────────
+# ── 23:05 — Salesperson notifications ────────────────────────────────────────
 
 def notify_salespersons_pending(db: Session, delivery_date: date | None = None):
     """
     Sends each salesperson a WhatsApp list of their customers
-    who have not yet ordered.
+    who have not yet ordered — uses approved template.
+    Template: salesperson_pending_orders
+    {{1}} = PLANT_NAME
+    {{2}} = salesperson name
+    {{3}} = customer list (single line, comma-separated)
+    {{4}} = pending count
     """
-
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
     grouped = get_pending_customers(db, delivery_date)
 
-    # Remove unassigned bucket — salespersons only
     assigned = {
         sp_id: customers
         for sp_id, customers in grouped.items()
@@ -93,34 +103,27 @@ def notify_salespersons_pending(db: Session, delivery_date: date | None = None):
 
         salesperson = db.query(Salesperson).filter(
             Salesperson.id == salesperson_id,
-            Salesperson.active == True
+            Salesperson.active == True,
         ).first()
 
         if not salesperson:
             print(f"   ⚠️  Salesperson id={salesperson_id} not found or inactive — skipped")
             continue
 
-        # Build customer list lines
-        lines = "\n".join(
+        # Single line — Meta rejects newlines/tabs in template parameters
+        customer_list = ", ".join(
             f"{i + 1}. {c.restaurant_name}" + (f" ({c.area})" if c.area else "")
             for i, c in enumerate(customers)
         )
 
-        message = (
-            f"📋 *Pending Orders — {PLANT_NAME}*\n\n"
-            f"Hi {salesperson.name}, the following customers haven't ordered yet:\n\n"
-            f"{lines}\n\n"
-            f"Total Pending: *{len(customers)}*\n\n"
-            f"Please follow up with them.\n"
-            f"— {PLANT_NAME} Team"
+        result = send_whatsapp_template(
+            salesperson.phone,
+            TEMPLATE_SALESPERSON_PENDING,
+            [PLANT_NAME, salesperson.name, customer_list, str(len(customers))],
         )
 
-        result = send_whatsapp_message(salesperson.phone, message)
         if result:
-            print(
-                f"   ✅ Notified {salesperson.name} "
-                f"({len(customers)} pending customers)"
-            )
+            print(f"   ✅ Notified {salesperson.name} ({len(customers)} pending customers)")
 
     print()
 
@@ -129,11 +132,16 @@ def notify_salespersons_pending(db: Session, delivery_date: date | None = None):
 
 def send_management_summary(db: Session, delivery_date: date | None = None):
     """
-    Sends the operations manager a daily completion summary:
-    total customers, orders received, pending count,
-    and area-wise breakdown WITH customer names.
+    Sends the operations manager a daily completion summary
+    via approved template.
+    Template: manager_daily_summary
+    {{1}} = PLANT_NAME
+    {{2}} = date string
+    {{3}} = total customers
+    {{4}} = orders received
+    {{5}} = pending count
+    {{6}} = area breakdown (single line, pipe-separated — Meta rejects newlines)
     """
-
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
 
@@ -143,62 +151,54 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
 
     grouped = get_pending_customers(db, delivery_date)
 
-    # Total active daily-order customers (onboarded)
     total_active = (
         db.query(Customer)
         .filter(
             Customer.is_active == True,
             Customer.is_daily_order_customer == True,
-            Customer.onboarding_status == "active"
+            Customer.onboarding_status == "active",
         )
         .count()
     )
 
-    # Flatten all pending (assigned + unassigned)
-    all_pending = [c for customers in grouped.values() for c in customers]
-    total_pending = len(all_pending)
+    all_pending    = [c for customers in grouped.values() for c in customers]
+    total_pending  = len(all_pending)
     total_received = total_active - total_pending
 
-    # Area-wise breakdown with customer names
-    area_customers = {}
+    # Area-wise breakdown — single line, pipe-separated
+    # e.g. "Talegaon (2 pending): Neha Hotel, Shubhada Hotel | Unassigned: 1 pending"
+    area_customers: dict = {}
     for c in all_pending:
         area = c.area or "Unassigned"
-        if area not in area_customers:
-            area_customers[area] = []
-        area_customers[area].append(c.restaurant_name)
+        area_customers.setdefault(area, []).append(c.restaurant_name)
 
     if area_customers:
-        area_lines = ""
+        parts = []
         for area, names in sorted(area_customers.items()):
-            area_lines += f"\n*{area}* ({len(names)} pending)\n"
-            for i, name in enumerate(names, 1):
-                area_lines += f"  {i}. {name}\n"
+            names_str = ", ".join(names)
+            parts.append(f"{area} ({len(names)} pending): {names_str}")
+        area_breakdown = " | ".join(parts)
     else:
-        area_lines = "\n  None — all orders received ✅\n"
+        area_breakdown = "None — all orders received"
 
-    # Unassigned customers note
     unassigned_pending = len(grouped.get(None, []))
-    unassigned_note = (
-        f"\n⚠️  Unassigned customers pending: {unassigned_pending}"
-        if unassigned_pending > 0
-        else ""
+    if unassigned_pending > 0:
+        area_breakdown += f" | Unassigned: {unassigned_pending} pending"
+
+    date_str = delivery_date.strftime("%d %B %Y")
+
+    result = send_whatsapp_template(
+        MANAGER_PHONE,
+        TEMPLATE_MANAGER_SUMMARY,
+        [
+            PLANT_NAME,
+            date_str,
+            str(total_active),
+            str(total_received),
+            str(total_pending),
+            area_breakdown,
+        ],
     )
 
-    message = (
-        f"📊 *Daily Order Status — {PLANT_NAME}*\n"
-        f"📅 {delivery_date.strftime('%d %B %Y')}\n\n"
-        f"Total Customers: *{total_active}*\n"
-        f"Orders Received: *{total_received}*\n"
-        f"Pending Orders:  *{total_pending}*\n\n"
-        f"*Pending by Area:*"
-        f"{area_lines}"
-        f"{unassigned_note}\n"
-        f"_OrdeRR — {PLANT_NAME} Automation_"
-    )
-
-    result = send_whatsapp_message(MANAGER_PHONE, message)
     if result:
-        print(
-            f"\n✅ Management summary sent → {MANAGER_PHONE} "
-            f"({total_received}/{total_active} received)\n"
-        )
+        print(f"\n✅ Management summary sent → {MANAGER_PHONE} ({total_received}/{total_active} received)\n")

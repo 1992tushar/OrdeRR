@@ -1,58 +1,479 @@
+"""
+template_parser.py
+------------------
+Fuzzy template parser — accepts messy human input like:
+  "wings - 2"  /  "Wings-2kg"  /  "breast boneless- 5 kg"
+  "CC 3"  /  "lollipop-10 nos"  /  "td 5"  /  "kaleji 1kg"
+
+Full Fluffy product catalog with Pune restaurant/hotel customer
+aliases (English shortcodes + Hindi/Marathi slang + noisy variants).
+
+v2 changes:
+- Accepts optional `db` session to check unclear_item_aliases before flagging unclear
+- Returns `unclear_items` list (raw strings that couldn't be parsed) separately from `items`
+- `is_unclear` is only True when ZERO items parsed (whole order unreadable)
+- Partial orders (some parsed, some not) are accepted — unclear_items stored separately
+"""
+
 import re
+import os
 
-from app.services.product_catalog import PRODUCT_CATALOG
+PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
+
+# ── Product Catalog ───────────────────────────────────────────────────────────
+# Format: (Display Name, default unit, [aliases])
+# All aliases must be lowercase.
+# Order matters for ambiguous shortcodes — more specific products first.
+
+PRODUCT_DEFINITIONS = [
+
+    # ── Whole Chicken: Without Skin ───────────────────────────────────────────
+
+    ("W/O Skin Tandoor Chicken", "nos", [
+        "without skin tandoor", "without skin whole chicken tandoor",
+        "wo skin tandoor", "w/o skin tandoor",
+        "skinless tandoor", "skinless tandoor chicken",
+        "tandoor skinless", "skin out tandoor",
+        "clean tandoor", "clean small chicken", "cleaned tandoor",
+        "no skin tandoor", "no skin td",
+        "sl tandoor", "wos tandoor",
+        "al faham", "al-faham", "alfaham",
+        "skin remove tandoor",
+    ]),
+
+    ("W/O Skin Regular Chicken", "nos", [
+        "without skin regular", "without skin whole chicken regular",
+        "wo skin regular", "w/o skin regular",
+        "whole chicken without skin", "whole chicken no skin",
+        "whole chicken skin out", "whole chicken skinless",
+        "skinless regular", "skinless regular chicken",
+        "regular skinless", "skin out regular",
+        "clean regular", "clean big chicken", "cleaned regular",
+        "no skin regular", "no skin reg",
+        "sl regular", "wos regular",
+    ]),
+
+    # ── Whole Chicken: With Skin ──────────────────────────────────────────────
+
+    ("WS Tandoor Chicken", "nos", [
+        "with skin whole chicken tandoor", "ws whole chicken tandoor",
+        "with skin tandoor", "whole chicken tandoor",
+        "ws tandoor chicken", "ws tandoor", "tandoor chicken",
+        "skin tandoor", "chicken tandoori",
+        "tandoor", "tandoori", "td", "tdr",
+        "small chicken", "small chik", "1kg chicken", "1kg chik",
+        "chota chicken", "chota chik",
+        "tandor", "tanduri", "tandoor cut", "tandoor size", "tandoor bird",
+        "tandur",
+    ]),
+
+    ("WS Regular Chicken", "nos", [
+        "with skin whole chicken regular", "ws whole chicken regular",
+        "with skin regular", "whole chicken regular",
+        "ws regular chicken", "ws regular", "regular chicken",
+        "skin regular",
+        "regular", "reg chicken", "reg chik",
+        "big chicken", "big chik", "full chicken",
+        "large chicken", "heavy chicken",
+        "1.5kg chicken", "regular bird",
+        "whole chicken", "whole broiler", "whole broiler chicken",
+        "broiler", "boiler", "full bird", "wbc",
+        "murgi", "murg", "kombdi", "kombadi",
+        "reguler", "reglar", "big bird", "large bird",
+        "chiken",
+    ]),
+
+    # ── Boneless ──────────────────────────────────────────────────────────────
+
+    ("Breast Boneless", "kg", [
+        "breast boneless", "boneless breast", "breast",
+        "breast piece", "breast boneless piece", "chicken breast",
+        "chest boneless", "chest bonless", "cast bonlas",
+        "berst boneless", "berst",
+        "bonless", "boneless",
+        "bb", "cb",
+        "bl breast", "breast bl", "b/l breast", "b.l breast",
+        "brest", "brest boneless", "breast bnls",
+    ]),
+
+    ("Leg Boneless", "kg", [
+        "leg boneless", "boneless leg",
+        "thigh boneless", "thigh", "boneless thigh",
+        "chicken thigh", "dark meat",
+        "lag bonlas", "leg bonless", "leg bnls", "bonless leg",
+        "lb",
+        "bl leg", "leg bl", "b/l leg", "b.l leg",
+    ]),
+
+    # ── Wings ─────────────────────────────────────────────────────────────────
+
+    ("Wings", "kg", [
+        "wings", "wing", "chicken wings", "wing piece", "hot wings",
+        "wngs", "wingz",
+    ]),
+
+    # ── Ready Lollipop ────────────────────────────────────────────────────────
+
+    ("Ready Lollipop", "kg", [
+        "lollipop", "ready lollipop", "lollypop", "lolipop",
+        "chicken lollipop", "ready lollypop",
+        "lp", "lpop",
+        "loli", "lolypop",
+    ]),
+
+    # ── Bone Products ─────────────────────────────────────────────────────────
+
+    ("Carcass", "kg", [
+        "carcass", "carcus", "chicken carcass",
+        "frame", "chicken frame",
+        "haddi", "bones", "chicken bones", "bone",
+        "cat pis", "cat piece", "cat pieces",
+        "haddi chicken",
+    ]),
+
+    # ── Cut Variants ──────────────────────────────────────────────────────────
+
+    ("Curry Cut", "kg", [
+        "curry cut", "currycut", "curry cut chicken",
+        "curry chicken", "curry piece", "curry pcs",
+        "cc", "c/c", "c.c",
+        "kari cut", "kadi cut", "kari", "rassa cut", "rassa",
+        "thali", "thali chicken", "thali cut",
+        "chikn", "cury", "curry",
+        "pcs",
+    ]),
+
+    ("Biryani Cut", "kg", [
+        "biryani cut", "biryani cut chicken",
+        "biryani chicken", "biryani pcs", "biryani piece",
+        "bc", "b/c", "brc",
+        "biriyani cut", "biriyani",
+        "biryani cut piece", "biryani chik", "biryani",
+    ]),
+
+    # ── Leg Parts ─────────────────────────────────────────────────────────────
+
+    ("Drumstick", "kg", [
+        "drumstick", "drumsticks", "drum stick", "drum sticks",
+        "chicken drumstick",
+        "ds", "drum", "drums",
+        "drmstk", "drumstik", "darmistk",
+    ]),
+
+    ("Whole Leg", "nos", [
+        "whole leg", "full leg", "full chicken leg",
+        "leg piece", "complete leg",
+        "wl",
+        "tangdi", "tangadi", "t leg",
+        "wholeleg", "fullleg",
+    ]),
+
+    # ── Organ Meat ────────────────────────────────────────────────────────────
+
+    ("Liver", "kg", [
+        "liver", "chicken liver", "liver piece",
+        "kaleji", "kaleja", "kalgi",
+        "liv", "lvr",
+        "kaliji",
+    ]),
+
+    ("Gizzard", "kg", [
+        "gizzard", "gizzards", "chicken gizzard", "gizzard piece",
+        "gurda", "pota",
+        "giz", "gizz",
+        "gizerd",
+    ]),
+
+    # ── Mince ─────────────────────────────────────────────────────────────────
+
+    ("Kheema", "kg", [
+        "kheema", "keema", "chicken kheema", "chicken keema",
+        "mince", "chicken mince", "minced chicken",
+        "khima", "qeema",
+    ]),
+
+]
+
+# Flat set of all valid canonical product names (for alias resolution validation)
+VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
 
 
-def normalize_text(text: str):
+# ── Normalizers ───────────────────────────────────────────────────────────────
 
+def _normalize(text: str) -> str:
     return (
         text.lower()
         .replace("*", "")
+        .replace("_", "")
+        .replace("/", "")
+        .replace(".", "")
+        .replace("-", " ")
         .strip()
     )
 
 
-def parse_template_order(customer_phone: str, message: str):
+def _squish(text: str) -> str:
+    return re.sub(r'\s+', '', _normalize(text))
 
-    items = []
 
-    normalized_message = normalize_text(message)
+def _tokenize(text: str) -> set:
+    return set(_normalize(text).split())
 
-    lines = normalized_message.splitlines()
 
-    for line in lines:
+def _match_product(raw_name: str):
+    """
+    Returns (display_name, unit) or None.
+    Priority: exact → partial/startswith → token subset
+    """
+    n = _normalize(raw_name)
+    s = _squish(raw_name)
 
-        line = line.strip()
+    # 1. Exact
+    for display, unit, aliases in PRODUCT_DEFINITIONS:
+        for alias in aliases:
+            if n == _normalize(alias) or s == _squish(alias):
+                return display, unit
 
+    # 2. Partial / startswith
+    for display, unit, aliases in PRODUCT_DEFINITIONS:
+        for alias in aliases:
+            a  = _normalize(alias)
+            aq = _squish(alias)
+            if n.startswith(a) or a.startswith(n):
+                return display, unit
+            if s.startswith(aq) or aq.startswith(s):
+                return display, unit
+
+    # 3. Token subset
+    raw_tokens = _tokenize(raw_name)
+    if raw_tokens:
+        for display, unit, aliases in PRODUCT_DEFINITIONS:
+            for alias in aliases:
+                alias_tokens = _tokenize(alias)
+                if alias_tokens and (
+                    raw_tokens.issubset(alias_tokens)
+                    or alias_tokens.issubset(raw_tokens)
+                ):
+                    return display, unit
+
+    return None
+
+
+def _lookup_alias(raw_name: str, db) -> tuple | None:
+    """
+    Check unclear_item_aliases table for a manager-confirmed mapping.
+    Returns (canonical_product_name, unit) or None.
+    db can be None (caller doesn't always have a session).
+    """
+    if db is None:
+        return None
+    try:
+        from app.models.unclear_item_alias import UnclearItemAlias
+        normalized = raw_name.strip().lower()
+        row = db.query(UnclearItemAlias).filter(
+            UnclearItemAlias.raw_text == normalized
+        ).first()
+        if row:
+            # Find the unit for this canonical product
+            for display, unit, _ in PRODUCT_DEFINITIONS:
+                if display == row.canonical_product_name:
+                    return display, unit
+    except Exception:
+        pass
+    return None
+
+
+# ── Unit normalization ────────────────────────────────────────────────────────
+
+UNIT_ALIASES = {
+    "kg":        "kg",
+    "kgs":       "kg",
+    "kilo":      "kg",
+    "kilos":     "kg",
+    "kilogram":  "kg",
+    "kilograms": "kg",
+    "k":         "kg",
+    "nos":       "nos",
+    "no":        "nos",
+    "nos.":      "nos",
+    "pcs":       "nos",
+    "pc":        "nos",
+    "pis":       "nos",
+    "pieces":    "nos",
+    "piece":     "nos",
+    "number":    "nos",
+    "numbers":   "nos",
+}
+
+
+def _normalize_unit(raw: str) -> str | None:
+    return UNIT_ALIASES.get(raw.lower().strip().rstrip("."), None)
+
+
+def _parse_quantity(raw: str):
+    try:
+        qty = float(raw.strip())
+        if qty <= 0:
+            return None
+        return qty
+    except (ValueError, AttributeError):
+        return None
+
+
+# ── Main parser ───────────────────────────────────────────────────────────────
+
+def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
+    """
+    Parse a free-form or template-style order message.
+
+    Args:
+        customer_phone: sender's phone number
+        message:        raw WhatsApp message text
+        db:             optional SQLAlchemy Session — used to check alias table.
+                        Pass None to skip alias lookup (e.g. in tests).
+
+    Returns:
+        {
+            customer_phone,
+            items,           ← successfully parsed items
+            unclear_items,   ← list of raw strings that couldn't be parsed
+                               (after alias check) — stored on Order for manager review
+            delivery_date,
+            delivery_time,
+            is_unclear,      ← True ONLY when items == [] (total failure)
+            unclear_reason,
+            errors           ← internal detail list (unit mismatches etc.)
+        }
+    """
+    items          = []
+    unclear_items  = []   # raw line strings that failed product match
+    errors         = []
+    delivery_time  = None
+
+    lines = message.strip().splitlines()
+
+    for raw_line in lines:
+        line = raw_line.strip()
         if not line:
             continue
 
-        for catalog_item in PRODUCT_CATALOG:
+        lower = _normalize(line)
 
-            product_name = catalog_item["name"]
-            unit = catalog_item["unit"]
+        # Delivery time line
+        if lower.startswith("🕒") or "delivery time" in lower:
+            time_match = re.search(r"[:\-]\s*(.+)$", line)
+            if time_match:
+                t = time_match.group(1).strip()
+                if t and t not in ("__", "-", ""):
+                    delivery_time = t
+            continue
 
-            normalized_product = normalize_text(product_name)
+        # Skip header/instruction/note lines
+        if any(skip in lower for skip in [
+            "place your order", "copy below", "fill in", "example",
+            "delete what", "delivery time", "fluffy", "order —",
+            "note -", "note-",
+        ]):
+            continue
 
-            pattern = rf"^{re.escape(normalized_product)}\s*\({unit.lower()}\)\s*[-:]\s*(\d+(?:\.\d+)?)$"
+        # Strip placeholder tokens
+        line_clean = re.sub(r'__+', '', line).strip()
 
-            match = re.match(pattern, line)
+        # No digits → unfilled template line, skip silently
+        if not line_clean or not re.search(r'\d', line_clean):
+            continue
 
-            if match:
+        # Handle "3k" style
+        line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
 
-                quantity = float(match.group(1))
+        # Pattern: <product name> <separator?> <quantity> [unit]
+        split_match = re.match(
+            r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|nos|no|nos\.|pcs|pc|pis|pieces|piece|k)?\s*$",
+            line_clean,
+            re.IGNORECASE,
+        )
 
-                items.append({
-                    "product": product_name,
-                    "quantity": quantity,
-                    "unit": unit
-                })
+        if not split_match:
+            if len(line_clean) > 3:
+                unclear_items.append(line)
+            continue
+
+        raw_name     = split_match.group(1).strip()
+        raw_qty      = split_match.group(2).strip()
+        raw_unit_str = (split_match.group(3) or "").strip()
+        raw_unit     = _normalize_unit(raw_unit_str) if raw_unit_str else None
+
+        if raw_qty in ("__", "0", ""):
+            continue
+
+        # ── Product match: catalog first, then alias table ────────────────────
+        product_match = _match_product(raw_name)
+
+        if not product_match:
+            # Try manager-confirmed alias table
+            product_match = _lookup_alias(raw_name, db)
+
+        if not product_match:
+            # Truly unclear — store raw line for manager review
+            unclear_items.append(line)
+            continue
+
+        display_name, expected_unit = product_match
+
+        qty = _parse_quantity(raw_qty)
+        if qty is None:
+            errors.append({
+                "line":       line,
+                "reason":     f"Quantity *{raw_qty}* doesn't look right",
+                "suggestion": f"{display_name} - 1 {expected_unit}",
+            })
+            continue
+
+        # Unit mismatch — only flag if customer explicitly typed a wrong unit
+        if raw_unit and raw_unit != expected_unit:
+            errors.append({
+                "line":       line,
+                "reason":     f"*{display_name}* is ordered in *{expected_unit}* (you sent {raw_unit_str})",
+                "suggestion": f"{display_name} - {int(qty) if qty == int(qty) else qty} {expected_unit}",
+            })
+            continue
+
+        final_unit = raw_unit if raw_unit else expected_unit
+
+        # Merge duplicates
+        for item in items:
+            if item["product"] == display_name and item["unit"] == final_unit:
+                item["quantity"] += qty
+                break
+        else:
+            items.append({
+                "product":  display_name,
+                "quantity": qty,
+                "unit":     final_unit,
+            })
+
+    # is_unclear = truly nothing parseable at all
+    is_unclear = len(items) == 0 and len(unclear_items) == 0
 
     return {
         "customer_phone": customer_phone,
-        "items": items,
-        "delivery_date": None,
-        "delivery_time": None,
-        "is_unclear": len(items) == 0,
-        "unclear_reason": "No valid items found" if len(items) == 0 else ""
+        "items":          items,
+        "unclear_items":  unclear_items,
+        "delivery_date":  None,
+        "delivery_time":  delivery_time,
+        "is_unclear":     is_unclear,
+        "unclear_reason": "No valid items found" if is_unclear else None,
+        "errors":         errors,
     }
+
+
+def build_error_message(errors: list) -> str:
+    lines = ["⚠️ *Small issue with your order:*\n"]
+    for e in errors:
+        lines.append(f"❌ {e['reason']}")
+        if e.get("suggestion"):
+            lines.append(f"✅ Please send like:\n{e['suggestion']}\n")
+    lines.append(
+        "\nFor the full product list, type *order* to get the template again."
+    )
+    return "\n".join(lines)

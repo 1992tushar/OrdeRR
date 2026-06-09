@@ -3,11 +3,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-
 from app.database import get_db
 from app.models.order import Order
 from app.auth import require_auth
 from datetime import datetime, date, timezone, timedelta
+from app.services.order_service import get_current_business_date
 import json
 import os
 
@@ -23,8 +23,7 @@ def dashboard(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    # Determine which date to show
-    today = datetime.now(IST).date()
+    today = get_current_business_date()
     if view_date:
         try:
             target_date = date.fromisoformat(view_date)
@@ -33,13 +32,32 @@ def dashboard(
     else:
         target_date = today
 
+    target_date_str = target_date.strftime("%Y-%m-%d")
+
+    # ── FIX: filter by delivery_date (not created_at date) ───────────────────
+    # Orders are shown for the date they are *for*, not the date they were placed.
+    # A customer placing an order at 11:38 PM IST (= next day UTC) was previously
+    # missing from the dashboard because created_at date in UTC != IST date.
+    
+
     orders = db.query(Order).filter(
-        func.date(Order.created_at) == target_date,
-        Order.is_cancelled == False,
-    ).order_by(Order.created_at.desc()).all()
+    Order.business_date == target_date.strftime("%Y-%m-%d"),
+    Order.is_cancelled == False,
+    ).all()
+
+
 
     for order in orders:
-        order.items_parsed = json.loads(order.parsed_items) if order.parsed_items else []
+        order.created_at = order.created_at.astimezone(IST)
+        order.items_parsed      = json.loads(order.parsed_items) if order.parsed_items else []
+        order.has_unclear_items = bool(
+            getattr(order, "unclear_items", None)
+            and order.unclear_items not in ("[]", "null", "")
+        )
+        order.unclear_items_list = (
+            json.loads(order.unclear_items)
+            if order.has_unclear_items else []
+        )
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
@@ -49,17 +67,43 @@ def dashboard(
         for item in order.items_parsed:
             product  = item.get("product", "Unknown")
             quantity = item.get("quantity", 0)
-            unit     = item.get("unit", "kg")
+            unit     = item.get("unit", "kg").lower()
             key      = f"{product}__{unit}"
             if key not in product_summary:
                 product_summary[key] = {"product": product, "unit": unit, "total_quantity": 0, "orders_count": 0}
             product_summary[key]["total_quantity"] += quantity
             product_summary[key]["orders_count"]   += 1
 
-    # Date navigation helpers
     yesterday = (target_date - timedelta(days=1)).isoformat()
     tomorrow  = (target_date + timedelta(days=1)).isoformat()
     is_today  = (target_date == today)
+    now_ist = datetime.now(IST)
+    is_before_cutoff = now_ist.hour < 20
+
+    # ── Reliability data for Failed tab ──────────────────────────────────────
+    failed_messages   = []
+    reliability_stats = {"has_issues": False, "total_today": 0, "confirmed_today": 0, "failed_today": 0, "manual_review_total": 0}
+
+    try:
+        from app.models.inbound_message import InboundMessage
+        from app.services.message_journal import get_reliability_stats, get_all_failed_messages
+
+        reliability_stats = get_reliability_stats(db)
+
+        for m in get_all_failed_messages(db, limit=100):
+            failed_messages.append({
+                "id":                m.id,
+                "customer_phone":    m.customer_phone,
+                "raw_message":       (m.raw_message or "")[:400],
+                "received_at":       m.received_at.strftime("%d %b %Y %I:%M %p") if m.received_at else "",
+                "processing_status": m.processing_status,
+                "failure_reason":    m.failure_reason or "Unknown error",
+                "attempts":          m.processing_attempts,
+                "ack_failed":        m.ack_failed,
+                "linked_order_id":   m.linked_order_id,
+            })
+    except Exception:
+        pass
 
     return templates.TemplateResponse(
         request=request,
@@ -76,8 +120,12 @@ def dashboard(
             "target_date_display": target_date.strftime("%d %b %Y"),
             "is_today"           : is_today,
             "yesterday"          : yesterday,
+            "is_before_cutoff"   : is_before_cutoff,
             "tomorrow"           : tomorrow,
             "dashboard_username" : os.getenv("DASHBOARD_USERNAME", ""),
             "dashboard_password" : os.getenv("DASHBOARD_PASSWORD", ""),
+            # Reliability
+            "failed_messages"    : failed_messages,
+            "reliability_stats"  : reliability_stats,
         },
     )

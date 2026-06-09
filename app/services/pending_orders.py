@@ -2,7 +2,7 @@
 pending_orders.py
 -----------------
 Core logic for detecting customers who have not placed an order
-for the next delivery day.
+for today's delivery.
 
 Used by:
   - Scheduler jobs (customer reminders at 22:00, salesperson
@@ -20,19 +20,11 @@ from app.models.order import Order
 
 # IST = UTC+5:30
 IST = timezone(timedelta(hours=5, minutes=30))
-
-# Orders placed at or after this hour (IST) count toward the NEXT day
-CUTOFF_HOUR = 23   # 11 PM
-
+RESET_HOUR = 20  # 8 PM IST
 
 def get_delivery_date_for_now() -> date:
-    """
-    Returns the delivery date that a right-now order would be for.
-    Before 11 PM → today.
-    At/after 11 PM → tomorrow.
-    """
     now_ist = datetime.now(IST)
-    if now_ist.hour >= CUTOFF_HOUR:
+    if now_ist.hour >= RESET_HOUR:
         return (now_ist + timedelta(days=1)).date()
     return now_ist.date()
 
@@ -69,8 +61,10 @@ def get_pending_customers(db: Session, delivery_date: date) -> dict:
 
     ordered_phones = (
         db.query(Order.customer_phone)
-        .filter(Order.delivery_date == delivery_date_str)
-        .distinct()
+        .filter(
+            Order.business_date == delivery_date_str,
+            Order.is_cancelled == False,
+        )
         .all()
     )
     ordered_set = {row[0] for row in ordered_phones}

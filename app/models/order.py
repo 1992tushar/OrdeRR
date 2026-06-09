@@ -32,6 +32,12 @@ class Order(Base):
     is_unclear     = Column(Boolean, default=False)
     unclear_reason = Column(String, nullable=True)
 
+    business_date        = Column(String, nullable=True, index=True)
+    is_next_day_override = Column(Boolean, default=False)
+
+    # Stores JSON array strings of unmapped items needing dashboard evaluation
+    unclear_items  = Column(Text, nullable=True)
+
     confirmation_sent    = Column(Boolean, default=False)
     forwarded_to_manager = Column(Boolean, default=False)
 

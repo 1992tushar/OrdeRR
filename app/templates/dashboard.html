@@ -2,141 +2,237 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <title>OrdeRR — {{ plant_name }} Dashboard</title>
     <style>
         * { margin:0; padding:0; box-sizing:border-box; }
         body { font-family:'Segoe UI',sans-serif; background:#f0f2f5; color:#333; }
-        .header { background:#075e54; color:white; padding:16px 24px; display:flex; justify-content:space-between; align-items:center; }
-        .header h1 { font-size:22px; }
-        .header-right { display:flex; align-items:center; gap:12px; font-size:13px; opacity:.85; }
-        .tab-nav { background:white; border-bottom:2px solid #e0e0e0; display:flex; padding:0 24px; }
-        .tab-btn { padding:14px 20px; border:none; background:none; cursor:pointer; font-size:14px; color:#888; border-bottom:3px solid transparent; margin-bottom:-2px; transition:all .2s; }
+
+        /* ── Header ── */
+        .header { background:#075e54; color:white; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; }
+        .header h1 { font-size:18px; }
+        .header-right { font-size:12px; opacity:.85; }
+
+        /* ── Tab Nav — horizontal scroll on mobile ── */
+        .tab-nav { background:white; border-bottom:2px solid #e0e0e0; display:flex; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:0 8px; }
+        .tab-nav::-webkit-scrollbar { display:none; }
+        .tab-btn { padding:13px 14px; border:none; background:none; cursor:pointer; font-size:13px; color:#888; border-bottom:3px solid transparent; margin-bottom:-2px; transition:all .2s; white-space:nowrap; flex-shrink:0; }
         .tab-btn.active { color:#075e54; border-bottom-color:#075e54; font-weight:600; }
+        .tab-btn.hidden { display:none; }
         .tab-pane { display:none; }
         .tab-pane.active { display:block; }
-        .cards { display:flex; gap:16px; padding:24px; flex-wrap:wrap; }
-        .card { background:white; border-radius:12px; padding:20px 24px; flex:1; min-width:140px; box-shadow:0 1px 4px rgba(0,0,0,.1); text-align:center; }
-        .card .number { font-size:36px; font-weight:bold; color:#075e54; }
-        .card .label { font-size:13px; color:#888; margin-top:4px; }
+
+        /* ── Cards — 2-col on mobile, 4-col on desktop ── */
+        .cards { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; padding:12px; }
+        @media(min-width:600px){ .cards { grid-template-columns:repeat(4,1fr); gap:16px; padding:20px 24px; } }
+        .card { background:white; border-radius:12px; padding:16px; box-shadow:0 1px 4px rgba(0,0,0,.1); text-align:center; }
+        .card .number { font-size:30px; font-weight:bold; color:#075e54; }
+        .card .label { font-size:12px; color:#888; margin-top:4px; }
         .card.warning .number { color:#e67e22; }
         .card.success .number { color:#27ae60; }
-        .section { padding:0 24px 24px; }
-        .section h2 { font-size:16px; color:#555; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid #075e54; display:flex; justify-content:space-between; align-items:center; }
-        .summary-table { background:white; border-radius:12px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.1); margin-bottom:24px; }
+        .card.danger  .number { color:#c62828; }
+
+        /* ── Section ── */
+        .section { padding:0 12px 20px; }
+        @media(min-width:600px){ .section { padding:0 24px 24px; } }
+        .section h2 { font-size:15px; color:#555; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid #075e54; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+
+        /* ── Tables ── */
+        .summary-table { background:white; border-radius:12px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.1); margin-bottom:20px; }
         .summary-table table { width:100%; border-collapse:collapse; }
-        .summary-table th { background:#075e54; color:white; padding:12px 16px; text-align:left; font-size:13px; }
-        .summary-table td { padding:10px 16px; border-bottom:1px solid #f0f0f0; font-size:14px; vertical-align:middle; }
+        .summary-table th { background:#075e54; color:white; padding:10px 12px; text-align:left; font-size:12px; }
+        .summary-table td { padding:10px 12px; border-bottom:1px solid #f0f0f0; font-size:13px; vertical-align:middle; }
         .summary-table tr:last-child td { border-bottom:none; }
-        .order-card { background:white; border-radius:12px; padding:16px 20px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #075e54; }
+        .product-table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+        /* ── Mobile Cards ── */
+        .mobile-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #075e54; }
+        .mobile-card.inactive { opacity:.6; border-left-color:#ccc; }
+        .mobile-card-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; }
+        .mobile-card-name { font-weight:700; font-size:15px; color:#222; }
+        .mobile-card-sub { font-size:12px; color:#888; margin-top:2px; }
+        .mobile-card-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+
+        /* Desktop/mobile visibility */
+        .desktop-only { display:none; }
+        @media(min-width:700px){ .desktop-only { display:block; } .mobile-only { display:none !important; } }
+        .mobile-only { display:block; }
+        @media(min-width:700px){ .mobile-only { display:none !important; } }
+
+        /* ── Order Cards ── */
+        .order-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #075e54; }
         .order-card.unclear { border-left-color:#e67e22; }
-        .order-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+        .order-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; gap:8px; flex-wrap:wrap; }
         .items { font-size:13px; color:#555; line-height:1.8; }
-        .raw-message { font-size:12px; color:#e67e22; margin-top:8px; font-style:italic; }
+        .raw-message { font-size:12px; color:#e67e22; margin-top:8px; font-style:italic; word-break:break-word; }
         .reason { font-size:12px; color:#e67e22; margin-top:4px; }
-        .badge { padding:4px 10px; border-radius:20px; font-size:11px; font-weight:bold; display:inline-block; }
-        .badge.unclear   { background:#fff3e0; color:#e65100; }
-        .badge.inactive  { background:#fce4ec; color:#c62828; }
-        .badge.active    { background:#e8f5e9; color:#2e7d32; }
-        .badge.unassigned{ background:#fff8e1; color:#f57f17; }
-        .badge.pending-badge { background:#fce4ec; color:#c62828; }
-        .badge.ordered-badge { background:#e8f5e9; color:#2e7d32; }
-        .btn { border:none; border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer; font-weight:600; transition:background .15s; white-space:nowrap; }
+
+        /* ── Badges ── */
+        .badge { padding:3px 8px; border-radius:20px; font-size:11px; font-weight:bold; display:inline-block; white-space:nowrap; }
+        .badge.unclear    { background:#fff3e0; color:#e65100; }
+        .badge.inactive   { background:#fce4ec; color:#c62828; }
+        .badge.active     { background:#e8f5e9; color:#2e7d32; }
+        .badge.unassigned { background:#fff8e1; color:#f57f17; }
+        .badge.pending-badge  { background:#fce4ec; color:#c62828; }
+        .badge.ordered-badge  { background:#e8f5e9; color:#2e7d32; }
+        .badge.failed-badge   { background:#fce4ec; color:#c62828; }
+        .badge.manual-badge   { background:#fff3e0; color:#e65100; }
+        .badge.attempts-badge { background:#f5f5f5; color:#757575; }
+        .badge.ack-badge      { background:#fff3e0; color:#e65100; }
+        .badge-count { display:inline-block; background:#e53e3e; color:white; border-radius:9999px; padding:1px 6px; font-size:11px; margin-left:4px; font-weight:700; }
+
+        /* ── Buttons ── */
+        .btn { border:none; border-radius:6px; padding:7px 13px; font-size:12px; cursor:pointer; font-weight:600; transition:background .15s; white-space:nowrap; }
         .btn-deactivate { background:#fce4ec; color:#c62828; }
-        .btn-deactivate:hover { background:#f48fb1; }
         .btn-activate   { background:#e8f5e9; color:#2e7d32; }
-        .btn-activate:hover { background:#a5d6a7; }
         .btn-assign     { background:#e3f2fd; color:#1565c0; }
-        .btn-assign:hover { background:#90caf9; }
         .btn-save       { background:#075e54; color:white; }
-        .btn-save:hover  { background:#064e46; }
         .btn-cancel-ui  { background:#f5f5f5; color:#555; }
-        .btn-cancel-ui:hover { background:#e0e0e0; }
-        .btn-nav        { background:rgba(255,255,255,.2); color:white; border:1px solid rgba(255,255,255,.4); padding:6px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
-        .btn-nav:hover  { background:rgba(255,255,255,.3); }
-        .btn-nav:disabled { opacity:.4; cursor:default; }
-        .date-nav { display:flex; align-items:center; gap:8px; font-size:13px; }
-        .add-sp-panel { background:white; border-radius:12px; padding:20px 24px; margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,.1); display:none; }
-        .add-sp-panel.open { display:block; }
-        .add-sp-panel h3 { font-size:15px; color:#075e54; margin-bottom:14px; }
-        .add-sp-form { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
-        .add-sp-form label { font-size:12px; color:#666; display:block; margin-bottom:4px; }
-        .add-sp-form input { padding:8px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px; width:200px; }
+        .btn-retry      { background:#e8f5e9; color:#2e7d32; }
+        .btn-resolve    { background:#f5f5f5; color:#555; }
         .section-btn { font-size:12px; background:#075e54; color:white; border:none; border-radius:6px; padding:5px 12px; cursor:pointer; font-weight:600; }
-        .section-btn:hover { background:#064e46; }
-        .empty { text-align:center; padding:40px; color:#aaa; font-size:14px; }
-        .customer-row.inactive { opacity:.55; }
-        #toast { position:fixed; bottom:24px; right:24px; background:#323232; color:white; padding:12px 20px; border-radius:8px; font-size:14px; opacity:0; transition:opacity .3s; pointer-events:none; z-index:999; max-width:320px; }
-        #toast.show { opacity:1; }
-        #toast.success { background:#2e7d32; }
-        #toast.error   { background:#c62828; }
-        /* Pending tab */
-        .pending-group { background:white; border-radius:12px; padding:16px 20px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.1); }
-        .pending-group h3 { font-size:15px; color:#075e54; margin-bottom:10px; display:flex; justify-content:space-between; }
+
+        /* ── Date nav ── */
+        .date-nav { display:flex; align-items:center; gap:8px; margin-bottom:14px; background:white; padding:10px 12px; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.08); flex-wrap:wrap; }
+        .date-nav-label { font-weight:600; font-size:14px; color:#075e54; flex:1; text-align:center; }
+
+        /* ── Add SP Panel ── */
+        .add-sp-panel { background:white; border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.1); display:none; }
+        .add-sp-panel.open { display:block; }
+        .add-sp-panel h3 { font-size:14px; color:#075e54; margin-bottom:12px; }
+        .add-sp-form { display:flex; flex-direction:column; gap:10px; }
+        .add-sp-form label { font-size:12px; color:#666; display:block; margin-bottom:3px; }
+        .add-sp-form input { padding:10px 12px; border:1px solid #ccc; border-radius:8px; font-size:15px; width:100%; }
+        .add-sp-btns { display:flex; gap:8px; }
+
+        /* ── Pending ── */
+        .pending-group { background:white; border-radius:12px; padding:14px 16px; margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.1); }
+        .pending-group h3 { font-size:14px; color:#075e54; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
         .pending-list { list-style:none; }
-        .pending-list li { padding:6px 0; border-bottom:1px solid #f5f5f5; font-size:14px; display:flex; justify-content:space-between; }
+        .pending-list li { padding:7px 0; border-bottom:1px solid #f5f5f5; font-size:13px; display:flex; justify-content:space-between; align-items:center; }
         .pending-list li:last-child { border-bottom:none; }
-        /* Order history modal */
-        .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:500; align-items:center; justify-content:center; }
+
+        /* ── Window Status ── */
+        .window-filter-bar { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+        .filter-btn { padding:6px 12px; border-radius:20px; border:1px solid #ddd; background:white; font-size:12px; cursor:pointer; font-weight:600; color:#888; white-space:nowrap; }
+        .filter-btn.active { border-color:#075e54; background:#075e54; color:white; }
+        .window-mobile-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.1); display:flex; align-items:center; gap:12px; }
+        .window-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+        .dot-open   { background:#27ae60; }
+        .dot-atrisk { background:#e67e22; }
+        .dot-closed { background:#c62828; }
+        .window-info { flex:1; min-width:0; }
+        .window-info-name { font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .window-info-sub { font-size:11px; color:#aaa; margin-top:2px; }
+        .window-status-text { font-size:13px; font-weight:700; white-space:nowrap; }
+        .ws-open   { color:#27ae60; }
+        .ws-atrisk { color:#e67e22; }
+        .ws-closed { color:#c62828; }
+        .window-checked { font-size:11px; color:#aaa; padding:8px 0 4px; text-align:center; }
+
+        /* ── Failed Cards ── */
+        .failed-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #c62828; }
+        .failed-card.manual { border-left-color:#e65100; }
+        .failed-card-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; gap:8px; }
+        .failed-card-phone { font-weight:700; font-size:14px; color:#333; }
+        .failed-card-time { font-size:11px; color:#aaa; white-space:nowrap; }
+        .failed-card-message { font-size:13px; color:#555; background:#fafafa; border-radius:6px; padding:10px 12px; margin:8px 0; border-left:3px solid #e0e0e0; font-style:italic; word-break:break-word; }
+        .failed-card-reason { font-size:12px; color:#c62828; margin:4px 0 10px; }
+        .failed-card-reason.orange { color:#e65100; }
+        .failed-card-meta { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+        .failed-card-actions { display:flex; gap:8px; margin-top:12px; }
+
+        /* ── Unclear Tab ── */
+        .unclear-order-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #e53e3e; }
+        .unclear-order-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; gap:8px; flex-wrap:wrap; }
+        .unclear-order-name { font-weight:700; font-size:15px; color:#222; }
+        .unclear-order-meta { font-size:12px; color:#888; margin-top:2px; }
+        .unclear-section-label { font-size:12px; font-weight:700; margin-bottom:6px; }
+        .unclear-parsed-label { color:#38a169; }
+        .unclear-raw-label { color:#e53e3e; }
+        .unclear-item-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+        .unclear-raw-pill { font-size:13px; font-family:monospace; background:#fff5f5; border:1px solid #fed7d7; border-radius:6px; padding:4px 10px; color:#c53030; flex:1; min-width:120px; word-break:break-all; }
+        .unclear-select { font-size:13px; padding:5px 8px; border:1px solid #e2e8f0; border-radius:6px; flex:1; min-width:150px; max-width:240px; background:white; }
+        .unclear-save-btn { font-size:12px; background:#3182ce; color:white; border:none; border-radius:6px; padding:5px 12px; cursor:pointer; white-space:nowrap; font-weight:600; }
+        .unclear-save-btn:disabled { opacity:.6; cursor:not-allowed; }
+        .unclear-save-btn.done { background:#38a169; }
+        .aliases-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .aliases-table th { text-align:left; padding:6px 8px; color:#718096; font-weight:600; border-bottom:1px solid #e2e8f0; }
+        .aliases-table td { padding:6px 8px; border-bottom:1px solid #f7fafc; }
+        .alias-raw { font-family:monospace; color:#c53030; }
+
+        /* ── Modals ── */
+        .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:500; align-items:flex-end; justify-content:center; }
         .modal-overlay.open { display:flex; }
-        .modal-box { background:white; border-radius:14px; padding:0; width:520px; max-width:95vw; max-height:85vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 8px 32px rgba(0,0,0,.2); }
-        .modal-header { padding:20px 24px 16px; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; align-items:center; }
-        .modal-header h3 { color:#075e54; font-size:16px; }
-        .modal-body { overflow-y:auto; padding:16px 24px; flex:1; }
+        @media(min-width:600px){ .modal-overlay { align-items:center; } }
+        .modal-box { background:white; border-radius:16px 16px 0 0; padding:0; width:100%; max-width:100%; max-height:90vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 -4px 24px rgba(0,0,0,.2); }
+        @media(min-width:600px){ .modal-box { border-radius:14px; width:520px; max-width:95vw; max-height:85vh; } }
+        .modal-header { padding:16px 20px 14px; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; align-items:center; }
+        .modal-header h3 { color:#075e54; font-size:15px; }
+        .modal-body { overflow-y:auto; padding:14px 20px; flex:1; -webkit-overflow-scrolling:touch; }
+        .modal-body input, .modal-body select { font-size:16px; }
         .history-item { padding:12px 0; border-bottom:1px solid #f5f5f5; }
         .history-item:last-child { border-bottom:none; }
         .history-date { font-size:13px; font-weight:600; color:#075e54; margin-bottom:4px; }
         .history-items { font-size:13px; color:#555; line-height:1.7; }
         .history-cancelled { opacity:.5; text-decoration:line-through; }
+
+        /* ── Toast ── */
+        #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#323232; color:white; padding:12px 20px; border-radius:8px; font-size:14px; opacity:0; transition:opacity .3s; pointer-events:none; z-index:999; white-space:nowrap; max-width:90vw; text-overflow:ellipsis; overflow:hidden; }
+        #toast.show { opacity:1; }
+        #toast.success { background:#2e7d32; }
+        #toast.error   { background:#c62828; }
+
+        /* ── Misc ── */
+        .tab-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#c62828; margin-left:4px; vertical-align:middle; }
+        .empty { text-align:center; padding:36px 16px; color:#aaa; font-size:14px; }
+        .info-box { background:#fff8e1; border-radius:10px; padding:12px 14px; font-size:13px; color:#7b5800; line-height:1.7; margin-top:4px; }
     </style>
 </head>
 <body>
 
 <div class="header">
-    <div><h1>🐔 OrdeRR — {{ plant_name }}</h1></div>
-    <div class="header-right">
-        <span>{{ current_time }} IST</span>
-    </div>
+    <div><h1>OrdeRR — {{ plant_name }}</h1></div>
+    <div class="header-right">{{ current_time }} IST</div>
 </div>
 
 <div class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('orders',this)">📦 Orders</button>
     <button class="tab-btn" onclick="switchTab('pending',this)">⏳ Pending</button>
-    <button class="tab-btn" onclick="switchTab('customers',this)">🏪 Customers</button>
-    <button class="tab-btn" onclick="switchTab('salespersons',this)">👤 Salespersons</button>
+    <button class="tab-btn" onclick="switchTab('unclear',this)" id="unclear-tab-btn">⚠️ Unclear</button>
+    <button class="tab-btn" onclick="switchTab('customers',this)">👥 Customers</button>
+    <button class="tab-btn" onclick="switchTab('salespersons',this)">🧑 Sales</button>
+    <button class="tab-btn" onclick="switchTab('window',this)" id="window-tab-btn">📡 Windows</button>
+    <button class="tab-btn {% if not reliability_stats.has_issues %}hidden{% endif %}" onclick="switchTab('failed',this)" id="failed-tab-btn">⚠️ Failed<span class="tab-dot"></span></button>
 </div>
 
-<!-- ── Orders Tab ──────────────────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     ORDERS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-orders" class="tab-pane active">
     <div class="cards">
         <div class="card"><div class="number">{{ orders|length }}</div><div class="label">Total Orders</div></div>
-        <div class="card success"><div class="number">{{ clear_orders|length }}</div><div class="label">Clear Orders</div></div>
-        <div class="card warning"><div class="number">{{ unclear_orders|length }}</div><div class="label">Needs Attention</div></div>
-        <div class="card"><div class="number">{{ total_items }}</div><div class="label">Total Items</div></div>
+        <div class="card success"><div class="number">{{ clear_orders|length }}</div><div class="label">Clear</div></div>
+        <div class="card warning"><div class="number">{{ unclear_orders|length }}</div><div class="label">Attention</div></div>
+        <div class="card"><div class="number">{{ total_items }}</div><div class="label">Items</div></div>
     </div>
-
-    <!-- Date navigation -->
     <div class="section">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;background:white;padding:12px 16px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
-            <a href="/dashboard/?view_date={{ yesterday }}"><button class="btn btn-assign">◀ Prev</button></a>
-            <span style="font-weight:600;font-size:15px;color:#075e54">
-                {{ target_date_display }}{% if is_today %} <span style="font-size:12px;color:#888">(Today)</span>{% endif %}
-            </span>
+        <div class="date-nav">
+            <a href="/dashboard/?view_date={{ yesterday }}"><button class="btn btn-assign">◀</button></a>
+            <span class="date-nav-label">{{ target_date_display }}{% if is_today %} <span style="font-size:11px;color:#888">(Today)</span>{% endif %}</span>
             {% if not is_today %}
-            <a href="/dashboard/?view_date={{ tomorrow }}"><button class="btn btn-assign">Next ▶</button></a>
+            <a href="/dashboard/?view_date={{ tomorrow }}"><button class="btn btn-assign">▶</button></a>
             {% else %}
-            <button class="btn" disabled style="opacity:.3">Next ▶</button>
+            <button class="btn" disabled style="opacity:.3">▶</button>
             {% endif %}
-            <a href="/dashboard/" style="margin-left:auto"><button class="btn btn-save" {% if is_today %}style="opacity:.4;cursor:default"{% endif %}>Today</button></a>
-            <button class="btn btn-assign" onclick="location.reload()">🔄</button>
+            <a href="/dashboard/"><button class="btn btn-save" {% if is_today %}style="opacity:.4"{% endif %}>Today</button></a>
+            <button class="btn btn-assign" onclick="location.reload()">↻</button>
         </div>
-    </div>
 
-    <div class="section">
         <h2>📊 Product Summary</h2>
-        <div class="summary-table">
+        <div class="summary-table product-table-wrap">
             <table>
-                <thead><tr><th>Product</th><th>Total Qty</th><th>Unit</th><th>Orders</th></tr></thead>
+                <thead><tr><th>Product</th><th>Qty</th><th>Unit</th><th>#</th></tr></thead>
                 <tbody>
                     {% if product_summary %}
                         {% for item in product_summary %}
@@ -148,104 +244,266 @@
                 </tbody>
             </table>
         </div>
-    </div>
 
-    <div class="section">
         <h2>✅ Orders</h2>
         {% if clear_orders %}
             {% for order in clear_orders %}
             <div class="order-card">
                 <div class="order-header">
-                    <span style="font-weight:bold;font-size:15px">🏪 {{ order.customer_name or order.customer_phone }}</span>
-                    <span style="font-size:12px;color:#888">🕐
-                        {% if order.delivery_date and order.delivery_time %}{{ order.delivery_date }} at {{ order.delivery_time }}
+                    <div>
+                        <span style="font-weight:bold;font-size:15px">{{ order.customer_name or order.customer_phone }}</span>
+                        {% if order.has_unclear_items %}
+                        <span class="badge unclear" style="margin-left:6px;font-size:10px">⚠️ partial</span>
+                        {% endif %}
+                    </div>
+                    <span style="font-size:11px;color:#888">
+                        {% if order.delivery_date and order.delivery_time %}{{ order.delivery_date }} · {{ order.delivery_time }}
                         {% elif order.delivery_date %}{{ order.delivery_date }}
-                        {% else %}Not specified{% endif %}
+                        {% else %}No date{% endif %}
+                        {% if order.created_at %}
+                        · <span style="color:#aaa">{{ order.created_at.strftime('%I:%M %p') }}</span>
+                        {% endif %}
                     </span>
                 </div>
-                <div class="items">{% for item in order.items_parsed %}• {{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}</div>
+                <div class="items">{% for item in order.items_parsed %}{{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}
+                
+                                {% if is_before_cutoff %}
+                {% if not order.is_next_day_override %}
+                    <div style="margin-top:8px">
+                    <button class="btn btn-assign" onclick="moveToNextDay({{ order.id }})">➡ Next Day</button>
+                    </div>
+                {% else %}
+                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+                    <span class="badge" style="background:#e8f5e9;color:#2e7d32">✅ Next Day</span>
+                    <button class="btn btn-cancel-ui" onclick="revertToToday({{ order.id }})">↩ Revert</button>
+                    </div>
+                {% endif %}
+                {% else %}
+                {% if order.is_next_day_override %}
+                    <div style="margin-top:8px">
+                    <span class="badge" style="background:#e8f5e9;color:#2e7d32">✅ Next Day (locked)</span>
+                    </div>
+                {% endif %}
+                {% endif %}
+                </div>
+                
+
+
+                {% if order.has_unclear_items %}
+                <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #fed7d7;">
+                    <div style="font-size:12px; font-weight:700; color:#e53e3e; margin-bottom:4px;">❓ Unresolved items (not counted in summary):</div>
+                    {% for raw in order.unclear_items_list %}
+                    <div style="font-size:12px; font-family:monospace; color:#c53030; padding:2px 0;">• {{ raw }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if order.raw_message and order.has_unclear_items %}
+                <details style="margin-top:8px;">
+                    <summary style="font-size:12px;color:#aaa;cursor:pointer;">📄 Raw message</summary>
+                    <div class="raw-message">{{ order.raw_message }}</div>
+                </details>
+                {% endif %}
             </div>
             {% endfor %}
         {% else %}
             <div class="empty">No clear orders for this date</div>
         {% endif %}
-    </div>
 
-    {% if unclear_orders %}
-    <div class="section">
-        <h2>⚠️ Unclear Orders</h2>
+        {% if unclear_orders %}
+        <h2 style="margin-top:8px">⚠️ Unclear Orders</h2>
         {% for order in unclear_orders %}
         <div class="order-card unclear">
             <div class="order-header">
-                <span style="font-weight:bold">🏪 {{ order.customer_name or order.customer_phone }}</span>
+                <span style="font-weight:bold">{{ order.customer_name or order.customer_phone }}</span>
                 <span class="badge unclear">unclear</span>
             </div>
             <div class="raw-message">"{{ order.raw_message }}"</div>
-            <div class="reason">❓ {{ order.unclear_reason or 'Unknown reason' }}</div>
+            <div class="reason">{{ order.unclear_reason or 'Unknown reason' }}</div>
         </div>
         {% endfor %}
+        {% endif %}
     </div>
-    {% endif %}
 </div>
 
-<!-- ── Pending Tab ─────────────────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PENDING TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-pending" class="tab-pane">
     <div class="cards">
-        <div class="card warning"><div class="number" id="pending-total">—</div><div class="label">Total Pending</div></div>
+        <div class="card warning"><div class="number" id="pending-total">—</div><div class="label">Pending</div></div>
         <div class="card"><div class="number" id="pending-groups">—</div><div class="label">Salespersons</div></div>
         <div class="card warning"><div class="number" id="pending-unassigned">—</div><div class="label">Unassigned</div></div>
     </div>
     <div class="section">
-        <h2>⏳ Pending Orders — Today <button class="section-btn" onclick="loadPending()">🔄 Refresh</button></h2>
+        <h2>⏳ Pending — Today <button class="section-btn" onclick="loadPending()">↻</button></h2>
         <div id="pending-content"><div class="empty">Loading...</div></div>
     </div>
 </div>
 
-<!-- ── Customers Tab ───────────────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     UNCLEAR ITEMS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-unclear" class="tab-pane">
+    <div class="cards">
+        <div class="card danger"><div class="number" id="unclear-count">—</div><div class="label">Unclear Orders</div></div>
+        <div class="card warning"><div class="number" id="unclear-items-count">—</div><div class="label">Unresolved Items</div></div>
+        <div class="card success"><div class="number" id="unclear-aliases-count">—</div><div class="label">Saved Aliases</div></div>
+    </div>
+    <div class="section">
+        <h2>⚠️ Unclear Items <button class="section-btn" onclick="loadUnclearOrders()">↻</button></h2>
+        <p style="font-size:13px;color:#718096;margin-bottom:16px;line-height:1.6;">
+            These orders had items the parser couldn't recognise. The customer received a normal "✅ Order received" confirmation.
+            Assign the correct product below — the system will learn it and retroactively update all past orders with the same text.
+        </p>
+
+        <div id="unclear-orders-container">
+            <div class="empty">Loading...</div>
+        </div>
+
+        <!-- Saved aliases section -->
+        <div style="margin-top:24px;">
+            <h2>📖 Saved Aliases</h2>
+            <p style="font-size:13px;color:#718096;margin-bottom:12px;">These mappings are applied automatically by the parser from now on.</p>
+            <div id="aliases-container">
+                <div class="empty">Loading...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     CUSTOMERS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-customers" class="tab-pane">
     <div class="cards">
         <div class="card"><div class="number" id="stat-total">—</div><div class="label">Total</div></div>
         <div class="card success"><div class="number" id="stat-active">—</div><div class="label">Active</div></div>
         <div class="card warning"><div class="number" id="stat-inactive">—</div><div class="label">Inactive</div></div>
-        <div class="card"><div class="number" id="stat-unassigned" style="color:#f57f17">—</div><div class="label">Unassigned</div></div>
-        <div class="card success"><div class="number" id="stat-ordered">—</div><div class="label">Ordered Today</div></div>
+        <div class="card success"><div class="number" id="stat-ordered">—</div><div class="label">Ordered</div></div>
     </div>
     <div class="section">
-        <h2>🏪 Customer List <button class="section-btn" onclick="loadCustomers()">🔄 Refresh</button></h2>
-        <div class="summary-table">
-            <table>
-                <thead><tr><th>Restaurant</th><th>Phone</th><th>Area</th><th>Salesperson</th><th>Today</th><th>Status</th><th>Actions</th></tr></thead>
-                <tbody id="customer-tbody"><tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
-            </table>
+        <h2>👥 Customers
+          <div style="display:flex;gap:8px">
+            <button class="section-btn" onclick="openAddCustomerModal()">＋ Add Customer</button>
+            <button class="section-btn" onclick="loadCustomers()">↻</button>
+          </div>
+        </h2>
+        <div class="desktop-only">
+            <div class="summary-table">
+                <table>
+                    <thead><tr><th>Restaurant</th><th>Phone</th><th>Area</th><th>Salesperson</th><th>Today</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody id="customer-tbody"><tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
+                </table>
+            </div>
         </div>
+        <div class="mobile-only" id="customer-cards"><div class="empty">Loading...</div></div>
     </div>
 </div>
 
-<!-- ── Salespersons Tab ────────────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SALESPERSONS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="tab-salespersons" class="tab-pane">
-    <div class="section" style="padding-top:24px">
-        <h2>👤 Salespersons <button class="section-btn" onclick="toggleAddSP()">＋ Add</button></h2>
+    <div class="section" style="padding-top:16px">
+        <h2>🧑 Salespersons <button class="section-btn" onclick="toggleAddSP()">+ Add</button></h2>
         <div class="add-sp-panel" id="add-sp-panel">
             <h3>Add New Salesperson</h3>
             <div class="add-sp-form">
-                <div><label>Name</label><input type="text" id="sp-name" placeholder="e.g. Rahul"/></div>
-                <div><label>WhatsApp Number</label><input type="text" id="sp-phone" placeholder="919XXXXXXXXX"/></div>
-                <div style="display:flex;gap:8px;padding-bottom:1px">
+                <div><label>Name</label><input type="text" id="sp-name" placeholder="e.g. Rahul" autocomplete="off"/></div>
+                <div><label>WhatsApp Number</label><input type="tel" id="sp-phone" placeholder="919XXXXXXXXX" autocomplete="off"/></div>
+                <div class="add-sp-btns">
                     <button class="btn btn-save" onclick="addSalesperson()">Save</button>
                     <button class="btn btn-cancel-ui" onclick="toggleAddSP()">Cancel</button>
                 </div>
             </div>
         </div>
-        <div class="summary-table">
-            <table>
-                <thead><tr><th>Name</th><th>Phone</th><th>Customers</th><th>Status</th><th>Actions</th></tr></thead>
-                <tbody id="sp-tbody"><tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
-            </table>
+        <div class="desktop-only">
+            <div class="summary-table">
+                <table>
+                    <thead><tr><th>Name</th><th>Phone</th><th>Customers</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody id="sp-tbody"><tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="mobile-only" id="sp-cards"><div class="empty">Loading...</div></div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     WA WINDOWS TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-window" class="tab-pane">
+    <div class="cards">
+        <div class="card success"><div class="number" id="win-open">—</div><div class="label">Open</div></div>
+        <div class="card warning"><div class="number" id="win-atrisk">—</div><div class="label">At Risk</div></div>
+        <div class="card danger"><div class="number" id="win-closed">—</div><div class="label">Closed</div></div>
+        <div class="card"><div class="number" id="win-total">—</div><div class="label">Total</div></div>
+    </div>
+    <div class="section">
+        <h2>📡 WA Window Status <button class="section-btn" onclick="loadWindowStatus()">↻</button></h2>
+        <div class="window-filter-bar">
+            <button class="filter-btn active" onclick="filterWindow('all',this)">All</button>
+            <button class="filter-btn" onclick="filterWindow('manager',this)">Manager</button>
+            <button class="filter-btn" onclick="filterWindow('salesperson',this)">Salesperson</button>
+            <button class="filter-btn" onclick="filterWindow('customer',this)">Customers</button>
+            <button class="filter-btn" onclick="filterWindow('CLOSED',this)" style="border-color:#c62828;color:#c62828">🔴 Closed</button>
+            <button class="filter-btn" onclick="filterWindow('AT_RISK',this)" style="border-color:#e67e22;color:#e67e22">🟡 At Risk</button>
+        </div>
+        <div id="window-list"><div class="empty">Loading...</div></div>
+        <div class="window-checked" id="window-checked"></div>
+        <div class="info-box" style="margin-top:12px">
+            <strong>💡 How to read this:</strong><br>
+            🟢 <strong>Open</strong> — &gt;4hrs left. Messages deliver fine.<br>
+            🟡 <strong>At Risk</strong> — &lt;4hrs left. Call them before 10 PM — ask to send a WhatsApp message to the Fluffy number.<br>
+            🔴 <strong>Closed</strong> — Window expired. Call them and ask to send "Hi" to +91 77699 77565.
         </div>
     </div>
 </div>
 
-<!-- ── Assign Modal ────────────────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     FAILED TAB
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-failed" class="tab-pane">
+    <div class="cards">
+        <div class="card"><div class="number">{{ reliability_stats.total_today or 0 }}</div><div class="label">Today</div></div>
+        <div class="card success"><div class="number">{{ reliability_stats.confirmed_today or 0 }}</div><div class="label">OK</div></div>
+        <div class="card {% if reliability_stats.failed_today %}danger{% else %}success{% endif %}"><div class="number">{{ reliability_stats.failed_today or 0 }}</div><div class="label">Failed</div></div>
+        <div class="card {% if reliability_stats.manual_review_total %}danger{% else %}success{% endif %}"><div class="number">{{ reliability_stats.manual_review_total or 0 }}</div><div class="label">Manual</div></div>
+    </div>
+    <div class="section">
+        <h2>⚠️ Failed &amp; Review <button class="section-btn" onclick="loadFailedMessages()">↻</button></h2>
+        <div id="failed-list">
+            {% if failed_messages %}
+                {% for m in failed_messages %}
+                <div class="failed-card {% if m.processing_status == 'MANUAL_REVIEW' %}manual{% endif %}" id="fc-{{ m.id }}">
+                    <div class="failed-card-header">
+                        <span class="failed-card-phone">📱 {{ m.customer_phone }}</span>
+                        <span class="failed-card-time">{{ m.received_at }}</span>
+                    </div>
+                    <div class="failed-card-message">{% if m.raw_message %}"{{ m.raw_message }}"{% else %}<em style="color:#aaa">No text</em>{% endif %}</div>
+                    <div class="failed-card-reason {% if m.processing_status == 'MANUAL_REVIEW' %}orange{% endif %}">❗ {{ m.failure_reason }}</div>
+                    <div class="failed-card-meta">
+                        <span class="badge {% if m.processing_status == 'MANUAL_REVIEW' %}manual-badge{% else %}failed-badge{% endif %}">{{ m.processing_status }}</span>
+                        <span class="badge attempts-badge">{{ m.attempts }} attempt{{ 's' if m.attempts != 1 else '' }}</span>
+                        {% if m.ack_failed %}<span class="badge ack-badge">Ack failed</span>{% endif %}
+                        {% if m.linked_order_id %}<span class="badge active">Order #{{ m.linked_order_id }}</span>{% endif %}
+                    </div>
+                    <div class="failed-card-actions">
+                        <button class="btn btn-retry" onclick="retryMessage({{ m.id }})">↻ Retry</button>
+                        <button class="btn btn-resolve" onclick="resolveMessage({{ m.id }})">✓ Resolve</button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty" style="padding:60px">✅ No failed messages.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODALS
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div id="assign-modal" class="modal-overlay">
     <div class="modal-box">
         <div class="modal-header">
@@ -253,86 +511,164 @@
             <button class="btn btn-cancel-ui" onclick="closeModal('assign-modal')">✕</button>
         </div>
         <div class="modal-body">
-            <p id="modal-customer-name" style="font-size:13px;color:#888;margin-bottom:20px"></p>
+            <p id="modal-customer-name" style="font-size:13px;color:#888;margin-bottom:16px"></p>
             <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Area</label>
-            <input id="modal-area" type="text" placeholder="e.g. Baner, Hinjawadi"
-                style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+            <input id="modal-area" type="text" placeholder="e.g. Baner, Hinjawadi" style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;margin-bottom:14px;outline:none"/>
             <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Salesperson</label>
-            <select id="modal-sp" style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:20px;outline:none;background:white">
-                <option value="">— Select Salesperson —</option>
+            <select id="modal-sp" style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;margin-bottom:20px;outline:none;background:white">
+                <option value="">— Select —</option>
             </select>
             <div style="display:flex;gap:10px;justify-content:flex-end">
                 <button class="btn btn-cancel-ui" onclick="closeModal('assign-modal')">Cancel</button>
-                <button class="btn btn-save" onclick="saveAssignment()">Save Assignment</button>
+                <button class="btn btn-save" onclick="saveAssignment()">Save</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- ── Order History Modal ─────────────────────────────────────────────────── -->
 <div id="history-modal" class="modal-overlay">
     <div class="modal-box">
         <div class="modal-header">
             <div>
                 <h3>Order History</h3>
-                <div id="history-customer-name" style="font-size:13px;color:#888;margin-top:2px"></div>
+                <div id="history-customer-name" style="font-size:12px;color:#888;margin-top:2px"></div>
             </div>
             <button class="btn btn-cancel-ui" onclick="closeModal('history-modal')">✕</button>
         </div>
-        <div class="modal-body" id="history-body">
-            <div class="empty">Loading...</div>
-        </div>
+        <div class="modal-body" id="history-body"><div class="empty">Loading...</div></div>
     </div>
 </div>
+
+<!-- Add Customer Modal -->
+<div id="add-customer-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Add New Customer</h3>
+      <button class="btn btn-cancel-ui" onclick="closeModal('add-customer-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">
+        WhatsApp Number <span style="color:#c62828">*</span>
+      </label>
+      <input id="ac-phone" type="text" placeholder="919876543210"
+        style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">
+        Restaurant Name <span style="color:#c62828">*</span>
+      </label>
+      <input id="ac-name" type="text" placeholder="e.g. Hotel Delicious"
+        style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Area</label>
+      <input id="ac-area" type="text" placeholder="e.g. Baner, Hinjawadi"
+        style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Salesperson</label>
+      <select id="ac-sp"
+        style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:20px;outline:none;background:white">
+        <option value="">— Assign later —</option>
+      </select>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-cancel-ui" onclick="closeModal('add-customer-modal')">Cancel</button>
+        <button class="btn btn-save" onclick="submitAddCustomer()">Add Customer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══ POST ORDER MODAL ══════════════════════════════════════════════════ -->
+<div id="post-order-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <h3>📝 Post Order on Behalf</h3>
+        <div id="po-customer-name" style="font-size:12px;color:#888;margin-top:2px"></div>
+      </div>
+      <button class="btn btn-cancel-ui" onclick="closeModal('post-order-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">
+        Order Message <span style="color:#c62828">*</span>
+      </label>
+      <textarea
+        id="po-message"
+        rows="7"
+        placeholder="e.g.&#10;Chicken Leg - 10 kg&#10;Chicken Breast - 5 kg&#10;Mutton - 3 kg"
+        style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;
+               font-size:14px;resize:vertical;outline:none;font-family:inherit;
+               line-height:1.6;margin-bottom:10px"
+      ></textarea>
+      <div style="background:#f0fdf4;border-radius:8px;padding:10px 12px;
+                  font-size:12px;color:#276749;line-height:1.6;margin-bottom:16px">
+        ℹ️ This goes through the <strong>same pipeline</strong> as a WhatsApp order —
+        the customer gets a confirmation message and the order appears in the
+        Orders tab immediately.
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-cancel-ui" onclick="closeModal('post-order-modal')">Cancel</button>
+        <button class="btn btn-save" id="po-submit-btn" onclick="submitPostOrder()">Post Order</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ══ END POST ORDER MODAL ════════════════════════════════════════════════ -->
+
 
 <div id="toast"></div>
 
 <script>
-let allSalespersons  = [];
-let currentAssignId  = null;
+let allSalespersons = [];
+let currentAssignId = null;
+let windowData = [];
+let productNames = [];
 
-// ── Tab switching ──────────────────────────────────────────────────────
+// ── Core ────────────────────────────────────────────────────────────────────
+
 function switchTab(name, btn) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
-    btn.classList.add('active');
+    if (btn) btn.classList.add('active');
     if (name === 'customers')    { loadSalespersons().then(loadCustomers); }
     if (name === 'salespersons') { loadSalespersons(); }
     if (name === 'pending')      { loadPending(); }
+    if (name === 'failed')       { loadFailedMessages(); }
+    if (name === 'window')       { loadWindowStatus(); }
+    if (name === 'unclear')      { loadUnclearOrders(); loadAliases(); }
 }
 
-// ── Toast ──────────────────────────────────────────────────────────────
 function showToast(msg, type='') {
     const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className   = 'show' + (type ? ' '+type : '');
+    t.textContent = msg; t.className = 'show' + (type ? ' '+type : '');
     setTimeout(() => t.className = '', 3200);
 }
 
-// ── API helper ─────────────────────────────────────────────────────────
 async function api(method, path, body) {
-    const opts = {
-        method,
-        credentials: 'include',
-        headers: { 'Authorization': 'Basic ' + btoa('{{ dashboard_username }}:{{ dashboard_password }}') }
-    };
-    if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const opts = { method, credentials:'include', headers:{'Authorization':'Basic '+btoa('{{ dashboard_username }}:{{ dashboard_password }}')} };
+    if (body) { opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(body); }
     const r = await fetch(path, opts);
     if (!r.ok) throw new Error(await r.text());
     return r.json();
 }
 
-// ── Modal helpers ──────────────────────────────────────────────────────
+function isMobile() { return window.innerWidth < 700; }
+
+function esc(str) {
+    return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function closeModal(id) {
     document.getElementById(id).classList.remove('open');
     if (id === 'assign-modal') currentAssignId = null;
 }
 document.querySelectorAll('.modal-overlay').forEach(el => {
-    el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+    el.addEventListener('click', e => { if(e.target===el) el.classList.remove('open'); });
 });
 
-// ── Salespersons ───────────────────────────────────────────────────────
+// ── Salespersons ─────────────────────────────────────────────────────────────
+
 async function loadSalespersons() {
     try {
         const data = await api('GET', '/admin/salespersons');
@@ -340,225 +676,608 @@ async function loadSalespersons() {
         renderSalespersons(allSalespersons);
         const sel = document.getElementById('modal-sp');
         if (sel) {
-            sel.innerHTML = '<option value="">— Select Salesperson —</option>';
-            allSalespersons.filter(s => s.active).forEach(s => {
-                sel.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+            sel.innerHTML = '<option value="">— Select —</option>';
+            allSalespersons.filter(s=>s.active).forEach(s => {
+                sel.innerHTML += `<option value="${s.id}">${esc(s.name)}</option>`;
             });
         }
-    } catch(e) { console.error('loadSalespersons', e); }
+    } catch(e) { console.error(e); }
 }
 
 function renderSalespersons(list) {
     const tbody = document.getElementById('sp-tbody');
-    if (!tbody) return;
-    if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">No salespersons yet</td></tr>';
-        return;
-    }
-    tbody.innerHTML = list.map(s => `
-        <tr>
-            <td><strong>${s.name}</strong></td>
-            <td style="color:#888;font-size:13px">${s.phone}</td>
+    if (tbody) {
+        if (!list.length) { tbody.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">No salespersons yet</td></tr>'; }
+        else tbody.innerHTML = list.map(s=>`<tr>
+            <td><strong>${esc(s.name)}</strong></td>
+            <td style="color:#888;font-size:13px">${esc(s.phone)}</td>
             <td>${s.customer_count}</td>
-            <td>${s.active ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Inactive</span>'}</td>
-            <td>${s.active
-                ? `<button class="btn btn-deactivate" onclick="toggleSP(${s.id},false)">Deactivate</button>`
-                : `<button class="btn btn-activate"   onclick="toggleSP(${s.id},true)">Activate</button>`}
-            </td>
+            <td>${s.active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
+            <td>${s.active?`<button class="btn btn-deactivate" onclick="toggleSP(${s.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="toggleSP(${s.id},true)">Activate</button>`}</td>
         </tr>`).join('');
+    }
+    const cards = document.getElementById('sp-cards');
+    if (cards) {
+        if (!list.length) { cards.innerHTML='<div class="empty">No salespersons yet</div>'; return; }
+        cards.innerHTML = list.map(s=>`
+            <div class="mobile-card ${!s.active?'inactive':''}">
+                <div class="mobile-card-row">
+                    <div><div class="mobile-card-name">${esc(s.name)}</div><div class="mobile-card-sub">${esc(s.phone)} · ${s.customer_count} customers</div></div>
+                    ${s.active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}
+                </div>
+                <div class="mobile-card-actions">
+                    ${s.active?`<button class="btn btn-deactivate" onclick="toggleSP(${s.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="toggleSP(${s.id},true)">Activate</button>`}
+                </div>
+            </div>`).join('');
+    }
 }
 
 function toggleAddSP() { document.getElementById('add-sp-panel').classList.toggle('open'); }
 
 async function addSalesperson() {
-    const name  = document.getElementById('sp-name').value.trim();
-    const phone = document.getElementById('sp-phone').value.trim();
-    if (!name || !phone) { showToast('⚠️ Name and phone required', 'error'); return; }
+    const name=document.getElementById('sp-name').value.trim(), phone=document.getElementById('sp-phone').value.trim();
+    if(!name||!phone){showToast('Name and phone required','error');return;}
     try {
-        await api('POST', '/admin/salespersons', { name, phone });
-        showToast(`✅ ${name} added`, 'success');
-        document.getElementById('sp-name').value = '';
-        document.getElementById('sp-phone').value = '';
+        await api('POST','/admin/salespersons',{name,phone});
+        showToast(`✅ ${name} added`,'success');
+        document.getElementById('sp-name').value='';
+        document.getElementById('sp-phone').value='';
         document.getElementById('add-sp-panel').classList.remove('open');
         loadSalespersons();
+    } catch(e){showToast('❌ '+(JSON.parse(e.message)?.detail||'Failed'),'error');}
+}
+
+async function toggleSP(id,active) {
+    try { await api('PUT',`/admin/salespersons/${id}`,{active}); showToast(active?'✅ Activated':'Deactivated','success'); loadSalespersons(); }
+    catch(e){showToast('Update failed','error');}
+}
+
+// ── Customers ─────────────────────────────────────────────────────────────────
+
+async function loadCustomers() {
+    document.getElementById('customer-tbody').innerHTML='<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
+    document.getElementById('customer-cards').innerHTML='<div class="empty">Loading...</div>';
+    try { const data=await api('GET','/admin/customers'); renderCustomers(data.customers||[]); }
+    catch(e){
+        document.getElementById('customer-tbody').innerHTML='<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:24px">Failed</td></tr>';
+        document.getElementById('customer-cards').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';
+    }
+}
+
+function renderCustomers(customers) {
+    document.getElementById('stat-total').textContent=customers.length;
+    document.getElementById('stat-active').textContent=customers.filter(c=>c.is_active).length;
+    document.getElementById('stat-inactive').textContent=customers.filter(c=>!c.is_active).length;
+    document.getElementById('stat-ordered').textContent=customers.filter(c=>c.ordered_today).length;
+
+    const tbody=document.getElementById('customer-tbody');
+    if(!customers.length){tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';}
+    else tbody.innerHTML=customers.map(c=>{
+        const sp=c.salesperson_name?`<span style="font-size:13px">${esc(c.salesperson_name)}</span>`:'<span class="badge unassigned">Unassigned</span>';
+        const today=c.ordered_today?'<span class="badge ordered-badge">✅</span>':'<span class="badge pending-badge">⏳</span>';
+        const toggle=c.is_active?`<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="setStatus(${c.id},true)">Activate</button>`;
+        return `<tr>
+            <td><strong>${esc(c.restaurant_name||'—')}</strong></td>
+            <td style="font-size:12px;color:#888">${esc(c.phone_number)}</td>
+            <td>${esc(c.area||'')}</td>
+            <td>${sp}</td><td>${today}</td>
+            <td>${c.is_active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
+            <td style="display:flex;gap:5px;flex-wrap:wrap">
+                <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
+                ${toggle}
+                <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
+                <button class="btn" style="background:#e8f5e9;color:#2e7d32" onclick="openPostOrderModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">📝 Post Order</button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    const cards=document.getElementById('customer-cards');
+    if(!customers.length){cards.innerHTML='<div class="empty">No customers yet</div>';return;}
+    cards.innerHTML=customers.map(c=>{
+        const todayBadge=c.ordered_today?'<span class="badge ordered-badge">✅ Ordered</span>':'<span class="badge pending-badge">⏳ Pending</span>';
+        const spText=c.salesperson_name?`👤 ${esc(c.salesperson_name)}`:'Unassigned';
+        const toggle=c.is_active?`<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="setStatus(${c.id},true)">Activate</button>`;
+        return `<div class="mobile-card ${!c.is_active?'inactive':''}">
+            <div class="mobile-card-row">
+                <div>
+                    <div class="mobile-card-name">${esc(c.restaurant_name||'—')}</div>
+                    <div class="mobile-card-sub">${esc(c.phone_number)}${c.area?' · '+esc(c.area):''} · ${spText}</div>
+                </div>
+                ${todayBadge}
+            </div>
+            <div class="mobile-card-actions">
+                <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
+                ${toggle}
+                <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
+                <button class="btn" style="background:#e8f5e9;color:#2e7d32" onclick="openPostOrderModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">📝 Post Order</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function openAssignModal(cid,rname,spId,area) {
+    currentAssignId=cid;
+    document.getElementById('modal-customer-name').textContent=rname;
+    document.getElementById('modal-area').value=area||'';
+    document.getElementById('modal-sp').value=spId||'';
+    document.getElementById('assign-modal').classList.add('open');
+}
+
+async function saveAssignment() {
+    const area=document.getElementById('modal-area').value.trim(), spId=document.getElementById('modal-sp').value, body={};
+    if(area) body.area=area; if(spId) body.salesperson_id=parseInt(spId);
+    if(!area&&!spId){showToast('Enter area or select salesperson','error');return;}
+    try { const data=await api('POST',`/admin/customers/${currentAssignId}/assign`,body); showToast(`✅ ${data.customer.restaurant_name} assigned`,'success'); closeModal('assign-modal'); loadCustomers(); }
+    catch(e){showToast('Assignment failed','error');}
+}
+
+async function setStatus(cid,isActive) {
+    try { const data=await api('PUT',`/admin/customers/${cid}/status`,{is_active:isActive}); showToast(`✅ ${data.customer.restaurant_name} → ${isActive?'Active':'Inactive'}`,'success'); loadCustomers(); }
+    catch(e){showToast('Update failed','error');}
+}
+
+async function openHistory(cid,rname) {
+    document.getElementById('history-customer-name').textContent=rname;
+    document.getElementById('history-body').innerHTML='<div class="empty">Loading...</div>';
+    document.getElementById('history-modal').classList.add('open');
+    try {
+        const data=await api('GET',`/admin/customers/${cid}/orders`);
+        const orders=data.orders||[];
+        if(!orders.length){document.getElementById('history-body').innerHTML='<div class="empty">No orders found</div>';return;}
+        document.getElementById('history-body').innerHTML=orders.map(o=>{
+            const items=(o.items||[]).map(i=>`${esc(i.product)} — ${i.quantity} ${esc(i.unit)}`).join('<br>');
+            const dl=o.delivery_date||(o.created_at?o.created_at.substring(0,10):'—');
+            const unclearItems=o.unclear_items||[];
+            const tag=o.is_cancelled?'<span class="badge inactive" style="font-size:10px">Cancelled</span>':o.is_unclear?'<span class="badge unclear" style="font-size:10px">Unclear</span>':unclearItems.length?'<span class="badge unclear" style="font-size:10px">Partial</span>':'<span class="badge active" style="font-size:10px">OK</span>';
+            return `<div class="history-item ${o.is_cancelled?'history-cancelled':''}">
+                <div class="history-date">${dl} ${tag}</div>
+                <div class="history-items">${items||'<em style="color:#aaa">No parsed items</em>'}</div>
+                ${unclearItems.length?`<div style="font-size:11px;color:#e53e3e;margin-top:4px;">❓ ${unclearItems.map(r=>`<span style="font-family:monospace">${esc(r)}</span>`).join(', ')}</div>`:''}
+                ${o.is_unclear?`<div style="font-size:11px;color:#e67e22;margin-top:4px">${esc(o.unclear_reason||'')}</div>`:''}
+            </div>`;
+        }).join('');
+    } catch(e){document.getElementById('history-body').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';}
+}
+
+// ── Add Customer Modal ─────────────────────────────────────────────────────────
+
+function openAddCustomerModal() {
+    const sel = document.getElementById('ac-sp');
+    sel.innerHTML = '<option value="">— Assign later —</option>';
+    allSalespersons.filter(s => s.active).forEach(s => {
+        sel.innerHTML += `<option value="${s.id}">${esc(s.name)}</option>`;
+    });
+    ['ac-phone','ac-name','ac-area'].forEach(id => document.getElementById(id).value = '');
+    sel.value = '';
+    document.getElementById('add-customer-modal').classList.add('open');
+}
+
+async function submitAddCustomer() {
+    const phone = document.getElementById('ac-phone').value.trim();
+    const name  = document.getElementById('ac-name').value.trim();
+    const area  = document.getElementById('ac-area').value.trim();
+    const spId  = document.getElementById('ac-sp').value;
+
+    if (!phone || !name) { showToast('⚠️ Phone and restaurant name are required', 'error'); return; }
+
+    const body = { phone, restaurant_name: name };
+    if (area)  body.area = area;
+    if (spId)  body.salesperson_id = parseInt(spId);
+
+    try {
+        const data = await api('POST', '/admin/customers', body);
+        showToast(`✅ ${data.customer.restaurant_name} added!`, 'success');
+        closeModal('add-customer-modal');
+        loadCustomers();
+    } catch(e) {
+        const msg = (() => { try { return JSON.parse(e.message)?.detail; } catch { return null; } })();
+        showToast('❌ ' + (msg || 'Failed to add customer'), 'error');
+    }
+}
+
+
+// ── Post Order on Behalf ──────────────────────────────────────────────────────
+let _postOrderCustomerId = null;
+ 
+function openPostOrderModal(cid, rname) {
+    _postOrderCustomerId = cid;
+    document.getElementById('po-customer-name').textContent = rname || ('Customer #' + cid);
+    document.getElementById('po-message').value = '';
+    const btn = document.getElementById('po-submit-btn');
+    btn.disabled = false;
+    btn.textContent = 'Post Order';
+    document.getElementById('post-order-modal').classList.add('open');
+    // Auto-focus the textarea after the modal transition
+    setTimeout(() => document.getElementById('po-message').focus(), 150);
+}
+ 
+async function submitPostOrder() {
+    const message = document.getElementById('po-message').value.trim();
+    if (!message) {
+        showToast('⚠️ Please enter an order message', 'error');
+        return;
+    }
+    const btn = document.getElementById('po-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Posting…';
+    try {
+        const data = await api(
+            'POST',
+            `/admin/customers/${_postOrderCustomerId}/post-order`,
+            { message }
+        );
+        const isUnclear = data.status === 'unclear';
+        const label = isUnclear
+            ? `⚠️ Posted — some items unclear (Order #${data.order_id || '?'})`
+            : `✅ Order #${data.order_id || '?'} posted for ${data.customer}`;
+        showToast(label, 'success');
+        closeModal('post-order-modal');
+        // Reload so the new order appears immediately
+        setTimeout(() => location.reload(), 800);
+    } catch(e) {
+        let msg = 'Failed to post order';
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
+        showToast('❌ ' + msg, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Post Order';
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+
+
+// ── Pending ───────────────────────────────────────────────────────────────────
+
+async function loadPending() {
+    document.getElementById('pending-content').innerHTML='<div class="empty">Loading...</div>';
+    try {
+        const data=await api('GET','/admin/pending');
+        const groups=data.groups||[];
+        document.getElementById('pending-total').textContent=data.total_pending;
+        document.getElementById('pending-groups').textContent=groups.filter(g=>g.salesperson_id!==null).length;
+        document.getElementById('pending-unassigned').textContent=groups.find(g=>g.salesperson_id===null)?.pending_count||0;
+        if(!data.total_pending){document.getElementById('pending-content').innerHTML='<div class="empty">✅ All customers have ordered today!</div>';return;}
+        document.getElementById('pending-content').innerHTML=groups.map(g=>`
+            <div class="pending-group">
+                <h3><span>${g.salesperson_id?'👤 '+esc(g.salesperson_name):'⚠️ Unassigned'}</span><span class="badge pending-badge">${g.pending_count} pending</span></h3>
+                <ul class="pending-list">${g.customers.map(c=>`<li><span>🏪 ${esc(c.restaurant_name)}</span><span style="font-size:12px;color:#aaa">${esc(c.area||'')}</span></li>`).join('')}</ul>
+            </div>`).join('');
+    } catch(e){document.getElementById('pending-content').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';}
+}
+
+// ── Window Status ─────────────────────────────────────────────────────────────
+
+async function loadWindowStatus() {
+    document.getElementById('window-list').innerHTML='<div class="empty">Loading...</div>';
+    try {
+        const data = await api('GET', '/admin/window-status');
+        windowData = data.stakeholders || [];
+        const open=windowData.filter(s=>s.status==='OPEN').length;
+        const atRisk=windowData.filter(s=>s.status==='AT_RISK').length;
+        const closed=windowData.filter(s=>s.status==='CLOSED').length;
+        document.getElementById('win-open').textContent=open;
+        document.getElementById('win-atrisk').textContent=atRisk;
+        document.getElementById('win-closed').textContent=closed;
+        document.getElementById('win-total').textContent=data.total;
+        document.getElementById('window-checked').textContent='Last checked: '+data.checked_at;
+        const tabBtn=document.getElementById('window-tab-btn');
+        const existingDot=tabBtn.querySelector('.tab-dot');
+        if(closed>0||atRisk>0){
+            if(!existingDot){const d=document.createElement('span');d.className='tab-dot';d.style.background=closed>0?'#c62828':'#e67e22';tabBtn.appendChild(d);}
+        } else existingDot?.remove();
+        renderWindowCards(windowData);
+    } catch(e){document.getElementById('window-list').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';}
+}
+
+function renderWindowCards(rows) {
+    const list=document.getElementById('window-list');
+    if(!rows.length){list.innerHTML='<div class="empty">No stakeholders found</div>';return;}
+    list.innerHTML=rows.map(s=>{
+        const dotClass=s.status==='OPEN'?'dot-open':s.status==='AT_RISK'?'dot-atrisk':'dot-closed';
+        const statClass=s.status==='OPEN'?'ws-open':s.status==='AT_RISK'?'ws-atrisk':'ws-closed';
+        const label=s.status==='OPEN'?s.status_label:s.status==='AT_RISK'?'⚠️ '+s.status_label:'🔴 Closed';
+        const roleLabel=s.role==='manager'?'👔 Manager':s.role==='salesperson'?'🧑 Salesperson':'🏪 Customer';
+        const action=(s.status==='CLOSED'||s.status==='AT_RISK')?`<div style="font-size:11px;color:#c62828;font-weight:600;margin-top:3px">📞 Ask to send Hi</div>`:'';
+        return `<div class="window-mobile-card">
+            <span class="window-dot ${dotClass}"></span>
+            <div class="window-info">
+                <div class="window-info-name">${esc(s.name)}</div>
+                <div class="window-info-sub">${roleLabel} · ${esc(s.phone)} · Last: ${esc(s.last_seen_display)}</div>
+                ${action}
+            </div>
+            <div class="window-status-text ${statClass}">${label}</div>
+        </div>`;
+    }).join('');
+}
+
+function filterWindow(filter, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    let filtered=windowData;
+    if(filter==='CLOSED') filtered=windowData.filter(s=>s.status==='CLOSED');
+    else if(filter==='AT_RISK') filtered=windowData.filter(s=>s.status==='AT_RISK');
+    else if(filter!=='all') filtered=windowData.filter(s=>s.role===filter);
+    renderWindowCards(filtered);
+}
+
+// ── Unclear Items ─────────────────────────────────────────────────────────────
+
+async function fetchProductNames() {
+    if (productNames.length > 0) return productNames;
+    try {
+        const names = await api('GET', '/admin/product-names');
+        productNames = names;
+    } catch(e) { console.error('Failed to load product names', e); }
+    return productNames;
+}
+
+async function loadUnclearOrders() {
+    const container = document.getElementById('unclear-orders-container');
+    container.innerHTML = '<div class="empty">Loading...</div>';
+    try {
+        const [orders, products] = await Promise.all([
+            api('GET', '/admin/unclear-items'),
+            fetchProductNames(),
+        ]);
+
+        const totalItems = orders.reduce((s, o) => s + o.unclear_items.length, 0);
+        document.getElementById('unclear-count').textContent = orders.length;
+        document.getElementById('unclear-items-count').textContent = totalItems;
+
+        const tabBtn = document.getElementById('unclear-tab-btn');
+        const existingDot = tabBtn.querySelector('.tab-dot');
+        if (orders.length > 0) {
+            if (!existingDot) {
+                const d = document.createElement('span');
+                d.className = 'tab-dot';
+                tabBtn.appendChild(d);
+            }
+        } else {
+            existingDot?.remove();
+        }
+
+        if (orders.length === 0) {
+            container.innerHTML = `<div class="empty" style="color:#38a169;">✅ All orders fully parsed — no unclear items!</div>`;
+            return;
+        }
+
+        const productOptions = products.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+
+        container.innerHTML = orders.map(order => {
+            const parsedSection = order.parsed_items.length ? `
+                <div style="margin-bottom:12px;">
+                    <div class="unclear-section-label unclear-parsed-label">✅ Parsed items (included in product summary):</div>
+                    ${order.parsed_items.map(i => `
+                        <div style="font-size:13px;color:#2d3748;padding:2px 0;">
+                            &nbsp;&nbsp;• ${esc(i.product)} — ${Number.isInteger(i.quantity) || i.quantity%1===0 ? parseInt(i.quantity) : i.quantity} ${esc(i.unit)}
+                        </div>`).join('')}
+                </div>` : '';
+
+            const unclearSection = `
+                <div>
+                    <div class="unclear-section-label unclear-raw-label">❓ Unresolved items — assign correct product:</div>
+                    ${order.unclear_items.map((rawLine, idx) => `
+                        <div class="unclear-item-row">
+                            <div class="unclear-raw-pill">${esc(rawLine)}</div>
+                            <select class="unclear-select" id="sel-${order.order_id}-${idx}">
+                                <option value="">— select product —</option>
+                                ${productOptions}
+                            </select>
+                            <button class="unclear-save-btn"
+                                onclick="resolveItem('${esc(rawLine).replace(/'/g,"\\'")}', 'sel-${order.order_id}-${idx}', this)">
+                                Save &amp; Apply
+                            </button>
+                        </div>`).join('')}
+                </div>`;
+
+            return `
+                <div class="unclear-order-card">
+                    <div class="unclear-order-header">
+                        <div>
+                            <div class="unclear-order-name">🏪 ${esc(order.customer_name)}</div>
+                            <div class="unclear-order-meta">📱 ${esc(order.customer_phone)} &nbsp;·&nbsp; ${esc(order.delivery_date)}</div>
+                        </div>
+                        <span class="badge unclear">${order.unclear_items.length} unclear</span>
+                    </div>
+                    ${parsedSection}
+                    ${unclearSection}
+                    <details style="margin-top:10px;">
+                        <summary style="font-size:12px;color:#aaa;cursor:pointer;">📄 Full raw message</summary>
+                        <pre style="font-size:12px;color:#4a5568;background:#f7fafc;border-radius:6px;padding:8px;margin-top:6px;white-space:pre-wrap;word-break:break-word;">${esc(order.raw_message)}</pre>
+                    </details>
+                </div>`;
+        }).join('');
+
+    } catch(e) {
+        container.innerHTML = `<div class="empty" style="color:#e53e3e;">Failed to load: ${esc(e.message)}</div>`;
+    }
+}
+
+function _extractProductName(rawLine) {
+    const clean = rawLine.replace(/__+/g, '').trim();
+    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pieces?)?\s*$/i);
+    if (m) return m[1].trim().toLowerCase();
+    return clean.toLowerCase();
+}
+
+async function resolveItem(rawText, selectId, btn) {
+    const select = document.getElementById(selectId);
+    const canonical = select ? select.value : '';
+    if (!canonical) { showToast('Please select a product first', 'error'); return; }
+
+    const productName = _extractProductName(rawText);
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+        const data = await api('POST', '/admin/unclear-items/resolve', {
+            raw_text: productName,
+            canonical_product_name: canonical,
+        });
+        btn.textContent = `✅ ${data.orders_patched} order${data.orders_patched !== 1 ? 's' : ''} updated`;
+        btn.classList.add('done');
+        showToast(`✅ "${productName}" → ${canonical} (${data.orders_patched} orders updated)`, 'success');
+        setTimeout(() => { loadUnclearOrders(); loadAliases(); }, 1500);
+    } catch(e) {
+        btn.disabled = false;
+        btn.textContent = 'Save & Apply';
+        let msg = e.message;
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_){}
+        showToast('❌ ' + msg, 'error');
+    }
+}
+
+async function loadAliases() {
+    const container = document.getElementById('aliases-container');
+    try {
+        const aliases = await api('GET', '/admin/unclear-items/aliases');
+        document.getElementById('unclear-aliases-count').textContent = aliases.length;
+
+        if (!aliases.length) {
+            container.innerHTML = '<div class="empty" style="padding:16px">No aliases saved yet.</div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="summary-table">
+                <table class="aliases-table">
+                    <thead>
+                        <tr>
+                            <th>Customer typed</th>
+                            <th>Maps to</th>
+                            <th>Saved on</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${aliases.map(a => `
+                            <tr id="alias-row-${a.id}">
+                                <td class="alias-raw">${esc(a.raw_text)}</td>
+                                <td style="color:#2d3748;font-weight:600;">${esc(a.canonical_product_name)}</td>
+                                <td style="color:#aaa;font-size:12px;">${a.created_at ? a.created_at.substring(0,10) : '—'}</td>
+                                <td>
+                                    <button onclick="deleteAlias(${a.id})"
+                                        style="font-size:11px;color:#e53e3e;background:none;border:1px solid #e53e3e;border-radius:4px;padding:2px 8px;cursor:pointer;">
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    } catch(e) {
+        container.innerHTML = '<div class="empty" style="color:#e53e3e;">Failed to load aliases.</div>';
+    }
+}
+
+async function deleteAlias(id) {
+    if (!confirm('Delete this alias? Future orders with this text will be flagged unclear again.')) return;
+    try {
+        await api('DELETE', `/admin/unclear-items/aliases/${id}`);
+        showToast('Alias deleted', '');
+        document.getElementById(`alias-row-${id}`)?.remove();
+        const count = document.querySelectorAll('[id^="alias-row-"]').length;
+        document.getElementById('unclear-aliases-count').textContent = count;
+        if (count === 0) loadAliases();
+    } catch(e) { showToast('Delete failed', 'error'); }
+}
+
+// ── Failed Messages ────────────────────────────────────────────────────────────
+
+async function loadFailedMessages() {
+    const list=document.getElementById('failed-list');
+    list.innerHTML='<div class="empty">Loading...</div>';
+    try {
+        const data=await api('GET','/webhook/reliability/manual-review');
+        const tabBtn=document.getElementById('failed-tab-btn');
+        if(!data.messages?.length){
+            list.innerHTML='<div class="empty" style="padding:60px">✅ No failed messages.</div>';
+            tabBtn.classList.add('hidden');
+            switchTab('orders', document.querySelector('.tab-btn'));
+            return;
+        }
+        tabBtn.classList.remove('hidden');
+        list.innerHTML=data.messages.map(m=>`
+            <div class="failed-card ${m.processing_status==='MANUAL_REVIEW'?'manual':''}" id="fc-${m.id}">
+                <div class="failed-card-header">
+                    <span class="failed-card-phone">📱 ${esc(m.customer_phone)}</span>
+                    <span class="failed-card-time">${m.received_at?new Date(m.received_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}):''}</span>
+                </div>
+                <div class="failed-card-message">${m.raw_message?`"${esc(m.raw_message.substring(0,300))}${m.raw_message.length>300?'…':''}"` :'<em style="color:#aaa">No text</em>'}</div>
+                <div class="failed-card-reason ${m.processing_status==='MANUAL_REVIEW'?'orange':''}">❗ ${esc(m.failure_reason||'Unknown')}</div>
+                <div class="failed-card-meta">
+                    <span class="badge ${m.processing_status==='MANUAL_REVIEW'?'manual-badge':'failed-badge'}">${m.processing_status}</span>
+                    <span class="badge attempts-badge">${m.attempts} attempt${m.attempts!==1?'s':''}</span>
+                    ${m.ack_failed?'<span class="badge ack-badge">Ack failed</span>':''}
+                    ${m.linked_order_id?`<span class="badge active">Order #${m.linked_order_id}</span>`:''}
+                </div>
+                <div class="failed-card-actions">
+                    <button class="btn btn-retry" onclick="retryMessage(${m.id})">↻ Retry</button>
+                    <button class="btn btn-resolve" onclick="resolveMessage(${m.id})">✓ Resolve</button>
+                </div>
+            </div>`).join('');
+    } catch(e){list.innerHTML='<div class="empty" style="color:#e67e22">Failed to load.</div>';}
+}
+
+async function retryMessage(id) {
+    if(!confirm('Retry this message now?')) return;
+    try { const data=await api('POST',`/webhook/reliability/manual-review/${id}/retry`); showToast(`✅ Retried — Order #${data.order_id||'?'} created`,'success'); document.getElementById(`fc-${id}`)?.remove(); checkEmptyFailed(); }
+    catch(e){let msg='Retry failed'; try{msg=JSON.parse(e.message)?.detail||msg;}catch(_){} showToast('❌ '+msg,'error');}
+}
+
+async function resolveMessage(id) {
+    if(!confirm('Mark as resolved?')) return;
+    try { await api('POST',`/webhook/reliability/manual-review/${id}/resolve`); showToast('✓ Resolved','success'); document.getElementById(`fc-${id}`)?.remove(); checkEmptyFailed(); }
+    catch(e){showToast('❌ Failed','error');}
+}
+
+function checkEmptyFailed() {
+    const list=document.getElementById('failed-list');
+    if(!list.querySelector('.failed-card')){
+        list.innerHTML='<div class="empty" style="padding:60px">✅ No failed messages.</div>';
+        const tabBtn=document.getElementById('failed-tab-btn');
+        tabBtn.classList.add('hidden');
+        switchTab('orders', document.querySelector('.tab-btn'));
+    }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+(async function initUnclearBadge() {
+    try {
+        const orders = await api('GET', '/admin/unclear-items');
+        if (orders && orders.length > 0) {
+            const tabBtn = document.getElementById('unclear-tab-btn');
+            if (!tabBtn.querySelector('.tab-dot')) {
+                const d = document.createElement('span');
+                d.className = 'tab-dot';
+                tabBtn.appendChild(d);
+            }
+        }
+    } catch(e) {}
+})();
+
+async function moveToNextDay(orderId) {
+    try {
+        await api('PUT', `/admin/orders/${orderId}/next-day`, { is_next_day: true });
+        showToast('✅ Moved to next day', 'success');
+        location.reload();
     } catch(e) {
         showToast('❌ ' + (JSON.parse(e.message)?.detail || 'Failed'), 'error');
     }
 }
 
-async function toggleSP(id, active) {
+async function revertToToday(orderId) {
     try {
-        await api('PUT', `/admin/salespersons/${id}`, { active });
-        showToast(active ? '✅ Activated' : '✅ Deactivated', 'success');
-        loadSalespersons();
-    } catch(e) { showToast('❌ Update failed', 'error'); }
-}
-
-// ── Customers ──────────────────────────────────────────────────────────
-async function loadCustomers() {
-    const tbody = document.getElementById('customer-tbody');
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
-    try {
-        const data = await api('GET', '/admin/customers');
-        renderCustomers(data.customers || []);
+        await api('PUT', `/admin/orders/${orderId}/next-day`, { is_next_day: false });
+        showToast('✅ Reverted to today', 'success');
+        location.reload();
     } catch(e) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:24px">Failed to load</td></tr>';
+        showToast('❌ ' + (JSON.parse(e.message)?.detail || 'Failed'), 'error');
     }
 }
 
-function renderCustomers(customers) {
-    const tbody = document.getElementById('customer-tbody');
-    const total      = customers.length;
-    const active     = customers.filter(c => c.is_active).length;
-    const inactive   = total - active;
-    const unassigned = customers.filter(c => !c.salesperson_id).length;
-    const ordered    = customers.filter(c => c.ordered_today).length;
-
-    document.getElementById('stat-total').textContent     = total;
-    document.getElementById('stat-active').textContent    = active;
-    document.getElementById('stat-inactive').textContent  = inactive;
-    document.getElementById('stat-unassigned').textContent= unassigned;
-    document.getElementById('stat-ordered').textContent   = ordered;
-
-    if (!customers.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = customers.map(c => {
-        const statusBadge = c.is_active
-            ? '<span class="badge active">Active</span>'
-            : '<span class="badge inactive">Inactive</span>';
-        const spCell = c.salesperson_name
-            ? `<span style="font-size:13px">${c.salesperson_name}</span>`
-            : '<span class="badge unassigned">Unassigned</span>';
-        const todayCell = c.ordered_today
-            ? '<span class="badge ordered-badge">✅ Ordered</span>'
-            : '<span class="badge pending-badge">❌ Pending</span>';
-        const toggleBtn = c.is_active
-            ? `<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`
-            : `<button class="btn btn-activate"   onclick="setStatus(${c.id},true)">Activate</button>`;
-        const assignBtn  = `<button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${c.area||''}')">Assign</button>`;
-        const historyBtn = `<button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>`;
-
-        return `<tr class="customer-row ${!c.is_active?'inactive':''}">
-            <td><strong>${c.restaurant_name||'—'}</strong></td>
-            <td style="font-size:13px;color:#888">${c.phone_number}</td>
-            <td>${c.area||'<span style="color:#ccc">—</span>'}</td>
-            <td>${spCell}</td>
-            <td>${todayCell}</td>
-            <td>${statusBadge}</td>
-            <td style="display:flex;gap:6px;flex-wrap:wrap">${assignBtn} ${toggleBtn} ${historyBtn}</td>
-        </tr>`;
-    }).join('');
-}
-
-// ── Assign modal ───────────────────────────────────────────────────────
-function openAssignModal(customerId, restaurantName, currentSpId, currentArea) {
-    currentAssignId = customerId;
-    document.getElementById('modal-customer-name').textContent = restaurantName;
-    document.getElementById('modal-area').value = currentArea || '';
-    document.getElementById('modal-sp').value   = currentSpId || '';
-    document.getElementById('assign-modal').classList.add('open');
-}
-
-async function saveAssignment() {
-    const area = document.getElementById('modal-area').value.trim();
-    const spId = document.getElementById('modal-sp').value;
-    const body = {};
-    if (area) body.area = area;
-    if (spId) body.salesperson_id = parseInt(spId);
-    if (!area && !spId) { showToast('⚠️ Enter area or select salesperson', 'error'); return; }
-    try {
-        const data = await api('POST', `/admin/customers/${currentAssignId}/assign`, body);
-        showToast(`✅ ${data.customer.restaurant_name} assigned`, 'success');
-        closeModal('assign-modal');
-        loadCustomers();
-    } catch(e) { showToast('❌ Assignment failed', 'error'); }
-}
-
-// ── Status toggle ──────────────────────────────────────────────────────
-async function setStatus(customerId, isActive) {
-    try {
-        const data = await api('PUT', `/admin/customers/${customerId}/status`, { is_active: isActive });
-        showToast(`✅ ${data.customer.restaurant_name} → ${isActive ? 'Active' : 'Inactive'}`, 'success');
-        loadCustomers();
-    } catch(e) { showToast('❌ Update failed', 'error'); }
-}
-
-// ── Order history ──────────────────────────────────────────────────────
-async function openHistory(customerId, restaurantName) {
-    document.getElementById('history-customer-name').textContent = restaurantName;
-    document.getElementById('history-body').innerHTML = '<div class="empty">Loading...</div>';
-    document.getElementById('history-modal').classList.add('open');
-
-    try {
-        const data = await api('GET', `/admin/customers/${customerId}/orders`);
-        const orders = data.orders || [];
-
-        if (!orders.length) {
-            document.getElementById('history-body').innerHTML = '<div class="empty">No orders found</div>';
-            return;
-        }
-
-        document.getElementById('history-body').innerHTML = orders.map(o => {
-            const items = (o.items || []).map(i => `• ${i.product} — ${i.quantity} ${i.unit}`).join('<br>');
-            const dateLabel = o.delivery_date || (o.created_at ? o.created_at.substring(0,10) : '—');
-            const cancelled = o.is_cancelled ? 'history-cancelled' : '';
-            const tag = o.is_cancelled
-                ? '<span class="badge inactive" style="font-size:10px">Cancelled</span>'
-                : o.is_unclear
-                    ? '<span class="badge unclear" style="font-size:10px">Unclear</span>'
-                    : '<span class="badge active" style="font-size:10px">✓</span>';
-            return `<div class="history-item ${cancelled}">
-                <div class="history-date">${dateLabel} ${tag}</div>
-                <div class="history-items">${items || '<em style="color:#aaa">No items parsed</em>'}</div>
-                ${o.is_unclear ? `<div style="font-size:11px;color:#e67e22;margin-top:4px">❓ ${o.unclear_reason||''}</div>` : ''}
-            </div>`;
-        }).join('');
-    } catch(e) {
-        document.getElementById('history-body').innerHTML = '<div class="empty" style="color:#e67e22">Failed to load history</div>';
-    }
-}
-
-// ── Pending orders ─────────────────────────────────────────────────────
-async function loadPending() {
-    document.getElementById('pending-content').innerHTML = '<div class="empty">Loading...</div>';
-    try {
-        const data = await api('GET', '/admin/pending');
-        const groups = data.groups || [];
-
-        document.getElementById('pending-total').textContent     = data.total_pending;
-        document.getElementById('pending-groups').textContent    = groups.filter(g => g.salesperson_id !== null).length;
-        document.getElementById('pending-unassigned').textContent = groups.find(g => g.salesperson_id === null)?.pending_count || 0;
-
-        if (!data.total_pending) {
-            document.getElementById('pending-content').innerHTML =
-                '<div class="empty">🎉 All customers have ordered today!</div>';
-            return;
-        }
-
-        document.getElementById('pending-content').innerHTML = groups.map(g => `
-            <div class="pending-group">
-                <h3>
-                    <span>${g.salesperson_id ? '👤 ' + g.salesperson_name : '⚠️ Unassigned'}</span>
-                    <span class="badge pending-badge">${g.pending_count} pending</span>
-                </h3>
-                <ul class="pending-list">
-                    ${g.customers.map(c => `
-                        <li>
-                            <span>🏪 ${c.restaurant_name}</span>
-                            <span style="font-size:12px;color:#aaa">${c.area || ''}</span>
-                        </li>`).join('')}
-                </ul>
-            </div>`).join('');
-    } catch(e) {
-        document.getElementById('pending-content').innerHTML =
-            '<div class="empty" style="color:#e67e22">Failed to load pending orders</div>';
-    }
-}
-
-// Auto-reload orders tab every 60 seconds
 setInterval(() => {
     if (document.getElementById('tab-orders').classList.contains('active')) location.reload();
 }, 60000);
