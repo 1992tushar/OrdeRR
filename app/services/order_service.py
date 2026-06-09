@@ -23,6 +23,7 @@ from app.services.adhoc_reporter import is_report_keyword, handle_adhoc_report_r
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
 IST                  = timezone(timedelta(hours=5, minutes=30))
+RESET_HOUR = 20  # 8 PM IST
 DISPATCH_CUTOFF_HOUR = int(os.getenv("DISPATCH_CUTOFF_HOUR", "9"))
 
 
@@ -73,6 +74,22 @@ FILLER_PHRASES = {
 def get_today_ist() -> date:
     return datetime.now(IST).date()
 
+def compute_business_date(created_at_utc: datetime) -> date:
+    ist_time = created_at_utc.astimezone(IST)
+    if ist_time.hour >= RESET_HOUR:
+        return (ist_time + timedelta(days=1)).date()
+    return ist_time.date()
+
+def get_current_business_date() -> date:
+    now_ist = datetime.now(IST)
+    if now_ist.hour >= RESET_HOUR:
+        return (now_ist + timedelta(days=1)).date()
+    return now_ist.date()
+
+def get_current_business_date_str() -> str:
+    return get_current_business_date().strftime("%Y-%m-%d")
+
+
 
 def get_delivery_date_str() -> str:
     return get_today_ist().strftime("%Y-%m-%d")
@@ -94,12 +111,12 @@ def get_internal_phones(db: Session) -> set:
 
 
 def get_todays_active_order(db: Session, customer_phone: str) -> Order | None:
-    today_str = get_today_ist().strftime("%Y-%m-%d")
+    business_date_str = get_current_business_date_str()
     return (
         db.query(Order)
         .filter(
             Order.customer_phone == customer_phone,
-            Order.delivery_date  == today_str,
+            Order.business_date == business_date_str,
             Order.is_cancelled   == False,
             Order.status.notin_(["pending_replace", "pending_repeat"]),
         )
@@ -278,6 +295,8 @@ def process_incoming_order(
     customer_phone: str,
     message: str,
     is_photo: bool = False,
+    business_date = compute_business_date(datetime.now(timezone.utc)).strftime("%Y-%m-%d"),
+    is_next_day_override = False,
 ) -> dict:
 
     msg_lower = message.strip().lower()
@@ -647,14 +666,14 @@ def get_unclear_orders(db: Session) -> list:
 
 
 def get_todays_orders(db: Session) -> list:
-    today = get_today_ist()
+    today_str = get_current_business_date_str()
     return (
         db.query(Order)
         .filter(
-            func.date(Order.created_at) == today,
+            Order.business_date == today_str,
             Order.is_cancelled == False,
         )
-        .order_by(Order.created_at.asc())
+        .order_by(Order.created_at)
         .all()
     )
 
@@ -663,10 +682,10 @@ def get_orders_by_date(db: Session, target_date: date) -> list:
     return (
         db.query(Order)
         .filter(
-            func.date(Order.created_at) == target_date,
+            Order.business_date == target_date.strftime("%Y-%m-%d"),
             Order.is_cancelled == False,
         )
-        .order_by(Order.created_at.asc())
+        .order_by(Order.created_at)
         .all()
     )
 

@@ -20,14 +20,13 @@ from app.models.order import Order
 
 # IST = UTC+5:30
 IST = timezone(timedelta(hours=5, minutes=30))
-
+RESET_HOUR = 20  # 8 PM IST
 
 def get_delivery_date_for_now() -> date:
-    """
-    Returns today's date in IST.
-    Orders are always placed and delivered on the same day.
-    """
-    return datetime.now(IST).date()
+    now_ist = datetime.now(IST)
+    if now_ist.hour >= RESET_HOUR:
+        return (now_ist + timedelta(days=1)).date()
+    return now_ist.date()
 
 
 def get_pending_customers(db: Session, delivery_date: date) -> dict:
@@ -63,10 +62,9 @@ def get_pending_customers(db: Session, delivery_date: date) -> dict:
     ordered_phones = (
         db.query(Order.customer_phone)
         .filter(
-            Order.delivery_date == delivery_date_str,
-            Order.is_cancelled == False,   # cancelled orders don't count
+            Order.business_date == delivery_date_str,
+            Order.is_cancelled == False,
         )
-        .distinct()
         .all()
     )
     ordered_set = {row[0] for row in ordered_phones}

@@ -265,7 +265,30 @@
                         {% endif %}
                     </span>
                 </div>
-                <div class="items">{% for item in order.items_parsed %}{{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}</div>
+                <div class="items">{% for item in order.items_parsed %}{{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}
+                
+                                {% if is_before_cutoff %}
+                {% if not order.is_next_day_override %}
+                    <div style="margin-top:8px">
+                    <button class="btn btn-assign" onclick="moveToNextDay({{ order.id }})">➡ Next Day</button>
+                    </div>
+                {% else %}
+                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+                    <span class="badge" style="background:#e8f5e9;color:#2e7d32">✅ Next Day</span>
+                    <button class="btn btn-cancel-ui" onclick="revertToToday({{ order.id }})">↩ Revert</button>
+                    </div>
+                {% endif %}
+                {% else %}
+                {% if order.is_next_day_override %}
+                    <div style="margin-top:8px">
+                    <span class="badge" style="background:#e8f5e9;color:#2e7d32">✅ Next Day (locked)</span>
+                    </div>
+                {% endif %}
+                {% endif %}
+                </div>
+                
+
+
                 {% if order.has_unclear_items %}
                 <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #fed7d7;">
                     <div style="font-size:12px; font-weight:700; color:#e53e3e; margin-bottom:4px;">❓ Unresolved items (not counted in summary):</div>
@@ -1141,6 +1164,26 @@ function checkEmptyFailed() {
         }
     } catch(e) {}
 })();
+
+async function moveToNextDay(orderId) {
+    try {
+        await api('PUT', `/admin/orders/${orderId}/next-day`, { is_next_day: true });
+        showToast('✅ Moved to next day', 'success');
+        location.reload();
+    } catch(e) {
+        showToast('❌ ' + (JSON.parse(e.message)?.detail || 'Failed'), 'error');
+    }
+}
+
+async function revertToToday(orderId) {
+    try {
+        await api('PUT', `/admin/orders/${orderId}/next-day`, { is_next_day: false });
+        showToast('✅ Reverted to today', 'success');
+        location.reload();
+    } catch(e) {
+        showToast('❌ ' + (JSON.parse(e.message)?.detail || 'Failed'), 'error');
+    }
+}
 
 setInterval(() => {
     if (document.getElementById('tab-orders').classList.contains('active')) location.reload();

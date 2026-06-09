@@ -9,6 +9,8 @@ from app.models.order import Order
 from app.models.inbound_message import InboundMessage
 from app.models.customer import Customer
 from app.services.notifier import send_whatsapp_template, send_whatsapp_message
+from app.services.order_service import get_current_business_date
+
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
@@ -79,12 +81,13 @@ def generate_daily_report(db: Session) -> dict:
     Generate consolidated daily order report.
     Always returns a dict — sends 'no orders' message when count is zero.
     """
-    today = date.today()
-
+    today = get_current_business_date()
+    today_str = today.strftime("%Y-%m-%d")
+    
     orders = db.query(Order).filter(
-        func.date(Order.created_at) == today,
-        Order.status.notin_(["pending_replace", "pending_repeat"]),
-    ).order_by(Order.created_at.asc()).all()
+    Order.business_date == today_str,
+    Order.is_cancelled == False,
+    ).all()
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]

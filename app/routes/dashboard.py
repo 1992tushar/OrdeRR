@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.order import Order
 from app.auth import require_auth
 from datetime import datetime, date, timezone, timedelta
+from app.services.order_service import get_current_business_date
 import json
 import os
 
@@ -22,7 +23,7 @@ def dashboard(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    today = datetime.now(IST).date()
+    today = get_current_business_date()
     if view_date:
         try:
             target_date = date.fromisoformat(view_date)
@@ -37,11 +38,14 @@ def dashboard(
     # Orders are shown for the date they are *for*, not the date they were placed.
     # A customer placing an order at 11:38 PM IST (= next day UTC) was previously
     # missing from the dashboard because created_at date in UTC != IST date.
+    
+
     orders = db.query(Order).filter(
-        Order.delivery_date == target_date_str,
-        Order.is_cancelled == False,
-        Order.status.notin_(["pending_replace", "pending_repeat"]),
-    ).order_by(Order.created_at.desc()).all()
+    Order.business_date == target_date.strftime("%Y-%m-%d"),
+    Order.is_cancelled == False,
+    ).all()
+
+
 
     for order in orders:
         order.created_at = order.created_at.astimezone(IST)
@@ -73,6 +77,8 @@ def dashboard(
     yesterday = (target_date - timedelta(days=1)).isoformat()
     tomorrow  = (target_date + timedelta(days=1)).isoformat()
     is_today  = (target_date == today)
+    now_ist = datetime.now(IST)
+    is_before_cutoff = now_ist.hour < 20
 
     # ── Reliability data for Failed tab ──────────────────────────────────────
     failed_messages   = []
@@ -114,6 +120,7 @@ def dashboard(
             "target_date_display": target_date.strftime("%d %b %Y"),
             "is_today"           : is_today,
             "yesterday"          : yesterday,
+            "is_before_cutoff"   : is_before_cutoff,
             "tomorrow"           : tomorrow,
             "dashboard_username" : os.getenv("DASHBOARD_USERNAME", ""),
             "dashboard_password" : os.getenv("DASHBOARD_PASSWORD", ""),

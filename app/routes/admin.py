@@ -41,6 +41,8 @@ from app.services.notifier import send_whatsapp_message
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 from app.services.template_parser import PRODUCT_DEFINITIONS
 from app.services.customer_service import create_customer_manually
+
+from app.services.order_service import get_current_business_date_str, RESET_HOUR
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
@@ -70,6 +72,10 @@ class CustomerCreate(BaseModel):
     restaurant_name: str
     area: Optional[str] = None
     salesperson_id: Optional[int] = None
+
+
+class NextDayOverride(BaseModel):
+    is_next_day: bool
 
 # ── Salespersons ──────────────────────────────────────────────────────────────
 
@@ -166,19 +172,25 @@ def _customer_row(c: Customer, db: Session) -> dict:
 
 @router.get("/customers")
 def list_customers(db: Session = Depends(get_db), username: str = Depends(require_auth)):
-    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+    today_str = get_current_business_date_str()
     customers = (
         db.query(Customer)
         .filter(Customer.onboarding_status == "active")
         .order_by(Customer.restaurant_name)
         .all()
     )
+
     ordered_today = {
-        row[0] for row in
-        db.query(Order.customer_phone)
-        .filter(Order.delivery_date == today_str, Order.is_cancelled == False)
-        .distinct().all()
+    row[0]
+    for row in db.query(Order.customer_phone)
+    .filter(
+        Order.business_date == today_str,
+        Order.is_cancelled == False,
+    )
+    .all()
     }
+
+
     result = []
     for c in customers:
         row = _customer_row(c, db)
@@ -316,6 +328,45 @@ def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(g
 
     return {"delivery_date": target_date.isoformat(), "total_pending": total, "groups": result}
 
+
+
+@router.put("/orders/{order_id}/next-day")
+def set_next_day_override(
+    order_id: int,
+    payload: NextDayOverride,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    now_ist = datetime.now(IST)
+    if now_ist.hour >= RESET_HOUR:
+        raise HTTPException(
+            status_code=403,
+            detail="Override window closed. Orders are locked after 8 PM IST."
+        )
+
+    order_ist = order.created_at.astimezone(IST)
+    cutoff = order_ist.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
+    if order_ist >= cutoff:
+        raise HTTPException(
+            status_code=400,
+            detail="This order was placed after 8 PM IST and is already assigned to the next day."
+        )
+
+    if payload.is_next_day:
+        next_day = (order_ist.date() + timedelta(days=1)).strftime("%Y-%m-%d")
+        order.business_date = next_day
+        order.is_next_day_override = True
+    else:
+        order.business_date = order_ist.date().strftime("%Y-%m-%d")
+        order.is_next_day_override = False
+
+    db.commit()
+    db.refresh(order)
+    return {"success": True, "order_id": order.id, "business_date": order.business_date}
 
 # ── WhatsApp Window Status ────────────────────────────────────────────────────
 
