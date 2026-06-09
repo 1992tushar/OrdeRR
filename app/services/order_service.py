@@ -179,6 +179,7 @@ def _save_and_notify(
         is_unclear     = parsed.get("is_unclear", False),
         unclear_reason = parsed.get("unclear_reason"),
         status         = "received",
+        business_date  = get_current_business_date_str(),  # FIX: was missing, causing orders to not show on dashboard
     )
     db.add(order)
     db.commit()
@@ -328,6 +329,7 @@ def _handle_repeat(db: Session, customer: Customer) -> dict:
         raw_message    = "repeat",
         parsed_items   = json.dumps(items),
         delivery_date  = get_delivery_date_str(),
+        business_date  = get_current_business_date_str(),
         is_unclear     = False,
         status         = "pending_repeat",
     )
@@ -459,6 +461,7 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
                 unclear_items  = json.dumps(parsed.get("unclear_items", [])) if parsed.get("unclear_items") else None,
                 delivery_date  = get_delivery_date_str(),
                 delivery_time  = parsed.get("delivery_time"),
+                business_date  = get_current_business_date_str(),
                 is_unclear     = False,
                 status         = "pending_replace",
             )
