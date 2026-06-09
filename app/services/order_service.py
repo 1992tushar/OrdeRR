@@ -503,9 +503,11 @@ def process_incoming_order(
     customer_phone: str,
     message: str,
     is_photo: bool = False,
-    business_date = compute_business_date(datetime.now(timezone.utc)).strftime("%Y-%m-%d"),
-    is_next_day_override = False,
+    business_date: str | None = None,
+    is_next_day_override: bool = False,
 ) -> dict:
+    if business_date is None:
+        business_date = compute_business_date(datetime.now(timezone.utc)).strftime("%Y-%m-%d")
 
     msg_lower = message.strip().lower()
 

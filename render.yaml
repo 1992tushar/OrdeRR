@@ -23,7 +23,7 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: normalize_phone
+      - key: DASHBOARD_USERNAME
         sync: false
       - key: DASHBOARD_PASSWORD
         sync: false
