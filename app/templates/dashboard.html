@@ -577,6 +577,45 @@
   </div>
 </div>
 
+
+<!-- ══ POST ORDER MODAL ══════════════════════════════════════════════════ -->
+<div id="post-order-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <h3>📝 Post Order on Behalf</h3>
+        <div id="po-customer-name" style="font-size:12px;color:#888;margin-top:2px"></div>
+      </div>
+      <button class="btn btn-cancel-ui" onclick="closeModal('post-order-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">
+        Order Message <span style="color:#c62828">*</span>
+      </label>
+      <textarea
+        id="po-message"
+        rows="7"
+        placeholder="e.g.&#10;Chicken Leg - 10 kg&#10;Chicken Breast - 5 kg&#10;Mutton - 3 kg"
+        style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;
+               font-size:14px;resize:vertical;outline:none;font-family:inherit;
+               line-height:1.6;margin-bottom:10px"
+      ></textarea>
+      <div style="background:#f0fdf4;border-radius:8px;padding:10px 12px;
+                  font-size:12px;color:#276749;line-height:1.6;margin-bottom:16px">
+        ℹ️ This goes through the <strong>same pipeline</strong> as a WhatsApp order —
+        the customer gets a confirmation message and the order appears in the
+        Orders tab immediately.
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-cancel-ui" onclick="closeModal('post-order-modal')">Cancel</button>
+        <button class="btn btn-save" id="po-submit-btn" onclick="submitPostOrder()">Post Order</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ══ END POST ORDER MODAL ════════════════════════════════════════════════ -->
+
+
 <div id="toast"></div>
 
 <script>
@@ -727,6 +766,7 @@ function renderCustomers(customers) {
                 <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
                 ${toggle}
                 <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
+                <button class="btn" style="background:#e8f5e9;color:#2e7d32" onclick="openPostOrderModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">📝 Post Order</button>
             </td>
         </tr>`;
     }).join('');
@@ -749,6 +789,7 @@ function renderCustomers(customers) {
                 <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
                 ${toggle}
                 <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
+                <button class="btn" style="background:#e8f5e9;color:#2e7d32" onclick="openPostOrderModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">📝 Post Order</button>
             </div>
         </div>`;
     }).join('');
@@ -833,6 +874,58 @@ async function submitAddCustomer() {
         showToast('❌ ' + (msg || 'Failed to add customer'), 'error');
     }
 }
+
+
+// ── Post Order on Behalf ──────────────────────────────────────────────────────
+let _postOrderCustomerId = null;
+ 
+function openPostOrderModal(cid, rname) {
+    _postOrderCustomerId = cid;
+    document.getElementById('po-customer-name').textContent = rname || ('Customer #' + cid);
+    document.getElementById('po-message').value = '';
+    const btn = document.getElementById('po-submit-btn');
+    btn.disabled = false;
+    btn.textContent = 'Post Order';
+    document.getElementById('post-order-modal').classList.add('open');
+    // Auto-focus the textarea after the modal transition
+    setTimeout(() => document.getElementById('po-message').focus(), 150);
+}
+ 
+async function submitPostOrder() {
+    const message = document.getElementById('po-message').value.trim();
+    if (!message) {
+        showToast('⚠️ Please enter an order message', 'error');
+        return;
+    }
+    const btn = document.getElementById('po-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Posting…';
+    try {
+        const data = await api(
+            'POST',
+            `/admin/customers/${_postOrderCustomerId}/post-order`,
+            { message }
+        );
+        const isUnclear = data.status === 'unclear';
+        const label = isUnclear
+            ? `⚠️ Posted — some items unclear (Order #${data.order_id || '?'})`
+            : `✅ Order #${data.order_id || '?'} posted for ${data.customer}`;
+        showToast(label, 'success');
+        closeModal('post-order-modal');
+        // Reload so the new order appears immediately
+        setTimeout(() => location.reload(), 800);
+    } catch(e) {
+        let msg = 'Failed to post order';
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
+        showToast('❌ ' + msg, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Post Order';
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+
 
 // ── Pending ───────────────────────────────────────────────────────────────────
 

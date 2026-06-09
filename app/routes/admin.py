@@ -41,7 +41,7 @@ from app.services.notifier import send_whatsapp_message
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 from app.services.template_parser import PRODUCT_DEFINITIONS
 from app.services.customer_service import create_customer_manually
-
+from app.services.order_service import process_incoming_order
 from app.services.order_service import get_current_business_date_str, RESET_HOUR
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
@@ -73,9 +73,12 @@ class CustomerCreate(BaseModel):
     area: Optional[str] = None
     salesperson_id: Optional[int] = None
 
-
 class NextDayOverride(BaseModel):
     is_next_day: bool
+
+class PostOrderPayload(BaseModel):
+    """Payload for admin posting an order on behalf of a customer."""
+    message: str
 
 # ── Salespersons ──────────────────────────────────────────────────────────────
 
@@ -295,6 +298,52 @@ def update_customer_status(customer_id: int, payload: CustomerStatus, db: Sessio
     customer.is_active = payload.is_active
     db.commit(); db.refresh(customer)
     return {"status": "updated", "customer": {"id": customer.id, "restaurant_name": customer.restaurant_name, "phone_number": customer.phone_number, "is_active": customer.is_active}}
+
+
+@router.post("/customers/{customer_id}/post-order")
+def post_order_on_behalf(
+    customer_id: int,
+    payload: PostOrderPayload,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """
+    Admin posts an order on behalf of a customer.
+ 
+    Delegates entirely to process_incoming_order() — the same pipeline
+    the WhatsApp webhook uses — so parsing, deduplication, WhatsApp
+    confirmations, and manager alerts all fire normally.
+    """
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    if not customer.is_active:
+        raise HTTPException(status_code=400, detail="Customer is inactive")
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Order message cannot be empty")
+ 
+    result = process_incoming_order(
+        db=db,
+        customer_phone=customer.phone_number,
+        message=payload.message.strip(),
+    )
+ 
+    status = result.get("status", "")
+    # Treat these statuses as "success" — unclear means order was saved but
+    # some items need review, which is still a valid post.
+    if status in ("order_saved", "order_updated", "repeat_confirmed", "unclear"):
+        return {
+            "ok": True,
+            "status": status,
+            "order_id": result.get("order_id"),
+            "customer": customer.restaurant_name or customer.phone_number,
+            "message": result.get("message", "Order posted successfully"),
+        }
+ 
+    raise HTTPException(
+        status_code=400,
+        detail=result.get("message") or f"Pipeline returned unexpected status: {status}",
+    )
 
 
 # ── Pending orders ────────────────────────────────────────────────────────────

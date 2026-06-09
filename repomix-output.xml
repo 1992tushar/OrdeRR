@@ -54,25 +54,11 @@ app/services/template_parser.py
 app/services/webhook_health.py
 app/templates/dashboard.html
 check_db.py
-cleanup_db.py
-create_templates.ps1
-migrate_phase4_inbound_messages.py
-migrate_phase4.py
-migrate_phase4.py.txt
-migrate_unclear_items.py
 Procfile
 pytest.ini
 render.yaml
 requirements.txt
-runtime.txt
-tests/conftest.py
-tests/README.md
-tests/test_customer_service.py
-tests/test_onboarding.py
-tests/test_order_flow.py
-tests/test_parser_unit.py
-tests/test_pending_orders.py
-tests/test_validate_name.py</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path="migrate_phase4.py.txt"></file><file path=".python-version">3.11.0</file><file path="app/__init__.py"></file><file path="app/auth.py">security = HTTPBasic()
+runtime.txt</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path=".python-version">3.11.0</file><file path="app/__init__.py"></file><file path="app/auth.py">security = HTTPBasic()
 ⋮----
 username = os.getenv(&quot;DASHBOARD_USERNAME&quot;, &quot;&quot;)
 password = os.getenv(&quot;DASHBOARD_PASSWORD&quot;, &quot;&quot;)
@@ -204,724 +190,9 @@ db = SessionLocal()
 ⋮----
 due_messages = get_messages_pending_retry(db)
 ⋮----
-result = process_incoming_order(</file><file path="cleanup_db.py">db = SessionLocal()
-⋮----
-deleted = db.query(Order).delete()</file><file path="create_templates.ps1"># OrdeRR — Create All WhatsApp Templates
-# Run this once when setting up on a new WhatsApp Business Account
-# Replace TOKEN and WABA_ID before running
-
-$TOKEN = &quot;YOUR_META_ACCESS_TOKEN&quot;
-$WABA_ID = &quot;YOUR_WABA_ID&quot;
-
-$headers = @{
-    &quot;Authorization&quot; = &quot;Bearer $TOKEN&quot;
-    &quot;Content-Type&quot;  = &quot;application/json&quot;
-}
-
-$templates = @(
-
-@&quot;
-{
-  &quot;name&quot;: &quot;salesperson_pending_orders&quot;,
-  &quot;language&quot;: &quot;en&quot;,
-  &quot;category&quot;: &quot;UTILITY&quot;,
-  &quot;components&quot;: [{
-    &quot;type&quot;: &quot;BODY&quot;,
-    &quot;text&quot;: &quot;Pending Orders - {{1}}\n\nHi {{2}}, the following customers have not placed their order yet:\n\n{{3}}\n\nTotal Pending: {{4}}\n\nPlease follow up with them.\n- {{1}} Team&quot;,
-    &quot;example&quot;: { &quot;body_text&quot;: [[&quot;Fluffy&quot;, &quot;Ritali&quot;, &quot;1. Shubhada Hotel (Talegaon)&quot;, &quot;1&quot;]] }
-  }]
-}
-&quot;@,
-
-@&quot;
-{
-  &quot;name&quot;: &quot;manager_new_order&quot;,
-  &quot;language&quot;: &quot;en&quot;,
-  &quot;category&quot;: &quot;UTILITY&quot;,
-  &quot;components&quot;: [{
-    &quot;type&quot;: &quot;BODY&quot;,
-    &quot;text&quot;: &quot;New Order received at {{1}}.\n\nRestaurant: {{2}}\n\nItems:\n{{3}}\n\nPlease confirm and begin processing.&quot;,
-    &quot;example&quot;: { &quot;body_text&quot;: [[&quot;Fluffy&quot;, &quot;Hotel Sai Krupa - 919800000001&quot;, &quot;1. Curry Cut - 5 kg\n2. Breast Boneless - 3 kg\nDelivery: As per usual schedule&quot;]] }
-  }]
-}
-&quot;@,
-
-@&quot;
-{
-  &quot;name&quot;: &quot;manager_daily_summary&quot;,
-  &quot;language&quot;: &quot;en&quot;,
-  &quot;category&quot;: &quot;UTILITY&quot;,
-  &quot;components&quot;: [{
-    &quot;type&quot;: &quot;BODY&quot;,
-    &quot;text&quot;: &quot;Daily Order Status - {{1}}\nDate: {{2}}\n\nTotal Customers: {{3}}\nOrders Received: {{4}}\nPending Orders: {{5}}\n\nPending by Area:\n{{6}}\n\nOrdeRR - {{1}} Automation&quot;,
-    &quot;example&quot;: { &quot;body_text&quot;: [[&quot;Fluffy&quot;, &quot;31 May 2026&quot;, &quot;3&quot;, &quot;2&quot;, &quot;1&quot;, &quot;Talegaon (1 pending)\n  1. Shubhada Hotel&quot;]] }
-  }]
-}
-&quot;@,
-
-@&quot;
-{
-  &quot;name&quot;: &quot;manager_daily_report&quot;,
-  &quot;language&quot;: &quot;en&quot;,
-  &quot;category&quot;: &quot;UTILITY&quot;,
-  &quot;components&quot;: [{
-    &quot;type&quot;: &quot;BODY&quot;,
-    &quot;text&quot;: &quot;Daily Report - {{1}}\nDate: {{2}}\n\nTotal Orders: {{3}}\nTotal Items: {{4}}\n\nProduct Summary:\n{{5}}\n\nOrdeRR - {{1}} Automation&quot;,
-    &quot;example&quot;: { &quot;body_text&quot;: [[&quot;Fluffy&quot;, &quot;31 May 2026&quot;, &quot;3&quot;, &quot;12&quot;, &quot;1. Curry Cut - 15 kg\n2. Breast Boneless - 10 kg\n3. Wings - 5 kg&quot;]] }
-  }]
-}
-&quot;@
-
-)
-
-$url = &quot;https://graph.facebook.com/v21.0/$WABA_ID/message_templates&quot;
-
-foreach ($body in $templates) {
-    try {
-        $result = Invoke-RestMethod -Uri $url -Method POST -Headers $headers -Body $body
-        Write-Host &quot;✅ Created: $($result.id) — status: $($result.status)&quot; -ForegroundColor Green
-    } catch {
-        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-        Write-Host &quot;❌ Failed: $($reader.ReadToEnd())&quot; -ForegroundColor Red
-    }
-}
-
-Write-Host &quot;`nDone! Check status with:&quot;
-Write-Host &quot;Invoke-RestMethod -Uri `&quot;https://graph.facebook.com/v21.0/$WABA_ID/message_templates?fields=name,status,id&amp;limit=20`&quot; -Method GET -Headers `$headers | Select-Object -ExpandProperty data&quot;</file><file path="migrate_phase4_inbound_messages.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
-⋮----
-DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
-⋮----
-IS_SQLITE   = DATABASE_URL.startswith(&quot;sqlite&quot;)
-IS_POSTGRES = DATABASE_URL.startswith(&quot;postgresql&quot;)
-⋮----
-def migrate_sqlite()
-⋮----
-db_path = DATABASE_URL.replace(&quot;sqlite:///&quot;, &quot;&quot;)
-conn    = sqlite3.connect(db_path)
-cur     = conn.cursor()
-⋮----
-def _sqlite_add_missing(cur)
-⋮----
-existing = {row[1] for row in cur.fetchall()}
-wanted = {
-⋮----
-def migrate_postgres()
-⋮----
-conn = psycopg2.connect(DATABASE_URL)
-cur  = conn.cursor()
-⋮----
-def _postgres_add_missing(cur)
-⋮----
-existing = {row[0] for row in cur.fetchall()}</file><file path="migrate_unclear_items.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
-⋮----
-engine = create_engine(DATABASE_URL)
-⋮----
-result = conn.execute(text(&quot;&quot;&quot;
-exists = result.fetchone() is not None
-⋮----
-result = conn.execute(text(&quot;PRAGMA table_info(orders)&quot;))
-cols = [row[1] for row in result.fetchall()]
-exists = &quot;unclear_items&quot; in cols</file><file path="Procfile">web: uvicorn app.main:app --host 0.0.0.0 --port $PORT</file><file path="pytest.ini">[pytest]
+result = process_incoming_order(</file><file path="Procfile">web: uvicorn app.main:app --host 0.0.0.0 --port $PORT</file><file path="pytest.ini">[pytest]
 pythonpath = .
-testpaths = tests</file><file path="runtime.txt">python-3.11.0</file><file path="tests/conftest.py">TEST_DATABASE_URL = &quot;sqlite:///:memory:&quot;
-⋮----
-@pytest.fixture(scope=&quot;function&quot;)
-def db()
-⋮----
-engine = create_engine(TEST_DATABASE_URL, connect_args={&quot;check_same_thread&quot;: False})
-⋮----
-TestSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-session = TestSession()
-⋮----
-@pytest.fixture
-def mock_whatsapp()
-⋮----
-@pytest.fixture
-def registered_customer(db)
-⋮----
-sp = Salesperson(name=&quot;Test SP&quot;, phone=&quot;917700000000&quot;, active=True)
-⋮----
-customer = Customer(
-⋮----
-@pytest.fixture
-def awaiting_customer(db)</file><file path="tests/README.md"># OrdeRR — Automated Test Suite
-
-## Structure
-
-```
-tests/
-├── conftest.py                  ← Shared fixtures (DB, mocks, test customers)
-├── test_parser_unit.py          ← Unit tests for template_parser.py (50+ tests)
-├── test_customer_service.py     ← Unit tests for customer_service.py
-├── test_validate_name.py        ← Unit tests for validate_restaurant_name()
-├── test_onboarding.py           ← Integration tests for onboarding flow
-├── test_order_flow.py           ← Integration tests for order/cancel/repeat/replace
-└── test_pending_orders.py       ← Integration tests for pending_orders.py
-```
-
-## Setup
-
-Install dependencies:
-```bash
-pip install pytest pytest-mock --break-system-packages
-```
-
-Place the `tests/` folder in your project root:
-```
-OrdeRR/
-├── app/
-├── tests/         ← here
-└── requirements.txt
-```
-
-## Running Tests
-
-Run all tests:
-```bash
-pytest tests/ -v
-```
-
-Run specific file:
-```bash
-pytest tests/test_parser_unit.py -v
-```
-
-Run specific test:
-```bash
-pytest tests/test_parser_unit.py::TestMatchProduct::test_cc_curry_cut -v
-```
-
-Run with coverage:
-```bash
-pip install pytest-cov --break-system-packages
-pytest tests/ --cov=app --cov-report=term-missing
-```
-
-## Key Design Decisions
-
-- **In-memory SQLite** — no Render DB needed, each test gets a fresh DB
-- **WhatsApp mocked** — `send_whatsapp_message` patched in all integration tests,
-  no real messages sent during testing
-- **Function-scoped DB fixture** — every test starts with a clean slate
-- **No .env needed** — test env vars set in conftest.py
-
-## Test Coverage by File
-
-| File | Tests | Covers |
-|---|---|---|
-| test_parser_unit.py | ~50 | All 15 products, shortcodes, Hindi/Marathi, edge cases |
-| test_customer_service.py | 10 | Phone normalisation, lookup, create |
-| test_validate_name.py | 18 | Valid/invalid restaurant names |
-| test_onboarding.py | 12 | New customer, name validation, registration |
-| test_order_flow.py | 16 | Place, cancel, repeat, replace flows |
-| test_pending_orders.py | 8 | Pending logic, grouping, edge cases |</file><file path="tests/test_customer_service.py">class TestNormalizePhone
-⋮----
-def test_10_digit_adds_91(self)
-⋮----
-def test_already_has_91(self)
-⋮----
-def test_strips_plus(self)
-⋮----
-def test_strips_spaces(self)
-⋮----
-def test_strips_dashes(self)
-⋮----
-def test_no_double_91_prefix(self)
-⋮----
-result = normalize_phone(&quot;919876543210&quot;)
-⋮----
-class TestGetCustomerByPhone
-⋮----
-def test_returns_customer_when_exists(self, db, registered_customer)
-⋮----
-result = get_customer_by_phone(db, &quot;919800000001&quot;)
-⋮----
-def test_returns_none_when_not_exists(self, db)
-⋮----
-result = get_customer_by_phone(db, &quot;919800000099&quot;)
-⋮----
-def test_normalizes_phone_before_lookup(self, db, registered_customer)
-⋮----
-result = get_customer_by_phone(db, &quot;9800000001&quot;)
-⋮----
-class TestCreateNewCustomer
-⋮----
-def test_creates_customer(self, db)
-⋮----
-customer = create_new_customer(db, &quot;919800000010&quot;)
-⋮----
-def test_onboarding_status_awaiting_name(self, db)
-⋮----
-customer = create_new_customer(db, &quot;919800000011&quot;)
-⋮----
-def test_restaurant_name_is_none(self, db)
-⋮----
-customer = create_new_customer(db, &quot;919800000012&quot;)
-⋮----
-def test_normalizes_phone(self, db)
-⋮----
-customer = create_new_customer(db, &quot;9800000013&quot;)</file><file path="tests/test_onboarding.py">PHONE = &quot;919800000020&quot;
-⋮----
-@pytest.fixture(autouse=True)
-def mock_all_sends()
-⋮----
-class TestNewCustomer
-⋮----
-def test_new_customer_creates_record(self, db)
-⋮----
-customer = get_customer_by_phone(db, PHONE)
-⋮----
-def test_new_customer_status_awaiting_name(self, db)
-⋮----
-def test_new_customer_returns_awaiting_status(self, db)
-⋮----
-result = process_incoming_order(db, PHONE, &quot;Hi&quot;)
-⋮----
-def test_new_customer_no_order_created(self, db)
-⋮----
-orders = db.query(Order).filter(Order.customer_phone == PHONE).all()
-⋮----
-def test_welcome_message_sent(self, db)
-⋮----
-msg = mock.call_args[0][1]
-⋮----
-class TestOnboardingName
-⋮----
-def test_valid_name_accepted(self, db, awaiting_customer)
-⋮----
-result = process_incoming_order(db, awaiting_customer.phone_number, &quot;Hotel Sai Krupa&quot;)
-⋮----
-def test_valid_name_sets_restaurant_name(self, db, awaiting_customer)
-⋮----
-customer = get_customer_by_phone(db, awaiting_customer.phone_number)
-⋮----
-def test_valid_name_sets_status_active(self, db, awaiting_customer)
-⋮----
-def test_too_short_name_rejected(self, db, awaiting_customer)
-⋮----
-result = process_incoming_order(db, awaiting_customer.phone_number, &quot;AB&quot;)
-⋮----
-def test_too_short_name_keeps_awaiting(self, db, awaiting_customer)
-⋮----
-def test_greeting_as_name_rejected(self, db, awaiting_customer)
-⋮----
-result = process_incoming_order(db, awaiting_customer.phone_number, &quot;Hi&quot;)
-⋮----
-def test_number_as_name_rejected(self, db, awaiting_customer)
-⋮----
-result = process_incoming_order(db, awaiting_customer.phone_number, &quot;9876543210&quot;)
-⋮----
-def test_ok_as_name_rejected(self, db, awaiting_customer)
-⋮----
-result = process_incoming_order(db, awaiting_customer.phone_number, &quot;ok&quot;)
-⋮----
-def test_valid_hindi_name_accepted(self, db, awaiting_customer)
-⋮----
-result = process_incoming_order(db, awaiting_customer.phone_number, &quot;Sai Krupa Hotel&quot;)</file><file path="tests/test_order_flow.py">IST = timezone(timedelta(hours=5, minutes=30))
-TODAY = datetime.now(IST).strftime(&quot;%Y-%m-%d&quot;)
-PHONE = &quot;919800000030&quot;
-⋮----
-@pytest.fixture(autouse=True)
-def mock_all_sends()
-⋮----
-class TestOrderPlacement
-⋮----
-def test_simple_order_creates_record(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;Breast Boneless - 5 kg&quot;)
-⋮----
-order = db.query(Order).filter(Order.id == result[&quot;order_id&quot;]).first()
-⋮----
-def test_order_delivery_date_is_today(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;Wings - 2 kg&quot;)
-⋮----
-def test_order_items_saved_correctly(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;Curry Cut - 3 kg&quot;)
-⋮----
-items = json.loads(order.parsed_items)
-⋮----
-def test_shortcode_order_works(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;CC 5\nBBL 2&quot;)
-⋮----
-def test_unclear_message_no_order(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;kal bhejdo yaar&quot;)
-⋮----
-orders = db.query(Order).filter(
-⋮----
-def test_menu_keyword_no_order(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;order&quot;)
-⋮----
-def test_multiple_items_order(self, db, registered_customer)
-⋮----
-msg = &quot;WS Tandoor - 10 nos\nBreast Boneless - 3 kg\nCurry Cut - 5 kg&quot;
-result = process_incoming_order(db, registered_customer.phone_number, msg)
-⋮----
-def test_order_status_received(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;DS 2 kg&quot;)
-⋮----
-def test_order_not_cancelled(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;LB 3 kg&quot;)
-⋮----
-class TestOrderCancellation
-⋮----
-def test_cancel_existing_order(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;cancel&quot;)
-⋮----
-def test_cancel_marks_order_cancelled(self, db, registered_customer)
-⋮----
-def test_cancel_no_order_returns_correct_status(self, db, registered_customer)
-⋮----
-def test_cancel_hindi_keyword(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;cancel karo&quot;)
-⋮----
-class TestRepeatOrder
-⋮----
-def _seed_previous_order(self, db, customer)
-⋮----
-yesterday = (datetime.now(IST).date() - timedelta(days=1)).strftime(&quot;%Y-%m-%d&quot;)
-order = Order(
-⋮----
-def test_repeat_no_history(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;same&quot;)
-⋮----
-def test_repeat_creates_pending_order(self, db, registered_customer)
-⋮----
-def test_repeat_confirm_yes_creates_order(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;yes&quot;)
-⋮----
-def test_repeat_confirm_no_cancels(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;no&quot;)
-⋮----
-def test_repeat_keyword_wahi_bhejo(self, db, registered_customer)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;wahi bhejo&quot;)
-⋮----
-class TestReplaceOrder
-⋮----
-def test_second_order_before_cutoff_triggers_replace(self, db, registered_customer)
-⋮----
-mock_ist = datetime(2026, 5, 31, 7, 0, 0, tzinfo=IST)
-⋮----
-result = process_incoming_order(db, registered_customer.phone_number, &quot;Breast Boneless - 3 kg&quot;)
-⋮----
-def test_replace_confirm_yes(self, db, registered_customer)
-⋮----
-def test_replace_confirm_no_keeps_original(self, db, registered_customer)
-⋮----
-active = db.query(Order).filter(</file><file path="tests/test_parser_unit.py">PHONE = &quot;919800000001&quot;
-⋮----
-class TestNormalize
-⋮----
-def test_lowercase(self)
-⋮----
-def test_strips_asterisk(self)
-⋮----
-def test_strips_slash(self)
-⋮----
-def test_strips_dot(self)
-⋮----
-def test_strips_dash(self)
-⋮----
-class TestMatchProduct
-⋮----
-def test_breast_boneless_full(self)
-⋮----
-def test_curry_cut_full(self)
-⋮----
-def test_biryani_cut_full(self)
-⋮----
-def test_drumstick_full(self)
-⋮----
-def test_liver_full(self)
-⋮----
-def test_gizzard_full(self)
-⋮----
-def test_wings_full(self)
-⋮----
-def test_lollipop_full(self)
-⋮----
-def test_carcass_full(self)
-⋮----
-def test_whole_leg_full(self)
-⋮----
-def test_cc_curry_cut(self)
-⋮----
-def test_bc_biryani_cut(self)
-⋮----
-def test_bbl_breast_boneless(self)
-⋮----
-def test_bb_breast_boneless(self)
-⋮----
-def test_bl_breast_boneless(self)
-⋮----
-def test_lb_leg_boneless(self)
-⋮----
-def test_lbl_leg_boneless(self)
-⋮----
-def test_ds_drumstick(self)
-⋮----
-def test_wl_whole_leg(self)
-⋮----
-def test_lp_lollipop(self)
-⋮----
-def test_td_tandoor(self)
-⋮----
-def test_wsr_regular(self)
-⋮----
-def test_wos_skinless_regular(self)
-⋮----
-def test_kaleji_liver(self)
-⋮----
-def test_kaleja_liver(self)
-⋮----
-def test_pota_gizzard(self)
-⋮----
-def test_gurda_gizzard(self)
-⋮----
-def test_rassa_curry_cut(self)
-⋮----
-def test_tangdi_drumstick(self)
-⋮----
-def test_murgi_regular_chicken(self)
-⋮----
-def test_kombdi_regular_chicken(self)
-⋮----
-def test_tandor_typo(self)
-⋮----
-def test_drumstik_typo(self)
-⋮----
-def test_lolipop_typo(self)
-⋮----
-def test_gizerd_typo(self)
-⋮----
-def test_bonless_leg_typo(self)
-⋮----
-def test_boneless_breast_reversed(self)
-⋮----
-def test_boneless_leg_reversed(self)
-⋮----
-def test_skinless_tandoor(self)
-⋮----
-def test_skinless_regular(self)
-⋮----
-def test_no_skin_tandoor(self)
-⋮----
-def test_clean_regular(self)
-⋮----
-def test_breast_boneless_unit_is_kg(self)
-⋮----
-def test_tandoor_unit_is_nos(self)
-⋮----
-def test_lollipop_unit_is_nos(self)
-⋮----
-def test_whole_leg_unit_is_nos(self)
-⋮----
-def test_unknown_returns_none(self)
-⋮----
-def test_random_word_returns_none(self)
-⋮----
-class TestNormalizeUnit
-⋮----
-def test_kg(self):       assert _normalize_unit(&quot;kg&quot;) == &quot;kg&quot;
-def test_kgs(self):      assert _normalize_unit(&quot;kgs&quot;) == &quot;kg&quot;
-def test_kilo(self):     assert _normalize_unit(&quot;kilo&quot;) == &quot;kg&quot;
-def test_k(self):        assert _normalize_unit(&quot;k&quot;) == &quot;kg&quot;
-def test_nos(self):      assert _normalize_unit(&quot;nos&quot;) == &quot;nos&quot;
-def test_pcs(self):      assert _normalize_unit(&quot;pcs&quot;) == &quot;nos&quot;
-def test_pc(self):       assert _normalize_unit(&quot;pc&quot;) == &quot;nos&quot;
-def test_pieces(self):   assert _normalize_unit(&quot;pieces&quot;) == &quot;nos&quot;
-def test_unknown(self):  assert _normalize_unit(&quot;litre&quot;) is None
-⋮----
-class TestParseQuantity
-⋮----
-def test_integer(self):      assert _parse_quantity(&quot;5&quot;) == 5.0
-def test_float(self):        assert _parse_quantity(&quot;2.5&quot;) == 2.5
-def test_zero(self):         assert _parse_quantity(&quot;0&quot;) is None
-def test_negative(self):     assert _parse_quantity(&quot;-1&quot;) is None
-def test_text(self):         assert _parse_quantity(&quot;abc&quot;) is None
-def test_whitespace(self):   assert _parse_quantity(&quot;  3  &quot;) == 3.0
-⋮----
-class TestParseTemplateOrder
-⋮----
-def test_single_item(self)
-⋮----
-result = parse_template_order(PHONE, &quot;Breast Boneless - 5 kg&quot;)
-⋮----
-def test_multiple_items(self)
-⋮----
-msg = &quot;WS Tandoor - 10 nos\nBreast Boneless - 3 kg\nCurry Cut - 5 kg&quot;
-result = parse_template_order(PHONE, msg)
-⋮----
-def test_shortcode_cc(self)
-⋮----
-result = parse_template_order(PHONE, &quot;CC 3&quot;)
-⋮----
-def test_shortcode_bbl(self)
-⋮----
-result = parse_template_order(PHONE, &quot;BBL 2 kg&quot;)
-⋮----
-def test_placeholder_before_qty(self)
-⋮----
-result = parse_template_order(PHONE, &quot;Breast Boneless - __ 10 kg&quot;)
-⋮----
-def test_unfilled_lines_silently_skipped(self)
-⋮----
-msg = &quot;WS Tandoor - __ nos\nBreast Boneless - 3 kg\nCurry Cut - __ kg&quot;
-⋮----
-def test_duplicate_product_merged(self)
-⋮----
-msg = &quot;Breast Boneless - 2 kg\nBBL - 3 kg&quot;
-⋮----
-def test_is_unclear_when_no_items(self)
-⋮----
-result = parse_template_order(PHONE, &quot;kal bhejdo please&quot;)
-⋮----
-def test_not_unclear_when_items_found(self)
-⋮----
-result = parse_template_order(PHONE, &quot;Wings - 2 kg&quot;)
-⋮----
-def test_delivery_time_parsed(self)
-⋮----
-result = parse_template_order(PHONE, &quot;Wings - 2 kg\n🕒 Delivery Time: 6 AM&quot;)
-⋮----
-def test_delivery_time_not_set_when_absent(self)
-⋮----
-def test_header_lines_skipped(self)
-⋮----
-msg = &quot;Place your order below:\nWings - 2 kg&quot;
-⋮----
-def test_unit_mismatch_produces_error(self)
-⋮----
-result = parse_template_order(PHONE, &quot;Breast Boneless - 5 nos&quot;)
-⋮----
-def test_unknown_product_produces_error(self)
-⋮----
-result = parse_template_order(PHONE, &quot;Paneer - 2 kg&quot;)
-⋮----
-def test_all_15_products_recognised(self)
-⋮----
-msg = (
-⋮----
-def test_mixed_valid_and_invalid(self)
-⋮----
-msg = &quot;Breast Boneless - 3 kg\nPaneer - 2 kg\nWings - 1 kg&quot;
-⋮----
-def test_wings_qty_after_unit(self)
-⋮----
-result = parse_template_order(PHONE, &quot;Wings - __ kg 2&quot;)
-⋮----
-def test_kaleji_hindi(self)
-⋮----
-result = parse_template_order(PHONE, &quot;kaleji 1 kg&quot;)
-⋮----
-def test_rassa_marathi(self)
-⋮----
-result = parse_template_order(PHONE, &quot;rassa 3 kg&quot;)
-⋮----
-def test_empty_message(self)
-⋮----
-result = parse_template_order(PHONE, &quot;&quot;)
-⋮----
-def test_only_whitespace(self)
-⋮----
-result = parse_template_order(PHONE, &quot;   \n\n   &quot;)</file><file path="tests/test_pending_orders.py">IST = timezone(timedelta(hours=5, minutes=30))
-TODAY = datetime.now(IST).strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-class TestDeliveryDate
-⋮----
-def test_returns_today(self)
-⋮----
-result = get_delivery_date_for_now()
-⋮----
-def test_never_returns_tomorrow(self)
-⋮----
-class TestGetPendingCustomers
-⋮----
-def test_customer_with_no_order_is_pending(self, db)
-⋮----
-sp = Salesperson(name=&quot;SP1&quot;, phone=&quot;917700000001&quot;, active=True)
-⋮----
-customer = Customer(
-⋮----
-grouped = get_pending_customers(db, datetime.now(IST).date())
-all_pending = [c for customers in grouped.values() for c in customers]
-phones = [c.phone_number for c in all_pending]
-⋮----
-def test_customer_with_order_not_pending(self, db)
-⋮----
-sp = Salesperson(name=&quot;SP2&quot;, phone=&quot;917700000002&quot;, active=True)
-⋮----
-order = Order(
-⋮----
-def test_inactive_customer_excluded(self, db)
-⋮----
-sp = Salesperson(name=&quot;SP3&quot;, phone=&quot;917700000003&quot;, active=True)
-⋮----
-def test_non_daily_customer_excluded(self, db)
-⋮----
-sp = Salesperson(name=&quot;SP4&quot;, phone=&quot;917700000004&quot;, active=True)
-⋮----
-def test_awaiting_name_customer_excluded(self, db)
-⋮----
-def test_grouped_by_salesperson(self, db)
-⋮----
-sp = Salesperson(name=&quot;SP5&quot;, phone=&quot;917700000005&quot;, active=True)
-⋮----
-c = Customer(
-⋮----
-def test_cancelled_order_still_pending(self, db)
-⋮----
-sp = Salesperson(name=&quot;SP6&quot;, phone=&quot;917700000006&quot;, active=True)</file><file path="tests/test_validate_name.py">class TestValidRestaurantNames
-⋮----
-def test_normal_name(self)
-⋮----
-def test_single_word(self)
-⋮----
-def test_hindi_name(self)
-⋮----
-def test_number_in_name(self)
-⋮----
-def test_min_length_3(self)
-⋮----
-class TestInvalidRestaurantNames
-⋮----
-def test_too_short_one_char(self)
-⋮----
-def test_too_short_two_chars(self)
-⋮----
-def test_too_long(self)
-⋮----
-def test_only_numbers(self)
-⋮----
-def test_greeting_hi(self)
-⋮----
-def test_greeting_hello(self)
-⋮----
-def test_greeting_ok(self)
-⋮----
-def test_greeting_yes(self)
-⋮----
-def test_greeting_haan(self)
-⋮----
-def test_filler_send_menu(self)
-⋮----
-def test_filler_place_order(self)
-⋮----
-def test_only_special_chars(self)
-⋮----
-def test_repeated_single_letter(self)</file><file path="app/models/customer.py">class Customer(Base)
+testpaths = tests</file><file path="runtime.txt">python-3.11.0</file><file path="app/models/customer.py">class Customer(Base)
 ⋮----
 __tablename__ = &quot;customers&quot;
 ⋮----
@@ -1050,30 +321,7 @@ error_code = error_data.get(&quot;error&quot;, {}).get(&quot;code&quot;, &quot;u
 ⋮----
 def _send_failure_alert(now_ist: datetime, error_code, error_msg: str)
 ⋮----
-alert = (</file><file path="migrate_phase4.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
-DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
-⋮----
-IS_SQLITE   = DATABASE_URL.startswith(&quot;sqlite&quot;)
-IS_POSTGRES = DATABASE_URL.startswith(&quot;postgresql&quot;)
-⋮----
-def migrate_sqlite()
-⋮----
-db_path = DATABASE_URL.replace(&quot;sqlite:///&quot;, &quot;&quot;)
-conn   = sqlite3.connect(db_path)
-cursor = conn.cursor()
-⋮----
-existing = {row[1] for row in cursor.fetchall()}
-⋮----
-new_columns = {
-⋮----
-# Backfill business_date for existing orders
-⋮----
-def migrate_postgres()
-⋮----
-r    = urlparse(DATABASE_URL)
-conn = psycopg2.connect(
-⋮----
-migrations = [</file><file path="render.yaml">services:
+alert = (</file><file path="render.yaml">services:
   - type: web
     name: orderr
     env: python
@@ -1132,29 +380,7 @@ customer = Customer(
 ⋮----
 normalized = normalize_phone(phone)
 ⋮----
-existing = db.query(Customer).filter(Customer.phone_number == normalized).first()</file><file path="app/services/pending_orders.py">IST = timezone(timedelta(hours=5, minutes=30))
-RESET_HOUR = 20
-⋮----
-def get_delivery_date_for_now() -&gt; date
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-def get_pending_customers(db: Session, delivery_date: date) -&gt; dict
-⋮----
-active_customers = (
-⋮----
-delivery_date_str = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-ordered_phones = (
-ordered_set = {row[0] for row in ordered_phones}
-⋮----
-pending = [c for c in active_customers if c.phone_number not in ordered_set]
-⋮----
-grouped: dict = defaultdict(list)
-⋮----
-delivery_date = get_delivery_date_for_now()
-⋮----
-grouped = get_pending_customers(db, delivery_date)</file><file path="requirements.txt">annotated-doc==0.0.4
+existing = db.query(Customer).filter(Customer.phone_number == normalized).first()</file><file path="requirements.txt">annotated-doc==0.0.4
 annotated-types==0.7.0
 anthropic==0.100.0
 anyio==4.13.0
@@ -1195,7 +421,29 @@ tzdata==2026.2
 tzlocal==5.3.1
 urllib3==2.7.0
 uvicorn==0.46.0
-websockets==16.0</file><file path="app/services/product_catalog.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+websockets==16.0</file><file path="app/services/pending_orders.py">IST = timezone(timedelta(hours=5, minutes=30))
+RESET_HOUR = 20
+⋮----
+def get_delivery_date_for_now() -&gt; date
+⋮----
+now_ist = datetime.now(IST)
+⋮----
+def get_pending_customers(db: Session, delivery_date: date) -&gt; dict
+⋮----
+active_customers = (
+⋮----
+delivery_date_str = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+ordered_phones = (
+ordered_set = {row[0] for row in ordered_phones}
+⋮----
+pending = [c for c in active_customers if c.phone_number not in ordered_set]
+⋮----
+grouped: dict = defaultdict(list)
+⋮----
+delivery_date = get_delivery_date_for_now()
+⋮----
+grouped = get_pending_customers(db, delivery_date)</file><file path="app/services/product_catalog.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 ⋮----
 PRODUCT_CATALOG = [
 ⋮----
@@ -1559,42 +807,7 @@ def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depe
 def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
 @router.post(&quot;/test-notifications/daily-report&quot;)
-def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/routes/dashboard.py">router = APIRouter()
-IST = timezone(timedelta(hours=5, minutes=30))
-templates = Jinja2Templates(directory=&quot;app/templates&quot;)
-⋮----
-today = get_current_business_date()
-⋮----
-target_date = date.fromisoformat(view_date)
-⋮----
-target_date = today
-⋮----
-target_date_str = target_date.strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-orders = db.query(Order).filter(
-⋮----
-clear_orders   = [o for o in orders if not o.is_unclear]
-unclear_orders = [o for o in orders if o.is_unclear]
-⋮----
-product_summary = {}
-⋮----
-product  = item.get(&quot;product&quot;, &quot;Unknown&quot;)
-quantity = item.get(&quot;quantity&quot;, 0)
-unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
-key      = f&quot;{product}__{unit}&quot;
-⋮----
-yesterday = (target_date - timedelta(days=1)).isoformat()
-tomorrow  = (target_date + timedelta(days=1)).isoformat()
-is_today  = (target_date == today)
-now_ist = datetime.now(IST)
-is_before_cutoff = now_ist.hour &lt; 20
-⋮----
-failed_messages   = []
-reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
-⋮----
-reliability_stats = get_reliability_stats(db)
-⋮----
-# Reliability</file><file path="app/services/pending_notifier.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/services/pending_notifier.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 ⋮----
 TEMPLATE_SALESPERSON_PENDING = &quot;salesperson_pending_orders&quot;
@@ -1658,7 +871,42 @@ area_breakdown = &quot;None — all orders received&quot;
 ⋮----
 unassigned_pending = len(grouped.get(None, []))
 ⋮----
-date_str = delivery_date.strftime(&quot;%d %B %Y&quot;)</file><file path="app/services/reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+date_str = delivery_date.strftime(&quot;%d %B %Y&quot;)</file><file path="app/routes/dashboard.py">router = APIRouter()
+IST = timezone(timedelta(hours=5, minutes=30))
+templates = Jinja2Templates(directory=&quot;app/templates&quot;)
+⋮----
+today = get_current_business_date()
+⋮----
+target_date = date.fromisoformat(view_date)
+⋮----
+target_date = today
+⋮----
+target_date_str = target_date.strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+orders = db.query(Order).filter(
+⋮----
+clear_orders   = [o for o in orders if not o.is_unclear]
+unclear_orders = [o for o in orders if o.is_unclear]
+⋮----
+product_summary = {}
+⋮----
+product  = item.get(&quot;product&quot;, &quot;Unknown&quot;)
+quantity = item.get(&quot;quantity&quot;, 0)
+unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
+key      = f&quot;{product}__{unit}&quot;
+⋮----
+yesterday = (target_date - timedelta(days=1)).isoformat()
+tomorrow  = (target_date + timedelta(days=1)).isoformat()
+is_today  = (target_date == today)
+now_ist = datetime.now(IST)
+is_before_cutoff = now_ist.hour &lt; 20
+⋮----
+failed_messages   = []
+reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
+⋮----
+reliability_stats = get_reliability_stats(db)
+⋮----
+# Reliability</file><file path="app/services/reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 IST           = timezone(timedelta(hours=5, minutes=30))
 ⋮----
