@@ -20,10 +20,12 @@ PLANT_NAME    = os.getenv("PLANT_NAME", "OrdeRR")
 
 ACK_MESSAGE = "✅ Order received. Processing now."
 
+# FIX: webhook.py transitions RECEIVED → PARSING directly (no ACK step),
+# then PARSING → CONFIRMED on success. Both paths must be valid.
 VALID_TRANSITIONS = {
-    "RECEIVED":      {"ACK_SENT", "FAILED"},
+    "RECEIVED":      {"ACK_SENT", "PARSING", "FAILED"},          # added PARSING
     "ACK_SENT":      {"PARSING", "FAILED"},
-    "PARSING":       {"PARSED", "NOTE", "FAILED"},
+    "PARSING":       {"PARSED", "NOTE", "FAILED", "CONFIRMED"},   # added CONFIRMED
     "PARSED":        {"ORDER_CREATED", "FAILED"},
     "ORDER_CREATED": {"CONFIRMED", "FAILED"},
     "CONFIRMED":     set(),

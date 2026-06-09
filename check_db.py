@@ -22,6 +22,42 @@ def run(title, query, params=None):
         print(f"ERROR: {e}")
         conn.rollback()
 
+def run_write(title, query, params=None):
+    """For INSERT/UPDATE/DELETE — commits and prints rows affected."""
+    print(f"\n{'='*70}")
+    print(f"  {title}")
+    print("="*70)
+    try:
+        cur.execute(query, params)
+        conn.commit()
+        print(f"  ✅ Done. Rows affected: {cur.rowcount}")
+    except Exception as e:
+        print(f"  ❌ ERROR: {e}")
+        conn.rollback()
+
+# ── BACKFILL: set business_date from delivery_date where missing ──────────────
+run_write("BACKFILL business_date from delivery_date", """
+    UPDATE orders
+    SET business_date = delivery_date
+    WHERE business_date IS NULL
+      AND delivery_date IS NOT NULL
+""")
+
+# ── Verify the fix ────────────────────────────────────────────────────────────
+run("VERIFY: orders with NULL business_date (should be 0)", """
+    SELECT COUNT(*) AS still_null
+    FROM orders
+    WHERE business_date IS NULL
+""")
+
+run("ORDERS after backfill (last 20)", """
+    SELECT id, customer_name, customer_phone, delivery_date, business_date,
+           status, is_cancelled, is_unclear, created_at
+    FROM orders
+    ORDER BY created_at DESC
+    LIMIT 20
+""")
+
 # ── Counts ────────────────────────────────────────────────────────────────────
 run("COUNTS", """
     SELECT
@@ -39,8 +75,8 @@ run("COUNTS", """
 
 # ── Orders ────────────────────────────────────────────────────────────────────
 run("ORDERS (last 20)", """
-    SELECT id, customer_name, customer_phone, delivery_date, status,
-           is_cancelled, is_unclear, unclear_items, parsed_items, created_at
+    SELECT id, customer_name, customer_phone, delivery_date, business_date,
+           status, is_cancelled, is_unclear, unclear_items, parsed_items, created_at
     FROM orders
     ORDER BY created_at DESC
     LIMIT 20
@@ -86,6 +122,14 @@ run("ORDERS TABLE COLUMNS", """
     ORDER BY ordinal_position
 """)
 
+
+run_write("BACKFILL business_date from delivery_date", """
+    UPDATE orders SET unclear_items = NULL WHERE unclear_items = 'null'
+""")
+
+run_write("BACKFILL business_date from delivery_date", """
+    UPDATE orders SET parsed_items = NULL WHERE parsed_items = 'null'
+""")
 cur.close()
 conn.close()
 print("\n✅ Done.")

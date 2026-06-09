@@ -282,9 +282,18 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
         .all()
     )
 
+    def safe_json(val):
+        """Parse JSON safely — handles None, SQL null string, empty string, malformed."""
+        if not val or val in ("null", "[]", ""):
+            return []
+        try:
+            result = json.loads(val)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
     result = []
     for o in orders:
-        unclear_items = json.loads(o.unclear_items) if getattr(o, 'unclear_items', None) else []
         result.append({
             "id"            : o.id,
             "delivery_date" : o.delivery_date,
@@ -293,9 +302,9 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
             "is_cancelled"  : o.is_cancelled,
             "is_unclear"    : o.is_unclear,
             "unclear_reason": o.unclear_reason,
-            "unclear_items" : unclear_items,
+            "unclear_items" : safe_json(getattr(o, 'unclear_items', None)),
             "raw_message"   : o.raw_message,
-            "items"         : json.loads(o.parsed_items) if o.parsed_items else [],
+            "items"         : safe_json(o.parsed_items),
             "created_at"    : o.created_at.isoformat() if o.created_at else None,
         })
 
