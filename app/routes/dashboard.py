@@ -122,9 +122,6 @@ def dashboard(
             "yesterday"          : yesterday,
             "is_before_cutoff"   : is_before_cutoff,
             "tomorrow"           : tomorrow,
-            "dashboard_username" : os.getenv("DASHBOARD_USERNAME", ""),
-            "dashboard_password" : os.getenv("DASHBOARD_PASSWORD", ""),
-            # Reliability
             "failed_messages"    : failed_messages,
             "reliability_stats"  : reliability_stats,
         },

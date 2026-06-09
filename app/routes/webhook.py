@@ -35,8 +35,6 @@ MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 ADD_CUSTOMER_CMD = "add customer"
 
 # Statuses returned by process_incoming_order() that are NOT real orders.
-# For these, we skip the "✅ Order received. Processing now." ACK entirely —
-# process_incoming_order() already sends its own contextual reply.
 NON_ORDER_STATUSES = {
     "awaiting_restaurant_name",
     "invalid_restaurant_name",
@@ -50,10 +48,10 @@ NON_ORDER_STATUSES = {
     "replace_requested",
     "repeat_cancelled",
     "replace_cancelled",
-    "repeat_confirmed",       # confirmation sent inside process_incoming_order
-    "replace_confirmed",      # confirmation sent inside process_incoming_order
-    "greeting_ignored",        # greeting/filler — warm reply sent, no order
-    "customer_note_received",  # non-order note — acknowledged, stored for daily report
+    "repeat_confirmed",
+    "replace_confirmed",
+    "greeting_ignored",
+    "customer_note_received",
 }
 
 
@@ -65,7 +63,6 @@ RATE_LIMIT_WINDOW = 60  # seconds
 def _is_rate_limited(phone: str) -> bool:
     now = time.time()
     timestamps = _rate_limit[phone]
-    # Drop entries outside the window
     _rate_limit[phone] = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
     if len(_rate_limit[phone]) >= RATE_LIMIT_MAX:
         return True
@@ -101,9 +98,8 @@ async def test_webhook(
         message_text   = payload.get("message", "")
         if not message_text:
             return {"status": "error", "message": "No message provided"}
-            
-        # ── Manager command: ADD CUSTOMER ─────────────────────────────
-        normalized_sender = normalize_phone(customer_phone)
+
+        normalized_sender  = normalize_phone(customer_phone)
         normalized_manager = normalize_phone(MANAGER_PHONE) if MANAGER_PHONE else ""
 
         if (
@@ -113,9 +109,8 @@ async def test_webhook(
         ):
             reply = handle_manager_add_customer(db, message_text)
             send_whatsapp_message(customer_phone, reply)
-            # FIXED: replaced illegal 'continue' with a direct API return
             return {"status": "manager_command_executed", "reply": reply}
-               
+
         result = process_incoming_order(db=db, customer_phone=customer_phone, message=message_text)
         return {
             "status"    : "success",
@@ -144,8 +139,6 @@ async def meta_webhook_verify(request: Request):
     token     = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
     if mode == "subscribe" and token == os.getenv("META_VERIFY_TOKEN", ""):
-        # FastAPI maps returned integers directly or expects a Response object.
-        # Returning it as a plain string/int string is safest for Meta's verification challenge.
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse(content=str(challenge))
     return {"error": "Invalid token"}
@@ -157,8 +150,6 @@ def handle_manager_add_customer(db: Session, message_text: str) -> str:
     Returns a reply string to send back to manager.
     """
     parts = message_text.strip()[len(ADD_CUSTOMER_CMD):].strip()
-
-    # First token = phone, rest = restaurant name
     tokens = parts.split(None, 1)
     if len(tokens) < 2:
         return (
@@ -183,6 +174,21 @@ def handle_manager_add_customer(db: Session, message_text: str) -> str:
         return f"⚠️ {str(e)}"
     except Exception as e:
         return f"❌ Failed to add customer: {str(e)}"
+
+
+def _get_internal_phones(db: Session) -> dict[str, str]:
+    """
+    Returns a dict of {normalized_phone: role} for all internal phones.
+    role is "manager" or "salesperson".
+    Used to quickly identify internal senders before customer lookup.
+    """
+    from app.models.salesperson import Salesperson
+    result = {}
+    if MANAGER_PHONE:
+        result[normalize_phone(MANAGER_PHONE)] = "manager"
+    for sp in db.query(Salesperson).filter(Salesperson.active == True).all():
+        result[normalize_phone(sp.phone)] = "salesperson"
+    return result
 
 
 @router.post("/meta")
@@ -210,21 +216,31 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                 customer_phone  = message.get("from", "")
                 if _is_rate_limited(customer_phone):
                     logger.warning(f"Rate limit hit for {customer_phone} — skipping message")
-                    continue  # skip to next message in the loop
+                    continue
+
                 message_type    = message.get("type", "")
                 meta_message_id = message.get("id")
 
+                # ── Extract raw_message based on type ─────────────────────────
                 if message_type == "text":
                     raw_message = message.get("text", {}).get("body", "")
                 elif message_type == "image":
                     raw_message = message.get("image", {}).get("caption", "Photo order received")
+                elif message_type == "interactive":
+                    # Button reply: extract button ID as raw_message
+                    interactive = message.get("interactive", {})
+                    if interactive.get("type") == "button_reply":
+                        button_reply = interactive.get("button_reply", {})
+                        raw_message  = button_reply.get("id", "")
+                    else:
+                        raw_message = f"[interactive:{interactive.get('type','unknown')}]"
                 else:
                     raw_message = f"[{message_type} message]"
 
                 if not customer_phone:
                     continue
 
-                # ── REQ 1.1: PERSIST RAW MESSAGE FIRST ───────────────────────
+                # ── Persist raw message ───────────────────────────────────────
                 inbound_msg = persist_raw_message(
                     db              = db,
                     meta_message_id = meta_message_id,
@@ -238,12 +254,38 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     logger.critical("Could not persist message from %s — skipping", customer_phone)
                     continue
 
-                # ── REQ 1.3: IDEMPOTENCY ──────────────────────────────────────
+                # ── Idempotency ───────────────────────────────────────────────
                 if inbound_msg.is_duplicate:
                     logger.info("Duplicate webhook meta_id=%s — safe skip", meta_message_id)
                     continue
 
-                # ── PHOTO MESSAGE — notify customer, no order processing ──────
+                # ── Handle interactive button replies ─────────────────────────
+                if message_type == "interactive":
+                    from app.services.adhoc_reporter import is_button_reply_id, handle_button_reply
+                    button_id = raw_message  # already extracted above
+                    if is_button_reply_id(button_id):
+                        try:
+                            handled = handle_button_reply(customer_phone, button_id, db)
+                            if handled:
+                                transition(inbound_msg, "CONFIRMED", db)
+                                logger.info(
+                                    "Button reply handled: phone=%s button=%s",
+                                    customer_phone, button_id
+                                )
+                            else:
+                                logger.info(
+                                    "Button reply from unknown sender %s — ignoring",
+                                    customer_phone
+                                )
+                                transition(inbound_msg, "CONFIRMED", db)
+                        except Exception as e:
+                            record_failure(db, inbound_msg, f"Button reply failed: {e}")
+                    else:
+                        # Unknown interactive type — just confirm and move on
+                        transition(inbound_msg, "CONFIRMED", db)
+                    continue
+
+                # ── Photo message ─────────────────────────────────────────────
                 if message_type == "image":
                     try:
                         send_whatsapp_message(
@@ -257,7 +299,7 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                         record_failure(db, inbound_msg, f"Photo reply failed: {e}")
                     continue
 
-                # Unsupported type — persisted for audit, no processing
+                # ── Unsupported type ──────────────────────────────────────────
                 if message_type != "text":
                     logger.info("Unsupported type %s from %s — persisted only", message_type, customer_phone)
                     continue
@@ -265,7 +307,47 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                 if not raw_message:
                     continue
 
-                # ── PRE-CHECK: Is this customer new or mid-onboarding? ────────
+                # ── Manager ADD CUSTOMER command ──────────────────────────────
+                normalized_sender  = normalize_phone(customer_phone)
+                normalized_manager = normalize_phone(MANAGER_PHONE) if MANAGER_PHONE else ""
+
+                if (
+                    normalized_manager
+                    and normalized_sender == normalized_manager
+                    and raw_message.strip().lower().startswith(ADD_CUSTOMER_CMD)
+                ):
+                    try:
+                        reply = handle_manager_add_customer(db, raw_message)
+                        send_whatsapp_message(customer_phone, reply)
+                        transition(inbound_msg, "CONFIRMED", db)
+                    except Exception as e:
+                        record_failure(db, inbound_msg, f"Add customer failed: {e}")
+                    continue
+
+                # ── Check if internal phone (manager/salesperson) ─────────────
+                # For internal phones: report keywords go to adhoc reporter,
+                # anything else gets the interactive menu.
+                internal_phones = _get_internal_phones(db)
+                if normalized_sender in internal_phones:
+                    from app.services.adhoc_reporter import (
+                        is_report_keyword,
+                        handle_adhoc_report_request,
+                        handle_unrecognized_internal_message,
+                    )
+                    msg_lower = raw_message.strip().lower()
+                    try:
+                        if is_report_keyword(msg_lower):
+                            handle_adhoc_report_request(customer_phone, msg_lower, db)
+                        else:
+                            handle_unrecognized_internal_message(customer_phone, db)
+                        transition(inbound_msg, "CONFIRMED", db)
+                    except Exception as e:
+                        record_failure(db, inbound_msg, f"Internal message handling failed: {e}")
+                    continue
+
+                # ── Customer flow from here ───────────────────────────────────
+
+                # Pre-check: is this customer new or mid-onboarding?
                 from app.models.customer import Customer as CustomerModel
                 existing_customer = (
                     db.query(CustomerModel)
@@ -277,7 +359,7 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     or getattr(existing_customer, "onboarding_status", None) == "awaiting_name"
                 )
 
-                # ── MENU TRIGGER — onboarding / new customers only ────────────
+                # Menu trigger — onboarding / new customers only
                 msg_lower = raw_message.strip().lower()
                 MENU_TRIGGER = {"menu", "order", "show menu", "send menu", "place order"}
                 if is_onboarding and msg_lower in MENU_TRIGGER:
@@ -288,7 +370,7 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                         record_failure(db, inbound_msg, f"Menu send failed: {e}")
                     continue
 
-                # ── PARSING ───────────────────────────────────────────────────
+                # ── Parse as order ────────────────────────────────────────────
                 transition(inbound_msg, "PARSING", db)
 
                 try:
@@ -304,7 +386,6 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     if result.get("order_id"):
                         inbound_msg.linked_order_id = result["order_id"]
 
-                    # Mark customer notes in the journal so reporter can query them
                     if result_status == "customer_note_received":
                         transition(inbound_msg, "NOTE", db)
                     elif result_status not in NON_ORDER_STATUSES:
@@ -325,7 +406,6 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                         inbound_msg.id,
                         customer_phone,
                     )
-
                     record_failure(
                         db,
                         inbound_msg,
@@ -350,6 +430,7 @@ def manual_review_queue(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
+    from app.models.inbound_message import InboundMessage
     msgs = get_all_failed_messages(db)
     return {
         "count": len(msgs),

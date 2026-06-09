@@ -233,3 +233,120 @@ def send_repeat_order_confirmation_request(
         f"Reply *yes* to confirm, or type *order* to place a new one."
     )
     return send_whatsapp_message(customer_phone, message) is not None
+
+
+def send_manager_menu(phone: str) -> dict:
+    """
+    Send an interactive Quick Reply menu to the manager.
+    Buttons: Summary | Daily Report | Add Customer
+    """
+    if META_ACCESS_TOKEN and META_PHONE_NUMBER_ID:
+        try:
+            clean_phone = normalize_phone(phone)
+            url = f"https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}/messages"
+            headers = {
+                "Authorization": f"Bearer {META_ACCESS_TOKEN}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": clean_phone,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": f"👔 *{PLANT_NAME} Manager Menu*\n\nWhat would you like to do?"
+                    },
+                    "action": {
+                        "buttons": [
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": "mgr_summary",
+                                    "title": "📊 Summary"
+                                }
+                            },
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": "mgr_daily_report",
+                                    "title": "📋 Daily Report"
+                                }
+                            },
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": "mgr_add_customer",
+                                    "title": "➕ Add Customer"
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            print(f"\n📤 Manager menu sent → {clean_phone} ({response.status_code})")
+            if response.status_code >= 400:
+                print(f"❌ Meta API Error: {response.text}")
+            return response.json()
+        except Exception as e:
+            print(f"❌ Manager menu send failed: {str(e)}")
+            return None
+    else:
+        print(f"\n📤 SIMULATION — Manager menu → {phone}")
+        return {"status": "simulated"}
+ 
+ 
+def send_salesperson_menu(phone: str, name: str = "there") -> dict:
+    """
+    Send an interactive Quick Reply menu to a salesperson.
+    Buttons: My Pending | Help
+    """
+    if META_ACCESS_TOKEN and META_PHONE_NUMBER_ID:
+        try:
+            clean_phone = normalize_phone(phone)
+            url = f"https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}/messages"
+            headers = {
+                "Authorization": f"Bearer {META_ACCESS_TOKEN}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": clean_phone,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": f"🧑 *{PLANT_NAME} — Hi {name}!*\n\nWhat would you like to do?"
+                    },
+                    "action": {
+                        "buttons": [
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": "sp_pending",
+                                    "title": "📋 My Pending"
+                                }
+                            },
+                            {
+                                "type": "reply",
+                                "reply": {
+                                    "id": "sp_help",
+                                    "title": "❓ Help"
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            print(f"\n📤 Salesperson menu sent → {clean_phone} ({response.status_code})")
+            if response.status_code >= 400:
+                print(f"❌ Meta API Error: {response.text}")
+            return response.json()
+        except Exception as e:
+            print(f"❌ Salesperson menu send failed: {str(e)}")
+            return None
+    else:
+        print(f"\n📤 SIMULATION — Salesperson menu → {phone} (name={name})")
+        return {"status": "simulated"}
