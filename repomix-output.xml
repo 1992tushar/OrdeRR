@@ -353,7 +353,8 @@ alert = (</file><file path="render.yaml">services:
 .env
 __pycache__/
 *.pyc
-orderr.db</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
+orderr.db
+repomix-output.xml</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
 ⋮----
 DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
 ⋮----
@@ -604,7 +605,71 @@ is_unclear = len(items) == 0 and len(unclear_items) == 0
 ⋮----
 def build_error_message(errors: list) -&gt; str
 ⋮----
-lines = [&quot;⚠️ *Small issue with your order:*\n&quot;]</file><file path="app/routes/admin.py">router     = APIRouter()
+lines = [&quot;⚠️ *Small issue with your order:*\n&quot;]</file><file path="app/services/pending_notifier.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+⋮----
+TEMPLATE_SALESPERSON_PENDING = &quot;salesperson_pending_orders&quot;
+TEMPLATE_MANAGER_SUMMARY     = &quot;manager_daily_summary&quot;
+⋮----
+def send_customer_reminders(db: Session, delivery_date: date | None = None)
+⋮----
+delivery_date = get_delivery_date_for_now()
+⋮----
+grouped = get_pending_customers(db, delivery_date)
+all_pending_customers = [c for customers in grouped.values() for c in customers]
+⋮----
+sent = 0
+⋮----
+message = (
+result = send_whatsapp_message(customer.phone_number, message)
+⋮----
+def notify_salespersons_pending(db: Session, delivery_date: date | None = None)
+⋮----
+assigned = {
+⋮----
+salesperson = db.query(Salesperson).filter(
+⋮----
+customer_list = &quot;, &quot;.join(
+⋮----
+result = send_whatsapp_template(
+⋮----
+# ── 23:10 — Management summary ───────────────────────────────────────────────
+⋮----
+def send_management_summary(db: Session, delivery_date: date | None = None)
+⋮----
+&quot;&quot;&quot;
+    Sends the operations manager a daily completion summary
+    via approved template.
+    Template: manager_daily_summary
+    {{1}} = PLANT_NAME
+    {{2}} = date string
+    {{3}} = total customers
+    {{4}} = orders received
+    {{5}} = pending count
+    {{6}} = area breakdown (single line, pipe-separated — Meta rejects newlines)
+    &quot;&quot;&quot;
+⋮----
+total_active = (
+⋮----
+all_pending    = [c for customers in grouped.values() for c in customers]
+total_pending  = len(all_pending)
+total_received = total_active - total_pending
+⋮----
+area_customers: dict = {}
+⋮----
+area = c.area or &quot;Unassigned&quot;
+⋮----
+parts = []
+⋮----
+names_str = &quot;, &quot;.join(names)
+⋮----
+area_breakdown = &quot; | &quot;.join(parts)
+⋮----
+area_breakdown = &quot;None — all orders received&quot;
+⋮----
+unassigned_pending = len(grouped.get(None, []))
+⋮----
+date_str = delivery_date.strftime(&quot;%d %B %Y&quot;)</file><file path="app/routes/admin.py">router     = APIRouter()
 PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 IST        = timezone(timedelta(hours=5, minutes=30))
@@ -639,6 +704,11 @@ area: Optional[str] = None
 class NextDayOverride(BaseModel)
 ⋮----
 is_next_day: bool
+⋮----
+class PostOrderPayload(BaseModel)
+⋮----
+&quot;&quot;&quot;Payload for admin posting an order on behalf of a customer.&quot;&quot;&quot;
+message: str
 ⋮----
 # ── Salespersons ──────────────────────────────────────────────────────────────
 ⋮----
@@ -710,6 +780,13 @@ sp = db.query(Salesperson).filter(Salesperson.id == customer.salesperson_id).fir
 ⋮----
 @router.put(&quot;/customers/{customer_id}/status&quot;)
 def update_customer_status(customer_id: int, payload: CustomerStatus, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+result = process_incoming_order(
+⋮----
+status = result.get(&quot;status&quot;, &quot;&quot;)
+# Treat these statuses as &quot;success&quot; — unclear means order was saved but
+⋮----
+# ── Pending orders ────────────────────────────────────────────────────────────
 ⋮----
 @router.get(&quot;/pending&quot;)
 def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(get_db), username: str = Depends(require_auth))
@@ -807,71 +884,7 @@ def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depe
 def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
 @router.post(&quot;/test-notifications/daily-report&quot;)
-def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/services/pending_notifier.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-⋮----
-TEMPLATE_SALESPERSON_PENDING = &quot;salesperson_pending_orders&quot;
-TEMPLATE_MANAGER_SUMMARY     = &quot;manager_daily_summary&quot;
-⋮----
-def send_customer_reminders(db: Session, delivery_date: date | None = None)
-⋮----
-delivery_date = get_delivery_date_for_now()
-⋮----
-grouped = get_pending_customers(db, delivery_date)
-all_pending_customers = [c for customers in grouped.values() for c in customers]
-⋮----
-sent = 0
-⋮----
-message = (
-result = send_whatsapp_message(customer.phone_number, message)
-⋮----
-def notify_salespersons_pending(db: Session, delivery_date: date | None = None)
-⋮----
-assigned = {
-⋮----
-salesperson = db.query(Salesperson).filter(
-⋮----
-customer_list = &quot;, &quot;.join(
-⋮----
-result = send_whatsapp_template(
-⋮----
-# ── 23:10 — Management summary ───────────────────────────────────────────────
-⋮----
-def send_management_summary(db: Session, delivery_date: date | None = None)
-⋮----
-&quot;&quot;&quot;
-    Sends the operations manager a daily completion summary
-    via approved template.
-    Template: manager_daily_summary
-    {{1}} = PLANT_NAME
-    {{2}} = date string
-    {{3}} = total customers
-    {{4}} = orders received
-    {{5}} = pending count
-    {{6}} = area breakdown (single line, pipe-separated — Meta rejects newlines)
-    &quot;&quot;&quot;
-⋮----
-total_active = (
-⋮----
-all_pending    = [c for customers in grouped.values() for c in customers]
-total_pending  = len(all_pending)
-total_received = total_active - total_pending
-⋮----
-area_customers: dict = {}
-⋮----
-area = c.area or &quot;Unassigned&quot;
-⋮----
-parts = []
-⋮----
-names_str = &quot;, &quot;.join(names)
-⋮----
-area_breakdown = &quot; | &quot;.join(parts)
-⋮----
-area_breakdown = &quot;None — all orders received&quot;
-⋮----
-unassigned_pending = len(grouped.get(None, []))
-⋮----
-date_str = delivery_date.strftime(&quot;%d %B %Y&quot;)</file><file path="app/routes/dashboard.py">router = APIRouter()
+def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/routes/dashboard.py">router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 templates = Jinja2Templates(directory=&quot;app/templates&quot;)
 ⋮----
@@ -1674,6 +1687,40 @@ customer = db.query(Customer).filter(Customer.id == customer_id).first()</file><
     &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
+&lt;div id=&quot;post-order-modal&quot; class=&quot;modal-overlay&quot;&gt;
+  &lt;div class=&quot;modal-box&quot;&gt;
+    &lt;div class=&quot;modal-header&quot;&gt;
+      &lt;div&gt;
+        &lt;h3&gt;📝 Post Order on Behalf&lt;/h3&gt;
+        &lt;div id=&quot;po-customer-name&quot; style=&quot;font-size:12px;color:#888;margin-top:2px&quot;&gt;&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;button class=&quot;btn btn-cancel-ui&quot; onclick=&quot;closeModal(&apos;post-order-modal&apos;)&quot;&gt;✕&lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;modal-body&quot;&gt;
+      &lt;label style=&quot;font-size:12px;color:#666;display:block;margin-bottom:4px&quot;&gt;
+        Order Message &lt;span style=&quot;color:#c62828&quot;&gt;*&lt;/span&gt;
+      &lt;/label&gt;
+      &lt;textarea
+        id=&quot;po-message&quot;
+        rows=&quot;7&quot;
+        placeholder=&quot;e.g.&amp;#10;Chicken Leg - 10 kg&amp;#10;Chicken Breast - 5 kg&amp;#10;Mutton - 3 kg&quot;
+        style=&quot;width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;
+               font-size:14px;resize:vertical;outline:none;font-family:inherit;
+               line-height:1.6;margin-bottom:10px&quot;
+      &gt;&lt;/textarea&gt;
+      &lt;div style=&quot;background:#f0fdf4;border-radius:8px;padding:10px 12px;
+                  font-size:12px;color:#276749;line-height:1.6;margin-bottom:16px&quot;&gt;
+        ℹ️ This goes through the &lt;strong&gt;same pipeline&lt;/strong&gt; as a WhatsApp order —
+        the customer gets a confirmation message and the order appears in the
+        Orders tab immediately.
+      &lt;/div&gt;
+      &lt;div style=&quot;display:flex;gap:10px;justify-content:flex-end&quot;&gt;
+        &lt;button class=&quot;btn btn-cancel-ui&quot; onclick=&quot;closeModal(&apos;post-order-modal&apos;)&quot;&gt;Cancel&lt;/button&gt;
+        &lt;button class=&quot;btn btn-save&quot; id=&quot;po-submit-btn&quot; onclick=&quot;submitPostOrder()&quot;&gt;Post Order&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;div id=&quot;toast&quot;&gt;&lt;/div&gt;
 &lt;script&gt;
 let allSalespersons = [];
@@ -1806,6 +1853,7 @@ function renderCustomers(customers) {
                 &lt;button class=&quot;btn btn-assign&quot; onclick=&quot;openAssignModal(${c.id},&apos;${(c.restaurant_name||&apos;&apos;).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;,${c.salesperson_id||&apos;null&apos;},&apos;${(c.area||&apos;&apos;).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;)&quot;&gt;Assign&lt;/button&gt;
                 ${toggle}
                 &lt;button class=&quot;btn&quot; style=&quot;background:#f3e5f5;color:#6a1b9a&quot; onclick=&quot;openHistory(${c.id},&apos;${(c.restaurant_name||&apos;&apos;).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;)&quot;&gt;History&lt;/button&gt;
+                &lt;button class=&quot;btn&quot; style=&quot;background:#e8f5e9;color:#2e7d32&quot; onclick=&quot;openPostOrderModal(${c.id},&apos;${(c.restaurant_name||&apos;&apos;).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;)&quot;&gt;📝 Post Order&lt;/button&gt;
             &lt;/td&gt;
         &lt;/tr&gt;`;
     }).join(&apos;&apos;);
@@ -1827,6 +1875,7 @@ function renderCustomers(customers) {
                 &lt;button class=&quot;btn btn-assign&quot; onclick=&quot;openAssignModal(${c.id},&apos;${(c.restaurant_name||&apos;&apos;).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;,${c.salesperson_id||&apos;null&apos;},&apos;${(c.area||&apos;&apos;).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;)&quot;&gt;Assign&lt;/button&gt;
                 ${toggle}
                 &lt;button class=&quot;btn&quot; style=&quot;background:#f3e5f5;color:#6a1b9a&quot; onclick=&quot;openHistory(${c.id},&apos;${(c.restaurant_name||&apos;&apos;).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;)&quot;&gt;History&lt;/button&gt;
+                &lt;button class=&quot;btn&quot; style=&quot;background:#e8f5e9;color:#2e7d32&quot; onclick=&quot;openPostOrderModal(${c.id},&apos;${(c.restaurant_name||&apos;&apos;).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;)&quot;&gt;📝 Post Order&lt;/button&gt;
             &lt;/div&gt;
         &lt;/div&gt;`;
     }).join(&apos;&apos;);
@@ -1901,6 +1950,51 @@ async function submitAddCustomer() {
         showToast(&apos;❌ &apos; + (msg || &apos;Failed to add customer&apos;), &apos;error&apos;);
     }
 }
+// ── Post Order on Behalf ──────────────────────────────────────────────────────
+let _postOrderCustomerId = null;
+function openPostOrderModal(cid, rname) {
+    _postOrderCustomerId = cid;
+    document.getElementById(&apos;po-customer-name&apos;).textContent = rname || (&apos;Customer #&apos; + cid);
+    document.getElementById(&apos;po-message&apos;).value = &apos;&apos;;
+    const btn = document.getElementById(&apos;po-submit-btn&apos;);
+    btn.disabled = false;
+    btn.textContent = &apos;Post Order&apos;;
+    document.getElementById(&apos;post-order-modal&apos;).classList.add(&apos;open&apos;);
+    // Auto-focus the textarea after the modal transition
+    setTimeout(() =&gt; document.getElementById(&apos;po-message&apos;).focus(), 150);
+}
+async function submitPostOrder() {
+    const message = document.getElementById(&apos;po-message&apos;).value.trim();
+    if (!message) {
+        showToast(&apos;⚠️ Please enter an order message&apos;, &apos;error&apos;);
+        return;
+    }
+    const btn = document.getElementById(&apos;po-submit-btn&apos;);
+    btn.disabled = true;
+    btn.textContent = &apos;Posting…&apos;;
+    try {
+        const data = await api(
+            &apos;POST&apos;,
+            `/admin/customers/${_postOrderCustomerId}/post-order`,
+            { message }
+        );
+        const isUnclear = data.status === &apos;unclear&apos;;
+        const label = isUnclear
+            ? `⚠️ Posted — some items unclear (Order #${data.order_id || &apos;?&apos;})`
+            : `✅ Order #${data.order_id || &apos;?&apos;} posted for ${data.customer}`;
+        showToast(label, &apos;success&apos;);
+        closeModal(&apos;post-order-modal&apos;);
+        // Reload so the new order appears immediately
+        setTimeout(() =&gt; location.reload(), 800);
+    } catch(e) {
+        let msg = &apos;Failed to post order&apos;;
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
+        showToast(&apos;❌ &apos; + msg, &apos;error&apos;);
+        btn.disabled = false;
+        btn.textContent = &apos;Post Order&apos;;
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 // ── Pending ───────────────────────────────────────────────────────────────────
 async function loadPending() {
     document.getElementById(&apos;pending-content&apos;).innerHTML=&apos;&lt;div class=&quot;empty&quot;&gt;Loading...&lt;/div&gt;&apos;;

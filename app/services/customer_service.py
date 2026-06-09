@@ -83,7 +83,8 @@ def create_customer_manually(
         restaurant_name=restaurant_name.strip(),
         area=area.strip() if area else None,
         salesperson_id=salesperson_id,
-        onboarding_status="complete",   # skip onboarding since manager added them
+        is_daily_order_customer=True,
+        onboarding_status="active",   # skip onboarding since manager added them
         is_active=True,
     )
     db.add(customer)

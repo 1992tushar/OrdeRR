@@ -226,7 +226,41 @@ def add_customer_manually(
             area=payload.area,
             salesperson_id=payload.salesperson_id,
         )
+
+        # ── Notify manager ────────────────────────────────────────────────
+        try:
+            if MANAGER_PHONE:
+                sp_name = ""
+                if customer.salesperson_id:
+                    sp = db.query(Salesperson).filter(
+                        Salesperson.id == customer.salesperson_id
+                    ).first()
+                    sp_name = f"\n🧑 Salesperson: {sp.name}" if sp else ""
+                alert = (
+                    f"🆕 *New customer registered*\n"
+                    f"🏪 {customer.restaurant_name}\n"
+                    f"📱 {customer.phone_number}\n"
+                    f"📍 {customer.area or 'Area not set'}"
+                    f"{sp_name}"
+                )
+                send_whatsapp_message(MANAGER_PHONE, alert)
+        except Exception as e:
+            logger.warning(f"Manager notification failed for new customer {customer.phone_number}: {e}")
+
+        # ── Welcome message to customer ───────────────────────────────────
+        try:
+            welcome = (
+                f"👋 Welcome to {PLANT_NAME}!\n\n"
+                f"You've been registered as a daily order customer. "
+                f"To place your order, simply send us a message with your items.\n\n"
+                f"{generate_order_template()}"
+            )
+            send_whatsapp_message(customer.phone_number, welcome)
+        except Exception as e:
+            logger.warning(f"Welcome message failed for {customer.phone_number}: {e}")
+
         return {"status": "created", "customer": _customer_row(customer, db)}
+
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
