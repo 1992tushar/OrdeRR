@@ -12,6 +12,11 @@ from app.services.order_service import process_incoming_order
 from app.services.reporter import send_daily_report
 from app.services.product_catalog import generate_menu_template
 from app.services.notifier import send_whatsapp_message
+from app.services.customer_service import normalize_phone
+
+from collections import defaultdict
+import time
+
 from app.services.message_journal import (
     persist_raw_message,
     send_acknowledgement,
@@ -52,12 +57,20 @@ NON_ORDER_STATUSES = {
 }
 
 
-def normalize_phone(phone: str) -> str:
-    """
-    Helper to clean up phone string formats.
-    Adjust this if you already import it from another utils module.
-    """
-    return "".join(filter(str.isdigit, phone))
+# Simple in-memory rate limiter: max 10 messages per phone per 60 seconds
+_rate_limit: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX = 10
+RATE_LIMIT_WINDOW = 60  # seconds
+
+def _is_rate_limited(phone: str) -> bool:
+    now = time.time()
+    timestamps = _rate_limit[phone]
+    # Drop entries outside the window
+    _rate_limit[phone] = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
+    if len(_rate_limit[phone]) >= RATE_LIMIT_MAX:
+        return True
+    _rate_limit[phone].append(now)
+    return False
 
 
 def verify_meta_signature(body: bytes, signature_header: str) -> bool:
@@ -195,6 +208,9 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
 
             for message in messages:
                 customer_phone  = message.get("from", "")
+                if _is_rate_limited(customer_phone):
+                    logger.warning(f"Rate limit hit for {customer_phone} — skipping message")
+                    continue  # skip to next message in the loop
                 message_type    = message.get("type", "")
                 meta_message_id = message.get("id")
 
