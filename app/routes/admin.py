@@ -43,6 +43,10 @@ from app.services.template_parser import PRODUCT_DEFINITIONS
 from app.services.customer_service import create_customer_manually
 from app.services.order_service import process_incoming_order
 from app.services.order_service import get_current_business_date_str, RESET_HOUR
+from app.services.notifier import send_manager_alert
+from app.services.customer_service import get_customer_by_phone
+
+
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
@@ -717,6 +721,28 @@ def resolve_unclear_item(
             continue
 
     db.commit()
+
+    # Notify manager for every order that was patched and is now fully resolved
+    for order in orders_to_patch:
+        remaining_unclear = json.loads(order.unclear_items) if order.unclear_items else []
+        if remaining_unclear:
+            continue  # Still has unresolved items — skip
+        # Check this order was actually patched in this request (patched_count
+        # tracks count not ids, so we re-check by seeing if canonical is in parsed)
+        parsed_items = json.loads(order.parsed_items or "[]")
+        was_patched  = any(i["product"] == canonical for i in parsed_items)
+        if not was_patched:
+            continue
+        try:
+            customer = get_customer_by_phone(db, order.customer_phone)
+            send_manager_alert(
+                manager_phone   = MANAGER_PHONE,
+                customer_phone  = order.customer_phone,
+                parsed          = {"items": parsed_items, "delivery_time": order.delivery_time},
+                restaurant_name = customer.restaurant_name if customer else order.customer_phone,
+            )
+        except Exception as e:
+            print(f"⚠️ Post-resolve manager alert failed for order {order.id}: {e}")
 
     return {
         "status"        : "ok",
