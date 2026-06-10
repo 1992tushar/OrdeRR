@@ -269,19 +269,26 @@
                 
                                 {% if is_before_cutoff %}
                 {% if not order.is_next_day_override %}
-                    <div style="margin-top:8px">
+                    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-assign" onclick="moveToNextDay({{ order.id }})">➡ Next Day</button>
+                    <button class="btn btn-deactivate" onclick="cancelOrder({{ order.id }}, '{{ order.customer_name or order.customer_phone }}')">🚫 Cancel Order</button>
                     </div>
                 {% else %}
-                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                     <span class="badge" style="background:#e8f5e9;color:#2e7d32">✅ Next Day</span>
                     <button class="btn btn-cancel-ui" onclick="revertToToday({{ order.id }})">↩ Revert</button>
+                    <button class="btn btn-deactivate" onclick="cancelOrder({{ order.id }}, '{{ order.customer_name or order.customer_phone }}')">🚫 Cancel Order</button>
                     </div>
                 {% endif %}
                 {% else %}
                 {% if order.is_next_day_override %}
-                    <div style="margin-top:8px">
+                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                     <span class="badge" style="background:#e8f5e9;color:#2e7d32">✅ Next Day (locked)</span>
+                    <button class="btn btn-deactivate" onclick="cancelOrder({{ order.id }}, '{{ order.customer_name or order.customer_phone }}')">🚫 Cancel Order</button>
+                    </div>
+                {% else %}
+                    <div style="margin-top:8px;">
+                    <button class="btn btn-deactivate" onclick="cancelOrder({{ order.id }}, '{{ order.customer_name or order.customer_phone }}')">🚫 Cancel Order</button>
                     </div>
                 {% endif %}
                 {% endif %}
@@ -1276,6 +1283,24 @@ async function revertToToday(orderId) {
         location.reload();
     } catch(e) {
         showToast('❌ ' + (JSON.parse(e.message)?.detail || 'Failed'), 'error');
+    }
+}
+
+async function cancelOrder(orderId, customerName) {
+    const reason = prompt(
+        `Cancel order for ${customerName}?\n\nEnter reason to send to customer (or leave blank for default):`,
+        ""
+    );
+    if (reason === null) return; // user hit Cancel on the prompt
+
+    try {
+        await api('POST', `/admin/orders/${orderId}/cancel`, { reason: reason.trim() || null });
+        showToast(`✅ Order #${orderId} cancelled — customer notified`, 'success');
+        setTimeout(() => location.reload(), 800);
+    } catch(e) {
+        let msg = 'Cancel failed';
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
+        showToast('❌ ' + msg, 'error');
     }
 }
 
