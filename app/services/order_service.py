@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import secrets
 from datetime import date, datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
@@ -23,6 +24,7 @@ from app.services.intent_classifier import (
     classify_intent,
     CANCEL_KEYWORDS,
     REPEAT_KEYWORDS,
+    HISTORY_KEYWORDS,
     CONFIRM_YES_WORDS,
     CONFIRM_NO_WORDS,
     GREETINGS,
@@ -31,6 +33,7 @@ from app.services.intent_classifier import (
 
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
+BASE_URL             = os.getenv("BASE_URL", "")   # e.g. https://orderr.onrender.com
 IST                  = timezone(timedelta(hours=5, minutes=30))
 RESET_HOUR           = 20  # 8 PM IST
 DISPATCH_CUTOFF_HOUR = int(os.getenv("DISPATCH_CUTOFF_HOUR", "9"))
@@ -179,7 +182,7 @@ def _save_and_notify(
         is_unclear     = parsed.get("is_unclear", False),
         unclear_reason = parsed.get("unclear_reason"),
         status         = "received",
-        business_date  = get_current_business_date_str(),  # FIX: was missing, causing orders to not show on dashboard
+        business_date  = get_current_business_date_str(),
     )
     db.add(order)
     db.commit()
@@ -338,6 +341,27 @@ def _handle_repeat(db: Session, customer: Customer) -> dict:
 
     send_repeat_order_confirmation_request(customer_phone, items)
     return {"order_id": pending.id, "status": "repeat_requested", "parsed": None}
+
+
+def _handle_history(db: Session, customer: Customer) -> dict:
+    """Send customer a WhatsApp link to their personal order history ledger."""
+    customer_phone = customer.phone_number
+
+    # Generate token once; reuse on all subsequent requests (same link forever)
+    if not customer.ledger_token:
+        customer.ledger_token = secrets.token_urlsafe(24)
+        db.commit()
+
+    ledger_url = f"{BASE_URL}/ledger/{customer.ledger_token}"
+
+    send_whatsapp_message(
+        customer_phone,
+        f"📋 *Your Order History — {PLANT_NAME}*\n\n"
+        f"Here's your personal order ledger for the last 7 days:\n\n"
+        f"🔗 {ledger_url}\n\n"
+        f"The link always works for you — feel free to bookmark it.",
+    )
+    return {"order_id": None, "status": "history_sent", "parsed": None}
 
 
 def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
@@ -551,6 +575,9 @@ def process_incoming_order(
 
     if intent == Intent.REPEAT_LAST:
         return _handle_repeat(db, customer)
+
+    if intent == Intent.HISTORY:
+        return _handle_history(db, customer)
 
     if intent == Intent.CONFIRM_YES:
         return _handle_confirm_yes(db, customer)

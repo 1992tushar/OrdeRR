@@ -52,6 +52,7 @@ NON_ORDER_STATUSES = {
     "replace_confirmed",
     "greeting_ignored",
     "customer_note_received",
+    "history_sent", 
 }
 
 
