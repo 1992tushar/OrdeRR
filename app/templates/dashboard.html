@@ -355,6 +355,11 @@
         <div class="card danger"><div class="number" id="unclear-count">—</div><div class="label">Unclear Orders</div></div>
         <div class="card warning"><div class="number" id="unclear-items-count">—</div><div class="label">Unresolved Items</div></div>
         <div class="card success"><div class="number" id="unclear-aliases-count">—</div><div class="label">Saved Aliases</div></div>
+        <!-- ① New Noise Phrases card -->
+        <div class="card" style="border-top:3px solid #718096;">
+            <div class="number" id="unclear-noise-count">—</div>
+            <div class="label">Noise Phrases</div>
+        </div>
     </div>
     <div class="section">
         <h2>⚠️ Unclear Items <button class="section-btn" onclick="loadUnclearOrders()">↻</button></h2>
@@ -372,6 +377,17 @@
             <h2>📖 Saved Aliases</h2>
             <p style="font-size:13px;color:#718096;margin-bottom:12px;">These mappings are applied automatically by the parser from now on.</p>
             <div id="aliases-container">
+                <div class="empty">Loading...</div>
+            </div>
+        </div>
+
+        <!-- ⑤ Noise Phrases section -->
+        <div style="margin-top:24px;">
+            <h2>🚫 Noise Phrases</h2>
+            <p style="font-size:13px;color:#718096;margin-bottom:12px;">
+                These texts are silently ignored by the parser — never shown as unclear again.
+            </p>
+            <div id="noise-container">
                 <div class="empty">Loading...</div>
             </div>
         </div>
@@ -643,7 +659,8 @@ function switchTab(name, btn) {
     if (name === 'pending')      { loadPending(); }
     if (name === 'failed')       { loadFailedMessages(); }
     if (name === 'window')       { loadWindowStatus(); }
-    if (name === 'unclear')      { loadUnclearOrders(); loadAliases(); }
+    // ② Updated: also call loadNoisePhrases when switching to unclear
+    if (name === 'unclear')      { loadUnclearOrders(); loadAliases(); loadNoisePhrases(); }
 }
 
 function showToast(msg, type='') {
@@ -933,8 +950,6 @@ async function submitPostOrder() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 
-
-
 // ── Pending ───────────────────────────────────────────────────────────────────
 
 async function loadPending() {
@@ -1047,6 +1062,8 @@ async function loadUnclearOrders() {
 
         if (orders.length === 0) {
             container.innerHTML = `<div class="empty" style="color:#38a169;">✅ All orders fully parsed — no unclear items!</div>`;
+            // ② Also load noise phrases when unclear orders finish loading
+            loadNoisePhrases();
             return;
         }
 
@@ -1062,6 +1079,7 @@ async function loadUnclearOrders() {
                         </div>`).join('')}
                 </div>` : '';
 
+            // ③ Updated unclear item rows — now include the 🚫 Noise button
             const unclearSection = `
                 <div>
                     <div class="unclear-section-label unclear-raw-label">❓ Unresolved items — assign correct product:</div>
@@ -1075,6 +1093,10 @@ async function loadUnclearOrders() {
                             <button class="unclear-save-btn"
                                 onclick="resolveItem('${esc(rawLine).replace(/'/g,"\\'")}', 'sel-${order.order_id}-${idx}', this)">
                                 Save &amp; Apply
+                            </button>
+                            <button class="unclear-save-btn" style="background:#718096;"
+                                onclick="markAsNoise('${esc(rawLine).replace(/'/g,"\\'")}', this)">
+                                🚫 Noise
                             </button>
                         </div>`).join('')}
                 </div>`;
@@ -1096,6 +1118,9 @@ async function loadUnclearOrders() {
                     </details>
                 </div>`;
         }).join('');
+
+        // ② Also refresh noise phrases count after loading unclear orders
+        loadNoisePhrases();
 
     } catch(e) {
         container.innerHTML = `<div class="empty" style="color:#e53e3e;">Failed to load: ${esc(e.message)}</div>`;
@@ -1188,6 +1213,83 @@ async function deleteAlias(id) {
         const count = document.querySelectorAll('[id^="alias-row-"]').length;
         document.getElementById('unclear-aliases-count').textContent = count;
         if (count === 0) loadAliases();
+    } catch(e) { showToast('Delete failed', 'error'); }
+}
+
+// ── Noise Phrases ─────────────────────────────────────────────────────────────
+
+async function markAsNoise(rawText, btn) {
+    const productName = _extractProductName(rawText);
+    if (!confirm(`Mark "${productName}" as noise/irrelevant?\n\nThe parser will silently skip this text in all future orders.`)) return;
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try {
+        const data = await api('POST', '/admin/noise-phrases', { raw_text: productName });
+        btn.textContent = '🚫 Ignored';
+        btn.style.background = '#c53030';
+        showToast(
+            data.already_existed
+                ? `"${productName}" was already marked as noise`
+                : `✅ "${productName}" added to noise list`,
+            'success'
+        );
+        setTimeout(() => { loadUnclearOrders(); loadNoisePhrases(); }, 1200);
+    } catch(e) {
+        btn.disabled = false;
+        btn.textContent = '🚫 Noise';
+        showToast('❌ Failed to save noise phrase', 'error');
+    }
+}
+
+async function loadNoisePhrases() {
+    const container = document.getElementById('noise-container');
+    if (!container) return;
+    try {
+        const phrases = await api('GET', '/admin/noise-phrases');
+        document.getElementById('unclear-noise-count').textContent = phrases.length;
+        if (!phrases.length) {
+            container.innerHTML = '<div class="empty" style="padding:16px">No noise phrases saved yet.</div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="summary-table">
+                <table class="aliases-table">
+                    <thead>
+                        <tr>
+                            <th>Ignored text</th>
+                            <th>Saved on</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${phrases.map(p => `
+                            <tr id="noise-row-${p.id}">
+                                <td class="alias-raw">${esc(p.raw_text)}</td>
+                                <td style="color:#aaa;font-size:12px;">${p.created_at ? p.created_at.substring(0,10) : '—'}</td>
+                                <td>
+                                    <button onclick="deleteNoisePhrase(${p.id})"
+                                        style="font-size:11px;color:#e53e3e;background:none;border:1px solid #e53e3e;border-radius:4px;padding:2px 8px;cursor:pointer;">
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    } catch(e) {
+        if (container) container.innerHTML = '<div class="empty" style="color:#e53e3e;">Failed to load.</div>';
+    }
+}
+
+async function deleteNoisePhrase(id) {
+    if (!confirm('Delete this noise phrase? The parser will flag it as unclear again if seen.')) return;
+    try {
+        await api('DELETE', `/admin/noise-phrases/${id}`);
+        showToast('Noise phrase deleted', '');
+        document.getElementById(`noise-row-${id}`)?.remove();
+        const count = document.querySelectorAll('[id^="noise-row-"]').length;
+        document.getElementById('unclear-noise-count').textContent = count;
+        if (count === 0) loadNoisePhrases();
     } catch(e) { showToast('Delete failed', 'error'); }
 }
 

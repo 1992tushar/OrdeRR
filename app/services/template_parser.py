@@ -13,6 +13,10 @@ v2 changes:
 - Returns `unclear_items` list (raw strings that couldn't be parsed) separately from `items`
 - `is_unclear` is only True when ZERO items parsed (whole order unreadable)
 - Partial orders (some parsed, some not) are accepted — unclear_items stored separately
+
+v3 changes:
+- Noise filtering: skips header/footer lines like restaurant name, dates,
+  "ORDER FOR THE DAY", "kg( 900 gm size)" annotations, emoji-only lines etc.
 """
 
 import re
@@ -283,6 +287,26 @@ def _lookup_alias(raw_name: str, db) -> tuple | None:
     return None
 
 
+def _is_noise_phrase(raw_name: str, db) -> bool:
+    """
+    Check noise_phrases table for a manager-confirmed noise/irrelevant entry.
+    Returns True if this text should be silently skipped (not flagged unclear).
+    db can be None.
+    """
+    if db is None:
+        return False
+    try:
+        from app.models.noise_phrase import NoisePhrase
+        normalized = raw_name.strip().lower()
+        row = db.query(NoisePhrase).filter(
+            NoisePhrase.raw_text == normalized
+        ).first()
+        return row is not None
+    except Exception:
+        pass
+    return False
+
+
 # ── Unit normalization ────────────────────────────────────────────────────────
 
 UNIT_ALIASES = {
@@ -320,6 +344,116 @@ def _parse_quantity(raw: str):
         return None
 
 
+# ── Noise filtering ───────────────────────────────────────────────────────────
+
+# Date patterns: 10/06/2026  |  10-06-26  |  10/06  |  June 10  |  10 June
+_DATE_LINE_RE = re.compile(
+    r'^[\d]{1,2}[\/\-\.][\d]{1,2}([\/\-\.][\d]{2,4})?$'
+    r'|^[\d]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*$'
+    r'|^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+[\d]{1,2}',
+    re.IGNORECASE,
+)
+
+# Common header/footer filler phrases customers add
+_FILLER_RE = re.compile(
+    r'^(order\s+for(\s+the\s+day)?'
+    r'|daily\s+order'
+    r'|today[\'s]*\s+order'
+    r'|order\s+of\s+the\s+day'
+    r'|good\s+morning'
+    r'|good\s+evening'
+    r'|good\s+afternoon'
+    r'|good\s+night'
+    r'|please\s+find'
+    r'|kindly\s+(note|send|arrange)'
+    r'|hi\s*,?$'
+    r'|hello\s*,?$'
+    r'|dear\s+'
+    r'|greetings'
+    r'|thank\s+you'
+    r'|thanks'
+    r'|regards'
+    r'|warm\s+regards'
+    r'|as\s+usual'
+    r'|same\s+as\s+(yesterday|last\s+(time|order))'
+    r'|hotel\s+order$'
+    r'|order\s+list$'
+    r'|todays\s+order)',
+    re.IGNORECASE,
+)
+
+# Lines starting with a unit word are size annotations, not order lines
+# e.g. "kg( 900 gm size)"  /  "pcs (big)"
+_UNIT_ANNOTATION_RE = re.compile(
+    r'^(kg|kgs|gm|gms|gram|grams|nos|pcs|pc)\b',
+    re.IGNORECASE,
+)
+
+
+def _strip_emojis(text: str) -> str:
+    """Remove emoji characters, returning plain text."""
+    return re.sub(
+        r'[\U00010000-\U0010ffff'   # supplementary multilingual plane
+        r'\U0001F300-\U0001F9FF'    # misc symbols & pictographs
+        r'\u2600-\u26FF'            # misc symbols
+        r'\u2700-\u27BF'            # dingbats
+        r']+',
+        '',
+        text,
+        flags=re.UNICODE,
+    ).strip()
+
+
+def _is_noise_line(line: str, restaurant_name_norm: str | None) -> bool:
+    """
+    Return True if this line is a header/footer/annotation and should be
+    skipped entirely — not treated as an unclear item.
+
+    Handles:
+      • Restaurant name used as header/footer  e.g. "Test hotel 10", "Amrai hotel Order 🏨"
+      • Date-only lines                         e.g. "10/06/2026", "10/06"
+      • Filler phrases                          e.g. "ORDER FOR THE DAY", "Good morning"
+      • Unit-annotation lines                   e.g. "kg( 900 gm size)"
+      • Emoji/symbol-only lines                 e.g. "🏨🌟"
+      • Numbered-list header lines              e.g. "1." alone with no product text
+    """
+    stripped = line.strip()
+    if not stripped:
+        return True
+
+    # Strip emojis for text-based checks
+    text_only = _strip_emojis(stripped)
+
+    # 1. Nothing left after removing emojis → purely decorative line
+    if not text_only:
+        return True
+
+    # 2. No alphanumeric content at all
+    if not re.search(r'[a-zA-Z0-9]', text_only):
+        return True
+
+    norm = _normalize(text_only)
+
+    # 3. Date-only line
+    if _DATE_LINE_RE.match(norm.strip()):
+        return True
+
+    # 4. Filler header/footer phrase
+    if _FILLER_RE.match(norm.strip()):
+        return True
+
+    # 5. Unit-annotation line (e.g. "kg( 900 gm size)")
+    if _UNIT_ANNOTATION_RE.match(norm.strip()):
+        return True
+
+    # 6. Restaurant name appears anywhere in the line
+    #    Covers: "Test hotel 10"  /  "Amrai hotel Order 🏨"  /  footer variants
+    if restaurant_name_norm and restaurant_name_norm in norm:
+        return True
+
+    return False
+
+
 # ── Main parser ───────────────────────────────────────────────────────────────
 
 def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
@@ -346,9 +480,24 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
         }
     """
     items          = []
-    unclear_items  = []   # raw line strings that failed product match
+    unclear_items  = []
     errors         = []
     delivery_time  = None
+
+    # ── ONE-TIME: resolve restaurant name for noise filtering ─────────────────
+    restaurant_name_norm = None
+    if db:
+        try:
+            from app.models.customer import Customer
+            from app.services.customer_service import normalize_phone
+            cust = db.query(Customer).filter(
+                Customer.phone_number == normalize_phone(customer_phone)
+            ).first()
+            if cust and cust.restaurant_name:
+                restaurant_name_norm = _normalize(cust.restaurant_name)
+        except Exception:
+            pass  # never let this crash the parser
+    # ─────────────────────────────────────────────────────────────────────────
 
     lines = message.strip().splitlines()
 
@@ -368,13 +517,18 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
                     delivery_time = t
             continue
 
-        # Skip header/instruction/note lines
+        # Skip header/instruction/note lines (existing hard-coded list)
         if any(skip in lower for skip in [
             "place your order", "copy below", "fill in", "example",
             "delete what", "delivery time", "fluffy", "order —",
             "note -", "note-",
         ]):
             continue
+
+        # ── NEW: skip noise lines (dates, hotel names, filler phrases etc.) ──
+        if _is_noise_line(line, restaurant_name_norm):
+            continue
+        # ─────────────────────────────────────────────────────────────────────
 
         # Strip placeholder tokens
         line_clean = re.sub(r'__+', '', line).strip()
@@ -385,6 +539,10 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
 
         # Handle "3k" style
         line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
+
+        # Strip leading list markers: "1)", "1.", "1-", "•", "-", "*"
+        line_clean = re.sub(r'^[\d]+[)\.\-]\s*', '', line_clean).strip()
+        line_clean = re.sub(r'^[•\-\*]\s*', '', line_clean).strip()
 
         # Pattern: <product name> <separator?> <quantity> [unit]
         split_match = re.match(
@@ -414,6 +572,9 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
             product_match = _lookup_alias(raw_name, db)
 
         if not product_match:
+            # Check if manager has marked this as noise/irrelevant — skip silently
+            if _is_noise_phrase(raw_name, db):
+                continue
             # Truly unclear — store raw line for manager review
             unclear_items.append(line)
             continue

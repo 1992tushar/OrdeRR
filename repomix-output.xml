@@ -37,6 +37,7 @@ app/models/unclear_item_alias.py
 app/routes/__init__.py
 app/routes/admin.py
 app/routes/dashboard.py
+app/routes/ledger.py
 app/routes/unclear_items_routes.py
 app/routes/webhook.py
 app/services/__init__.py
@@ -54,6 +55,7 @@ app/services/retry_scheduler.py
 app/services/template_parser.py
 app/services/webhook_health.py
 app/templates/dashboard.html
+app/templates/ledger.html
 check_db.py
 Procfile
 pytest.ini
@@ -116,28 +118,7 @@ id                   = Column(Integer, primary_key=True, index=True)
 raw_text             = Column(String, unique=True, nullable=False, index=True)
 canonical_product_name = Column(String, nullable=False)
 created_at           = Column(DateTime, default=lambda: datetime.now(IST))
-updated_at           = Column(DateTime, default=lambda: datetime.now(IST),</file><file path="app/routes/__init__.py"></file><file path="app/routes/unclear_items_routes.py">UNCLEAR_ROUTES = &apos;&apos;&apos;</file><file path="app/services/__init__.py"></file><file path="app/services/intent_classifier.py">class Intent(Enum)
-⋮----
-ADHOC_REPORT     = &quot;adhoc_report&quot;
-ONBOARDING       = &quot;onboarding&quot;
-CANCEL           = &quot;cancel&quot;
-REPEAT_LAST      = &quot;repeat_last&quot;
-CONFIRM_YES      = &quot;confirm_yes&quot;
-CONFIRM_NO       = &quot;confirm_no&quot;
-ORDER            = &quot;order&quot;
-⋮----
-CANCEL_KEYWORDS = {
-⋮----
-REPEAT_KEYWORDS = {
-⋮----
-CONFIRM_YES_WORDS = {&quot;yes&quot;, &quot;haan&quot;, &quot;ha&quot;, &quot;haa&quot;, &quot;ok&quot;, &quot;okay&quot;, &quot;confirm&quot;, &quot;okk&quot;}
-CONFIRM_NO_WORDS  = {&quot;no&quot;, &quot;nahi&quot;, &quot;nope&quot;, &quot;cancel&quot;, &quot;don&apos;t&quot;, &quot;dont&quot;}
-⋮----
-GREETINGS = {
-⋮----
-FILLER_PHRASES = {
-⋮----
-lower = message.strip().lower()</file><file path="app/services/retry_scheduler.py">logger = logging.getLogger(__name__)
+updated_at           = Column(DateTime, default=lambda: datetime.now(IST),</file><file path="app/routes/__init__.py"></file><file path="app/routes/unclear_items_routes.py">UNCLEAR_ROUTES = &apos;&apos;&apos;</file><file path="app/services/__init__.py"></file><file path="app/services/retry_scheduler.py">logger = logging.getLogger(__name__)
 ⋮----
 def retry_failed_messages()
 ⋮----
@@ -147,35 +128,51 @@ due_messages = get_messages_pending_retry(db)
 ⋮----
 result = process_incoming_order(</file><file path="Procfile">web: uvicorn app.main:app --host 0.0.0.0 --port $PORT</file><file path="pytest.ini">[pytest]
 pythonpath = .
-testpaths = tests</file><file path="runtime.txt">python-3.11.0</file><file path="app/models/customer.py">class Customer(Base)
+testpaths = tests</file><file path="runtime.txt">python-3.11.0</file><file path="app/routes/ledger.py">router = APIRouter()
+IST = timezone(timedelta(hours=5, minutes=30))
+PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+templates = Jinja2Templates(directory=&quot;app/templates&quot;)
 ⋮----
-__tablename__ = &quot;customers&quot;
+LEDGER_DAYS = 7
 ⋮----
-id = Column(
+def _safe_list(value) -&gt; list
 ⋮----
-restaurant_name = Column(
+parsed = json.loads(value)
 ⋮----
-owner_name = Column(
+inner = json.loads(parsed)
 ⋮----
-phone_number = Column(
+@router.get(&quot;/{token}&quot;, response_class=HTMLResponse)
+def customer_ledger(token: str, request: Request, db: Session = Depends(get_db))
 ⋮----
-address = Column(
+customer = db.query(Customer).filter(Customer.ledger_token == token).first()
 ⋮----
-city = Column(
+now_ist = datetime.now(IST)
+cutoff = (now_ist - timedelta(days=LEDGER_DAYS)).date()
+cutoff_str = cutoff.strftime(&quot;%Y-%m-%d&quot;)
 ⋮----
-onboarding_status = Column(
+orders = (
 ⋮----
-is_active = Column(
+grouped: dict[str, list] = {}
 ⋮----
-created_at = Column(
+bd = order.business_date or (
 ⋮----
-area = Column(
+items = _safe_list(order.parsed_items)
+unclear = _safe_list(order.unclear_items)
 ⋮----
-salesperson_id = Column(
+days_data = []
 ⋮----
-is_daily_order_customer = Column(
+bd = date.fromisoformat(bd_str)
+today = now_ist.date()
 ⋮----
-salesperson = relationship(&quot;Salesperson&quot;, back_populates=&quot;customers&quot;)</file><file path="app/services/adhoc_reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+label = &quot;Today&quot;
+⋮----
+label = &quot;Yesterday&quot;
+⋮----
+label = bd.strftime(&quot;%A, %d %b&quot;)
+⋮----
+label = bd_str
+⋮----
+def _not_found_html() -&gt; str</file><file path="app/services/adhoc_reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 IST           = timezone(timedelta(hours=5, minutes=30))
 ⋮----
@@ -266,7 +263,31 @@ def _send_salesperson_adhoc_report(sp_phone: str, sp: Salesperson, db: Session)
 grouped    = get_pending_customers(db, delivery_date)
 sp_pending = grouped.get(sp.id, [])
 ⋮----
-customer_list = &quot;, &quot;.join(</file><file path="app/services/webhook_health.py">logger = logging.getLogger(__name__)
+customer_list = &quot;, &quot;.join(</file><file path="app/services/intent_classifier.py">class Intent(Enum)
+⋮----
+ADHOC_REPORT     = &quot;adhoc_report&quot;
+ONBOARDING       = &quot;onboarding&quot;
+CANCEL           = &quot;cancel&quot;
+REPEAT_LAST      = &quot;repeat_last&quot;
+CONFIRM_YES      = &quot;confirm_yes&quot;
+CONFIRM_NO       = &quot;confirm_no&quot;
+HISTORY          = &quot;history&quot;
+ORDER            = &quot;order&quot;
+⋮----
+CANCEL_KEYWORDS = {
+⋮----
+REPEAT_KEYWORDS = {
+⋮----
+CONFIRM_YES_WORDS = {&quot;yes&quot;, &quot;haan&quot;, &quot;ha&quot;, &quot;haa&quot;, &quot;ok&quot;, &quot;okay&quot;, &quot;confirm&quot;, &quot;okk&quot;}
+CONFIRM_NO_WORDS  = {&quot;no&quot;, &quot;nahi&quot;, &quot;nope&quot;, &quot;cancel&quot;, &quot;don&apos;t&quot;, &quot;dont&quot;}
+⋮----
+HISTORY_KEYWORDS = {
+⋮----
+GREETINGS = {
+⋮----
+FILLER_PHRASES = {
+⋮----
+lower = message.strip().lower()</file><file path="app/services/webhook_health.py">logger = logging.getLogger(__name__)
 ⋮----
 IST                  = timezone(timedelta(hours=5, minutes=30))
 MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
@@ -296,7 +317,287 @@ error_code = error_data.get(&quot;error&quot;, {}).get(&quot;code&quot;, &quot;u
 ⋮----
 def _send_failure_alert(now_ist: datetime, error_code, error_msg: str)
 ⋮----
-alert = (</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
+alert = (</file><file path="app/templates/ledger.html">&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+  &lt;meta charset=&quot;UTF-8&quot;&gt;
+  &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0, maximum-scale=1.0&quot;&gt;
+  &lt;title&gt;Order History — {{ plant_name }}&lt;/title&gt;
+  &lt;style&gt;
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* ── Tokens ── */
+    :root {
+      --brand:       #075e54;
+      --brand-light: #e8f5e9;
+      --brand-mid:   #128c7e;
+      --ink:         #1a1a1a;
+      --ink-mid:     #555;
+      --ink-muted:   #999;
+      --surface:     #ffffff;
+      --bg:          #f0f4f2;
+      --border:      #e5ece9;
+      --radius-card: 14px;
+      --radius-pill: 99px;
+    }
+    /* ── Base ── */
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, &apos;Segoe UI&apos;, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    /* ── Header ── */
+    .header {
+      background: var(--brand);
+      padding: 20px 20px 28px;
+      position: relative;
+    }
+    .header-plant {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,.6);
+      margin-bottom: 4px;
+    }
+    .header-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.2;
+    }
+    .header-sub {
+      font-size: 13px;
+      color: rgba(255,255,255,.65);
+      margin-top: 4px;
+    }
+    /* Wave divider */
+    .header-wave {
+      position: absolute;
+      bottom: -1px; left: 0; right: 0;
+      height: 20px;
+      background: var(--bg);
+      clip-path: ellipse(55% 100% at 50% 100%);
+    }
+    /* ── Summary strip ── */
+    .summary {
+      display: flex;
+      gap: 10px;
+      padding: 20px 16px 8px;
+    }
+    .stat {
+      flex: 1;
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      padding: 14px 12px;
+      text-align: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .stat-number {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--brand);
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+    /* ── Section ── */
+    .section { padding: 8px 16px 24px; }
+    .day-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: var(--brand);
+      padding: 16px 4px 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .day-label::after {
+      content: &apos;&apos;;
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    /* ── Order card ── */
+    .order-card {
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+      margin-bottom: 10px;
+      overflow: hidden;
+      border-left: 3px solid var(--brand);
+    }
+    .order-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .order-time {
+      font-size: 12px;
+      color: var(--ink-muted);
+    }
+    .delivery-badge {
+      font-size: 11px;
+      background: var(--brand-light);
+      color: var(--brand);
+      border-radius: var(--radius-pill);
+      padding: 3px 9px;
+      font-weight: 600;
+    }
+    .order-items {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .item-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .item-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+      flex: 1;
+    }
+    .item-qty {
+      font-size: 13px;
+      color: var(--brand-mid);
+      font-weight: 700;
+      white-space: nowrap;
+      background: var(--brand-light);
+      border-radius: var(--radius-pill);
+      padding: 2px 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .item-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 2px 0;
+    }
+    /* unclear items */
+    .unclear-section {
+      padding: 0 16px 12px;
+      border-top: 1px dashed #fcd5d5;
+      margin-top: 2px;
+      background: #fffafa;
+    }
+    .unclear-label {
+      font-size: 11px;
+      color: #e53e3e;
+      font-weight: 700;
+      padding: 8px 0 6px;
+    }
+    .unclear-item {
+      font-size: 12px;
+      font-family: &apos;SF Mono&apos;, &apos;Fira Code&apos;, monospace;
+      color: #c53030;
+      padding: 2px 0;
+    }
+    /* ── Empty state ── */
+    .empty {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--ink-muted);
+    }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-text { font-size: 15px; font-weight: 600; color: var(--ink-mid); margin-bottom: 6px; }
+    .empty-sub  { font-size: 13px; line-height: 1.6; }
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      padding: 16px 24px 32px;
+      font-size: 11px;
+      color: var(--ink-muted);
+      line-height: 1.7;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;header&quot;&gt;
+  &lt;div class=&quot;header-plant&quot;&gt;{{ plant_name }}&lt;/div&gt;
+  &lt;div class=&quot;header-name&quot;&gt;{{ customer_name }}&lt;/div&gt;
+  &lt;div class=&quot;header-sub&quot;&gt;Order history · last {{ ledger_days }} days&lt;/div&gt;
+  &lt;div class=&quot;header-wave&quot;&gt;&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;summary&quot;&gt;
+  &lt;div class=&quot;stat&quot;&gt;
+    &lt;div class=&quot;stat-number&quot;&gt;{{ total_orders }}&lt;/div&gt;
+    &lt;div class=&quot;stat-label&quot;&gt;Orders&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;stat&quot;&gt;
+    &lt;div class=&quot;stat-number&quot;&gt;{{ days|length }}&lt;/div&gt;
+    &lt;div class=&quot;stat-label&quot;&gt;Days active&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;stat&quot;&gt;
+    &lt;div class=&quot;stat-number&quot;&gt;{{ ledger_days }}&lt;/div&gt;
+    &lt;div class=&quot;stat-label&quot;&gt;Day window&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;section&quot;&gt;
+  {% if days %}
+    {% for day in days %}
+      &lt;div class=&quot;day-label&quot;&gt;{{ day.label }}&lt;/div&gt;
+      {% for order in day.orders %}
+        &lt;div class=&quot;order-card&quot;&gt;
+          &lt;div class=&quot;order-card-head&quot;&gt;
+            &lt;span class=&quot;order-time&quot;&gt;Placed at {{ order.created_at }}&lt;/span&gt;
+            {% if order.delivery_time %}
+              &lt;span class=&quot;delivery-badge&quot;&gt;🕒 {{ order.delivery_time }}&lt;/span&gt;
+            {% endif %}
+          &lt;/div&gt;
+          {% if order.order_lines %}
+            &lt;div class=&quot;order-items&quot;&gt;
+              {% for item in order.order_lines %}
+                &lt;div class=&quot;item-row&quot;&gt;
+                  &lt;span class=&quot;item-name&quot;&gt;{{ item.product }}&lt;/span&gt;
+                  &lt;span class=&quot;item-qty&quot;&gt;
+                    {% set qty = item.quantity %}
+                    {% if qty == qty | int %}{{ qty | int }}{% else %}{{ qty }}{% endif %}
+                    {{ item.unit }}
+                  &lt;/span&gt;
+                &lt;/div&gt;
+                {% if not loop.last %}&lt;div class=&quot;item-divider&quot;&gt;&lt;/div&gt;{% endif %}
+              {% endfor %}
+            &lt;/div&gt;
+          {% endif %}
+          {% if order.unclear_items %}
+            &lt;div class=&quot;unclear-section&quot;&gt;
+              &lt;div class=&quot;unclear-label&quot;&gt;⚠️ Couldn&apos;t recognise&lt;/div&gt;
+              {% for raw in order.unclear_items %}
+                &lt;div class=&quot;unclear-item&quot;&gt;• {{ raw }}&lt;/div&gt;
+              {% endfor %}
+            &lt;/div&gt;
+          {% endif %}
+        &lt;/div&gt;
+      {% endfor %}
+    {% endfor %}
+  {% else %}
+    &lt;div class=&quot;empty&quot;&gt;
+      &lt;div class=&quot;empty-icon&quot;&gt;📋&lt;/div&gt;
+      &lt;div class=&quot;empty-text&quot;&gt;No orders in the last {{ ledger_days }} days&lt;/div&gt;
+      &lt;div class=&quot;empty-sub&quot;&gt;Your orders will appear here&lt;br&gt;as soon as you place one.&lt;/div&gt;
+    &lt;/div&gt;
+  {% endif %}
+&lt;/div&gt;
+&lt;div class=&quot;footer&quot;&gt;
+  Generated {{ generated_at }} IST&lt;br&gt;
+  Showing confirmed orders only · Cancelled orders not shown
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
 ⋮----
 DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
 ⋮----
@@ -308,7 +609,37 @@ class Base(DeclarativeBase)
 ⋮----
 def get_db()
 ⋮----
-db = SessionLocal()</file><file path="app/services/message_journal.py">logger = logging.getLogger(__name__)
+db = SessionLocal()</file><file path="app/models/customer.py">class Customer(Base)
+⋮----
+__tablename__ = &quot;customers&quot;
+⋮----
+id = Column(
+⋮----
+restaurant_name = Column(
+⋮----
+owner_name = Column(
+⋮----
+phone_number = Column(
+⋮----
+address = Column(
+⋮----
+city = Column(
+⋮----
+onboarding_status = Column(
+⋮----
+is_active = Column(
+⋮----
+created_at = Column(
+⋮----
+area = Column(
+⋮----
+salesperson_id = Column(
+⋮----
+is_daily_order_customer = Column(
+⋮----
+ledger_token = Column(
+⋮----
+salesperson = relationship(&quot;Salesperson&quot;, back_populates=&quot;customers&quot;)</file><file path="app/services/message_journal.py">logger = logging.getLogger(__name__)
 ⋮----
 IST = timezone(timedelta(hours=5, minutes=30))
 ⋮----
@@ -924,7 +1255,9 @@ class PostOrderPayload(BaseModel)
 ⋮----
 &quot;&quot;&quot;Payload for admin posting an order on behalf of a customer.&quot;&quot;&quot;
 message: str
+class CancelOrderPayload(BaseModel)
 ⋮----
+reason: Optional[str] = None  # shown to customer + manager
 # ── Salespersons ──────────────────────────────────────────────────────────────
 ⋮----
 @router.get(&quot;/salespersons&quot;)
@@ -996,7 +1329,9 @@ orders = (
 ⋮----
 def safe_json(val)
 ⋮----
-result = json.loads(val)
+result = json.loads(val) if isinstance(val, str) else val
+if isinstance(result, str):          # double-encoded
+result = json.loads(result)
 ⋮----
 @router.post(&quot;/customers/{customer_id}/assign&quot;)
 def assign_customer(customer_id: int, payload: CustomerAssign, db: Session = Depends(get_db), username: str = Depends(require_auth))
@@ -1008,12 +1343,17 @@ sp = db.query(Salesperson).filter(Salesperson.id == customer.salesperson_id).fir
 @router.put(&quot;/customers/{customer_id}/status&quot;)
 def update_customer_status(customer_id: int, payload: CustomerStatus, db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
+existing_orders = (
+⋮----
 result = process_incoming_order(
 ⋮----
 status = result.get(&quot;status&quot;, &quot;&quot;)
-# Treat these statuses as &quot;success&quot; — unclear means order was saved but
 ⋮----
-# ── Pending orders ────────────────────────────────────────────────────────────
+order = db.query(Order).filter(Order.id == order_id).first()
+⋮----
+reason_text = payload.reason or &quot;We are unable to fulfil this order today.&quot;
+⋮----
+# Notify manager
 ⋮----
 @router.get(&quot;/pending&quot;)
 def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(get_db), username: str = Depends(require_auth))
@@ -1031,8 +1371,6 @@ sp_name = &quot;Unassigned&quot;; sp_phone = None
 sp = db.query(Salesperson).filter(Salesperson.id == sp_id).first()
 sp_name = sp.name if sp else f&quot;Unknown (id={sp_id})&quot;
 sp_phone = sp.phone if sp else None
-⋮----
-order = db.query(Order).filter(Order.id == order_id).first()
 ⋮----
 now_ist = datetime.now(IST)
 ⋮----
@@ -1072,7 +1410,11 @@ window = _window_status(last_seen_map.get(s[&quot;phone&quot;]), now)
 @router.get(&quot;/unclear-items&quot;)
 def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
-unclear = json.loads(o.unclear_items) if o.unclear_items else []
+def _safe_list(val)
+⋮----
+result = json.loads(val)
+⋮----
+unclear = _safe_list(o.unclear_items)
 ⋮----
 @router.get(&quot;/unclear-items/aliases&quot;)
 def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth))
@@ -1354,19 +1696,26 @@ def test_daily_report(db: Session = Depends(get_db), username: str = Depends(req
                 &lt;div class=&quot;items&quot;&gt;{% for item in order.items_parsed %}{{ item.product }} — {{ item.quantity }} {{ item.unit }}&lt;br&gt;{% endfor %}
                                 {% if is_before_cutoff %}
                 {% if not order.is_next_day_override %}
-                    &lt;div style=&quot;margin-top:8px&quot;&gt;
+                    &lt;div style=&quot;margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;&quot;&gt;
                     &lt;button class=&quot;btn btn-assign&quot; onclick=&quot;moveToNextDay({{ order.id }})&quot;&gt;➡ Next Day&lt;/button&gt;
+                    &lt;button class=&quot;btn btn-deactivate&quot; onclick=&quot;cancelOrder({{ order.id }}, &apos;{{ order.customer_name or order.customer_phone }}&apos;)&quot;&gt;🚫 Cancel Order&lt;/button&gt;
                     &lt;/div&gt;
                 {% else %}
-                    &lt;div style=&quot;margin-top:8px;display:flex;gap:8px;align-items:center&quot;&gt;
+                    &lt;div style=&quot;margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;&quot;&gt;
                     &lt;span class=&quot;badge&quot; style=&quot;background:#e8f5e9;color:#2e7d32&quot;&gt;✅ Next Day&lt;/span&gt;
                     &lt;button class=&quot;btn btn-cancel-ui&quot; onclick=&quot;revertToToday({{ order.id }})&quot;&gt;↩ Revert&lt;/button&gt;
+                    &lt;button class=&quot;btn btn-deactivate&quot; onclick=&quot;cancelOrder({{ order.id }}, &apos;{{ order.customer_name or order.customer_phone }}&apos;)&quot;&gt;🚫 Cancel Order&lt;/button&gt;
                     &lt;/div&gt;
                 {% endif %}
                 {% else %}
                 {% if order.is_next_day_override %}
-                    &lt;div style=&quot;margin-top:8px&quot;&gt;
+                    &lt;div style=&quot;margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;&quot;&gt;
                     &lt;span class=&quot;badge&quot; style=&quot;background:#e8f5e9;color:#2e7d32&quot;&gt;✅ Next Day (locked)&lt;/span&gt;
+                    &lt;button class=&quot;btn btn-deactivate&quot; onclick=&quot;cancelOrder({{ order.id }}, &apos;{{ order.customer_name or order.customer_phone }}&apos;)&quot;&gt;🚫 Cancel Order&lt;/button&gt;
+                    &lt;/div&gt;
+                {% else %}
+                    &lt;div style=&quot;margin-top:8px;&quot;&gt;
+                    &lt;button class=&quot;btn btn-deactivate&quot; onclick=&quot;cancelOrder({{ order.id }}, &apos;{{ order.customer_name or order.customer_phone }}&apos;)&quot;&gt;🚫 Cancel Order&lt;/button&gt;
                     &lt;/div&gt;
                 {% endif %}
                 {% endif %}
@@ -2248,6 +2597,22 @@ async function revertToToday(orderId) {
         showToast(&apos;❌ &apos; + (JSON.parse(e.message)?.detail || &apos;Failed&apos;), &apos;error&apos;);
     }
 }
+async function cancelOrder(orderId, customerName) {
+    const reason = prompt(
+        `Cancel order for ${customerName}?\n\nEnter reason to send to customer (or leave blank for default):`,
+        &quot;&quot;
+    );
+    if (reason === null) return; // user hit Cancel on the prompt
+    try {
+        await api(&apos;POST&apos;, `/admin/orders/${orderId}/cancel`, { reason: reason.trim() || null });
+        showToast(`✅ Order #${orderId} cancelled — customer notified`, &apos;success&apos;);
+        setTimeout(() =&gt; location.reload(), 800);
+    } catch(e) {
+        let msg = &apos;Cancel failed&apos;;
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
+        showToast(&apos;❌ &apos; + msg, &apos;error&apos;);
+    }
+}
 setInterval(() =&gt; {
     if (document.getElementById(&apos;tab-orders&apos;).classList.contains(&apos;active&apos;)) location.reload();
 }, 60000);
@@ -2306,8 +2671,9 @@ customer = create_customer_manually(
 ⋮----
 def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+BASE_URL             = os.getenv(&quot;BASE_URL&quot;, &quot;&quot;)   # e.g. https://orderr.onrender.com
 IST                  = timezone(timedelta(hours=5, minutes=30))
-RESET_HOUR           = 20
+RESET_HOUR           = 20  # 8 PM IST
 DISPATCH_CUTOFF_HOUR = int(os.getenv(&quot;DISPATCH_CUTOFF_HOUR&quot;, &quot;9&quot;))
 ⋮----
 def get_today_ist() -&gt; date
@@ -2369,6 +2735,10 @@ last = get_last_order(db, customer_phone)
 ⋮----
 items = json.loads(last.parsed_items)
 pending = Order(
+⋮----
+def _handle_history(db: Session, customer: Customer) -&gt; dict
+⋮----
+ledger_url = f&quot;{BASE_URL}/ledger/{customer.ledger_token}&quot;
 ⋮----
 def _handle_confirm_yes(db: Session, customer: Customer) -&gt; dict
 ⋮----

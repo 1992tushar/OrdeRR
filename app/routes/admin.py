@@ -45,7 +45,7 @@ from app.services.order_service import process_incoming_order
 from app.services.order_service import get_current_business_date_str, RESET_HOUR
 from app.services.notifier import send_manager_alert
 from app.services.customer_service import get_customer_by_phone
-
+from app.models.noise_phrase import NoisePhrase
 
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
@@ -85,6 +85,58 @@ class PostOrderPayload(BaseModel):
     message: str
 class CancelOrderPayload(BaseModel):
     reason: Optional[str] = None  # shown to customer + manager
+
+class NoisePhraseCreate(BaseModel):
+    raw_text: str
+
+@router.get("/noise-phrases")
+def get_noise_phrases(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    phrases = db.query(NoisePhrase).order_by(NoisePhrase.raw_text).all()
+    return [
+        {
+            "id":         p.id,
+            "raw_text":   p.raw_text,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in phrases
+    ]
+ 
+ 
+@router.post("/noise-phrases")
+def create_noise_phrase(
+    payload: NoisePhraseCreate,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    normalized = payload.raw_text.strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="raw_text cannot be empty")
+ 
+    existing = db.query(NoisePhrase).filter(NoisePhrase.raw_text == normalized).first()
+    if existing:
+        return {"id": existing.id, "raw_text": existing.raw_text, "already_existed": True}
+ 
+    phrase = NoisePhrase(raw_text=normalized)
+    db.add(phrase)
+    db.commit()
+    db.refresh(phrase)
+    return {"id": phrase.id, "raw_text": phrase.raw_text, "already_existed": False}
+ 
+ 
+@router.delete("/noise-phrases/{phrase_id}")
+def delete_noise_phrase(
+    phrase_id: int,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    phrase = db.query(NoisePhrase).filter(NoisePhrase.id == phrase_id).first()
+    if not phrase:
+        raise HTTPException(status_code=404, detail="Noise phrase not found")
+    db.delete(phrase)
+    db.commit()
+    return {"deleted": True, "raw_text": phrase.raw_text}
+
+
 # ── Salespersons ──────────────────────────────────────────────────────────────
 
 @router.get("/salespersons")
