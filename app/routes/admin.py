@@ -626,6 +626,18 @@ def get_window_status(db: Session = Depends(get_db), username: str = Depends(req
 @router.get("/unclear-items")
 def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(require_auth)):
     """Orders that have unresolved unclear items."""
+
+    def _safe_list(val):
+        if not val or val in ("null", "[]", ""):
+            return []
+        try:
+            result = json.loads(val)
+            if isinstance(result, str):
+                result = json.loads(result)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
     orders = (
         db.query(Order)
         .filter(
@@ -639,7 +651,7 @@ def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(req
     )
     result = []
     for o in orders:
-        unclear = json.loads(o.unclear_items) if o.unclear_items else []
+        unclear = _safe_list(o.unclear_items)
         if not unclear:
             continue
         result.append({
@@ -648,7 +660,7 @@ def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(req
             "customer_phone": o.customer_phone,
             "raw_message"   : o.raw_message,
             "unclear_items" : unclear,
-            "parsed_items"  : json.loads(o.parsed_items) if o.parsed_items else [],
+            "parsed_items"  : _safe_list(o.parsed_items),
             "delivery_date" : o.delivery_date,
             "created_at"    : o.created_at.isoformat() if o.created_at else None,
         })
