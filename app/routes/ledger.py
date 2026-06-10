@@ -82,7 +82,7 @@ def customer_ledger(token: str, request: Request, db: Session = Depends(get_db))
         unclear = _safe_list(order.unclear_items)
         grouped[bd].append({
             "id": order.id,
-            "items": items,
+            "order_lines": items,
             "unclear_items": unclear,
             "delivery_time": order.delivery_time,
             "is_unclear": order.is_unclear,

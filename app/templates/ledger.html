@@ -257,9 +257,9 @@
             {% endif %}
           </div>
 
-          {% if order.items %}
+          {% if order.order_lines %}
             <div class="order-items">
-              {% for item in order.items %}
+              {% for item in order.order_lines %}
                 <div class="item-row">
                   <span class="item-name">{{ item.product }}</span>
                   <span class="item-qty">
