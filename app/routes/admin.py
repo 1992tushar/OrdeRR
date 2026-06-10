@@ -283,11 +283,12 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
     )
 
     def safe_json(val):
-        """Parse JSON safely — handles None, SQL null string, empty string, malformed."""
         if not val or val in ("null", "[]", ""):
             return []
         try:
-            result = json.loads(val)
+            result = json.loads(val) if isinstance(val, str) else val
+            if isinstance(result, str):          # double-encoded
+                result = json.loads(result)
             return result if isinstance(result, list) else []
         except Exception:
             return []
@@ -354,13 +355,6 @@ def post_order_on_behalf(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    """
-    Admin posts an order on behalf of a customer.
- 
-    Delegates entirely to process_incoming_order() — the same pipeline
-    the WhatsApp webhook uses — so parsing, deduplication, WhatsApp
-    confirmations, and manager alerts all fire normally.
-    """
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -368,17 +362,32 @@ def post_order_on_behalf(
         raise HTTPException(status_code=400, detail="Customer is inactive")
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Order message cannot be empty")
- 
+
+    # Cancel any existing today's orders so pipeline does a clean save
+    # without triggering the replace-confirmation flow
+    existing_orders = (
+        db.query(Order)
+        .filter(
+            Order.customer_phone == customer.phone_number,
+            Order.business_date  == get_current_business_date_str(),
+            Order.is_cancelled   == False,
+        )
+        .all()
+    )
+    for o in existing_orders:
+        o.is_cancelled = True
+        o.status = "cancelled"
+    if existing_orders:
+        db.commit()
+
     result = process_incoming_order(
         db=db,
         customer_phone=customer.phone_number,
         message=payload.message.strip(),
     )
- 
+
     status = result.get("status", "")
-    # Treat these statuses as "success" — unclear means order was saved but
-    # some items need review, which is still a valid post.
-    if status in ("order_saved", "order_updated", "repeat_confirmed", "unclear"):
+    if status in ("order_saved", "order_updated", "repeat_confirmed", "unclear", "received"):
         return {
             "ok": True,
             "status": status,
@@ -386,7 +395,7 @@ def post_order_on_behalf(
             "customer": customer.restaurant_name or customer.phone_number,
             "message": result.get("message", "Order posted successfully"),
         }
- 
+
     raise HTTPException(
         status_code=400,
         detail=result.get("message") or f"Pipeline returned unexpected status: {status}",

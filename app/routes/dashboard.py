@@ -16,6 +16,32 @@ IST = timezone(timedelta(hours=5, minutes=30))
 templates = Jinja2Templates(directory="app/templates")
 
 
+def _safe_list(value) -> list:
+    """
+    Return a guaranteed list from a JSONB field.
+    Handles: None, already-a-list (normal JSONB), JSON string (legacy),
+    double-encoded string, empty/null sentinels.
+    """
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        if value in ("null", "[]", ""):
+            return []
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+            # double-encoded: parsed is still a string
+            if isinstance(parsed, str):
+                inner = json.loads(parsed)
+                return inner if isinstance(inner, list) else []
+        except Exception:
+            pass
+    return []
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(
     request: Request,
@@ -32,32 +58,17 @@ def dashboard(
     else:
         target_date = today
 
-    target_date_str = target_date.strftime("%Y-%m-%d")
-
-    # ── FIX: filter by delivery_date (not created_at date) ───────────────────
-    # Orders are shown for the date they are *for*, not the date they were placed.
-    # A customer placing an order at 11:38 PM IST (= next day UTC) was previously
-    # missing from the dashboard because created_at date in UTC != IST date.
-    
-
     orders = db.query(Order).filter(
-    Order.business_date == target_date.strftime("%Y-%m-%d"),
-    Order.is_cancelled == False,
+        Order.business_date == target_date.strftime("%Y-%m-%d"),
+        Order.is_cancelled == False,
     ).all()
-
-
 
     for order in orders:
         order.created_at = order.created_at.astimezone(IST)
-        order.items_parsed      = json.loads(order.parsed_items) if order.parsed_items else []
-        order.has_unclear_items = bool(
-            getattr(order, "unclear_items", None)
-            and order.unclear_items not in ("[]", "null", "")
-        )
-        order.unclear_items_list = (
-            json.loads(order.unclear_items)
-            if order.has_unclear_items else []
-        )
+        order.items_parsed = _safe_list(order.parsed_items)
+        unclear_list = _safe_list(order.unclear_items)
+        order.has_unclear_items = bool(unclear_list)
+        order.unclear_items_list = unclear_list
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
@@ -65,6 +76,8 @@ def dashboard(
     product_summary = {}
     for order in clear_orders:
         for item in order.items_parsed:
+            if not isinstance(item, dict):
+                continue
             product  = item.get("product", "Unknown")
             quantity = item.get("quantity", 0)
             unit     = item.get("unit", "kg").lower()
@@ -80,7 +93,6 @@ def dashboard(
     now_ist = datetime.now(IST)
     is_before_cutoff = now_ist.hour < 20
 
-    # ── Reliability data for Failed tab ──────────────────────────────────────
     failed_messages   = []
     reliability_stats = {"has_issues": False, "total_today": 0, "confirmed_today": 0, "failed_today": 0, "manual_review_total": 0}
 
