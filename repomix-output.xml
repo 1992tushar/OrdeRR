@@ -789,15 +789,23 @@ notes_msg = &quot;\n&quot;.join(lines)</file><file path="app/routes/dashboard.py
 IST = timezone(timedelta(hours=5, minutes=30))
 templates = Jinja2Templates(directory=&quot;app/templates&quot;)
 ⋮----
+def _safe_list(value) -&gt; list
+⋮----
+parsed = json.loads(value)
+⋮----
+# double-encoded: parsed is still a string
+⋮----
+inner = json.loads(parsed)
+⋮----
 today = get_current_business_date()
 ⋮----
 target_date = date.fromisoformat(view_date)
 ⋮----
 target_date = today
 ⋮----
-target_date_str = target_date.strftime(&quot;%Y-%m-%d&quot;)
-⋮----
 orders = db.query(Order).filter(
+⋮----
+unclear_list = _safe_list(order.unclear_items)
 ⋮----
 clear_orders   = [o for o in orders if not o.is_unclear]
 unclear_orders = [o for o in orders if o.is_unclear]
