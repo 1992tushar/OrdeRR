@@ -386,7 +386,7 @@ _FILLER_RE = re.compile(
 # Lines starting with a unit word are size annotations, not order lines
 # e.g. "kg( 900 gm size)"  /  "pcs (big)"
 _UNIT_ANNOTATION_RE = re.compile(
-    r'^(kg|kgs|gm|gms|gram|grams|nos|pcs|pc)\b',
+    r'^(kg|kgs|gm|gms|gram|grams|nos|pcs|pc|psc)\b',
     re.IGNORECASE,
 )
 
@@ -547,7 +547,7 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
 
         # Pattern: <product name> <separator?> <quantity> [unit]
         split_match = re.match(
-            r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|nos|no|nos\.|pcs|pc|pis|pieces|piece|k)?\s*$",
+            r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|nos|no|nos\.|pcs|psc|pc|pis|pieces|piece|k)?\s*$",
             line_clean,
             re.IGNORECASE,
         )

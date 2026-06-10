@@ -784,7 +784,7 @@ def get_product_names(username: str = Depends(require_auth)):
 # ── Helper: extract product name part from a raw unclear line ─────────────────
 
 LINE_RE = re.compile(
-    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pis|pieces|piece|k)?\s*$",
+    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pis|psc|pieces|piece|k)?\s*$",
     re.IGNORECASE,
 )
 
