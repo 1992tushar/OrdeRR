@@ -111,16 +111,55 @@ def create_noise_phrase(
     normalized = payload.raw_text.strip().lower()
     if not normalized:
         raise HTTPException(status_code=400, detail="raw_text cannot be empty")
- 
+
     existing = db.query(NoisePhrase).filter(NoisePhrase.raw_text == normalized).first()
     if existing:
         return {"id": existing.id, "raw_text": existing.raw_text, "already_existed": True}
- 
+
     phrase = NoisePhrase(raw_text=normalized)
     db.add(phrase)
     db.commit()
     db.refresh(phrase)
-    return {"id": phrase.id, "raw_text": phrase.raw_text, "already_existed": False}
+
+    # ── Retroactively remove this noise phrase from existing unclear_items ──
+    patched_count = 0
+    orders_to_patch = (
+        db.query(Order)
+        .filter(
+            Order.unclear_items.isnot(None),
+            Order.unclear_items != "[]",
+            Order.unclear_items != "null",
+            Order.is_cancelled == False,
+        )
+        .all()
+    )
+    for order in orders_to_patch:
+        try:
+            unclear = json.loads(order.unclear_items or "[]")
+            # Remove lines whose extracted product-name part matches the noise phrase
+            remaining = []
+            changed = False
+            for raw_line in unclear:
+                product_name, _ = _extract_product_name(raw_line)
+                if product_name == normalized:
+                    changed = True  # drop this line — it's noise
+                else:
+                    remaining.append(raw_line)
+            if changed:
+                order.unclear_items = json.dumps(remaining) if remaining else None
+                patched_count += 1
+        except Exception as e:
+            print(f"⚠️ Noise-phrase retroactive patch failed for order {order.id}: {e}")
+            continue
+    if patched_count:
+        db.commit()
+
+    return {
+        "id": phrase.id,
+        "raw_text": phrase.raw_text,
+        "already_existed": False,
+        "orders_patched": patched_count,
+    }
  
  
 @router.delete("/noise-phrases/{phrase_id}")
