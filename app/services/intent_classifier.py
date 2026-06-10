@@ -8,6 +8,7 @@ class Intent(Enum):
     REPEAT_LAST      = "repeat_last"
     CONFIRM_YES      = "confirm_yes"
     CONFIRM_NO       = "confirm_no"
+    HISTORY          = "history"
     ORDER            = "order"
 
 
@@ -29,6 +30,17 @@ REPEAT_KEYWORDS = {
 
 CONFIRM_YES_WORDS = {"yes", "haan", "ha", "haa", "ok", "okay", "confirm", "okk"}
 CONFIRM_NO_WORDS  = {"no", "nahi", "nope", "cancel", "don't", "dont"}
+
+HISTORY_KEYWORDS = {
+    "history",
+    "my orders",
+    "order history",
+    "ledger",
+    "past orders",
+    "show history",
+    "meri orders",
+    "purani orders",
+}
 
 GREETINGS = {
     "hi", "hello", "hey", "hii", "hiii", "hiiii", "helo", "helloo",
@@ -75,7 +87,7 @@ def classify_intent(
     Priority order matters:
       1. Onboarding — anything they type is their restaurant name
       2. Pending confirmation — "ok" means confirm, not a filler
-      3. Cancel / Repeat keywords
+      3. Cancel / Repeat / History keywords
       4. Fallthrough to ORDER
     """
     lower = message.strip().lower()
@@ -100,5 +112,9 @@ def classify_intent(
     if lower in REPEAT_KEYWORDS:
         return Intent.REPEAT_LAST
 
-    # 5. Everything else is treated as an order attempt
+    # 5. Order history / ledger
+    if lower in HISTORY_KEYWORDS:
+        return Intent.HISTORY
+
+    # 6. Everything else is treated as an order attempt
     return Intent.ORDER

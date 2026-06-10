@@ -83,7 +83,8 @@ class NextDayOverride(BaseModel):
 class PostOrderPayload(BaseModel):
     """Payload for admin posting an order on behalf of a customer."""
     message: str
-
+class CancelOrderPayload(BaseModel):
+    reason: Optional[str] = None  # shown to customer + manager
 # ── Salespersons ──────────────────────────────────────────────────────────────
 
 @router.get("/salespersons")
@@ -401,7 +402,63 @@ def post_order_on_behalf(
         detail=result.get("message") or f"Pipeline returned unexpected status: {status}",
     )
 
+@router.post("/orders/{order_id}/cancel")
+def cancel_order_on_behalf(
+    order_id: int,
+    payload: CancelOrderPayload,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """
+    Admin cancels/rejects an order on behalf of — or regardless of — the customer.
+    Sends a WhatsApp notification to the customer explaining the cancellation.
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.is_cancelled:
+        raise HTTPException(status_code=400, detail="Order is already cancelled")
 
+    order.is_cancelled = True
+    order.cancelled_at = datetime.now(IST)
+    order.status       = "cancelled"
+    db.commit()
+
+    reason_text = payload.reason or "We are unable to fulfil this order today."
+
+    # Notify customer
+    try:
+        send_whatsapp_message(
+            order.customer_phone,
+            f"⚠️ *Order Update — {PLANT_NAME}*\n\n"
+            f"Your order for today has been cancelled by our team.\n\n"
+            f"📋 Reason: {reason_text}\n\n"
+            f"Sorry for the inconvenience. Please contact us if you have questions.\n\n"
+            f"— {PLANT_NAME} Team"
+        )
+    except Exception as e:
+        print(f"⚠️ Customer cancel notification failed: {e}")
+
+    # Notify manager
+    try:
+        if MANAGER_PHONE and order.customer_phone != MANAGER_PHONE:
+            send_whatsapp_message(
+                MANAGER_PHONE,
+                f"❌ *Order Cancelled by Admin — {PLANT_NAME}*\n\n"
+                f"🏪 {order.customer_name or order.customer_phone}\n"
+                f"📱 {order.customer_phone}\n"
+                f"📋 Reason: {reason_text}\n"
+                f"🆔 Order #{order.id}"
+            )
+    except Exception as e:
+        print(f"⚠️ Manager cancel notification failed: {e}")
+
+    return {
+        "ok": True,
+        "order_id": order.id,
+        "customer": order.customer_name or order.customer_phone,
+        "reason": reason_text,
+    }
 # ── Pending orders ────────────────────────────────────────────────────────────
 
 @router.get("/pending")

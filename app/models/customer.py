@@ -9,6 +9,7 @@ from sqlalchemy import (
 
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 
 from app.database import Base
 
@@ -86,5 +87,12 @@ class Customer(Base):
         default=True
     )
 
+    ledger_token = Column(
+    String,
+    unique=True,
+    nullable=True,
+    index=True,
+    )
+    
     # Relationship
     salesperson = relationship("Salesperson", back_populates="customers")

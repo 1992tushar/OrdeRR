@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 from app.database import engine, Base, SessionLocal
 from app.routes import webhook, dashboard
 from app.routes.admin import router as admin_router
+from app.routes.ledger import router as ledger_router          # ← ADD
 from app.services.reporter import send_daily_report
 from app.services.pending_notifier import (
     send_customer_reminders,
@@ -174,6 +175,7 @@ app = FastAPI(
 app.include_router(webhook.router,   prefix="/webhook",   tags=["Webhook"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 app.include_router(admin_router,     prefix="/admin",     tags=["Admin"])
+app.include_router(ledger_router,    prefix="/ledger",    tags=["Ledger"])   # ← ADD
 
 
 @app.get("/")
