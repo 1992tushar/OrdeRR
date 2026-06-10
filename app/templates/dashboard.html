@@ -1129,7 +1129,7 @@ async function loadUnclearOrders() {
 
 function _extractProductName(rawLine) {
     const clean = rawLine.replace(/__+/g, '').trim();
-    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pieces?)?\s*$/i);
+    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|psc|pc|pieces?)?\s*$/i);
     if (m) return m[1].trim().toLowerCase();
     return clean.toLowerCase();
 }

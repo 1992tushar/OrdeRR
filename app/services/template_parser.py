@@ -321,6 +321,7 @@ UNIT_ALIASES = {
     "no":        "nos",
     "nos.":      "nos",
     "pcs":       "nos",
+    "psc":       "nos",
     "pc":        "nos",
     "pis":       "nos",
     "pieces":    "nos",
