@@ -112,16 +112,19 @@ def create_noise_phrase(
     if not normalized:
         raise HTTPException(status_code=400, detail="raw_text cannot be empty")
 
+    already_existed = False
     existing = db.query(NoisePhrase).filter(NoisePhrase.raw_text == normalized).first()
     if existing:
-        return {"id": existing.id, "raw_text": existing.raw_text, "already_existed": True}
-
-    phrase = NoisePhrase(raw_text=normalized)
-    db.add(phrase)
-    db.commit()
-    db.refresh(phrase)
+        already_existed = True
+        phrase = existing
+    else:
+        phrase = NoisePhrase(raw_text=normalized)
+        db.add(phrase)
+        db.commit()
+        db.refresh(phrase)
 
     # ── Retroactively remove this noise phrase from existing unclear_items ──
+    # Runs whether phrase is new OR already existed — ensures stale unclear items are cleared
     patched_count = 0
     orders_to_patch = (
         db.query(Order)
@@ -136,13 +139,12 @@ def create_noise_phrase(
     for order in orders_to_patch:
         try:
             unclear = json.loads(order.unclear_items or "[]")
-            # Remove lines whose extracted product-name part matches the noise phrase
             remaining = []
             changed = False
             for raw_line in unclear:
                 product_name, _ = _extract_product_name(raw_line)
                 if product_name == normalized:
-                    changed = True  # drop this line — it's noise
+                    changed = True
                 else:
                     remaining.append(raw_line)
             if changed:
@@ -157,7 +159,7 @@ def create_noise_phrase(
     return {
         "id": phrase.id,
         "raw_text": phrase.raw_text,
-        "already_existed": False,
+        "already_existed": already_existed,
         "orders_patched": patched_count,
     }
  
