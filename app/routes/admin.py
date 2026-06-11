@@ -888,7 +888,9 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -> int:
     matched_lines = []
     for line in unclear:
         product_part = _extract_product_name_from_line(line)
-        if product_part == raw:
+        # Match if extracted name equals raw, OR if raw is a substring of the extracted name
+        # This handles cases like "tandoori chicken 30pis" where unit-stripping may be imperfect
+        if product_part == raw or product_part.startswith(raw) or raw in product_part:
             matched_lines.append(line)
         else:
             remaining.append(line)
@@ -927,7 +929,11 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -> int:
 def _extract_product_name_from_line(line: str) -> str:
     """Strip quantity/unit to get the lowercase product name."""
     clean = line.replace("__", "").strip()
-    m = re.match(r"^(.+?)\s*[-:]?\s*[\d\.]+\s*(?:kg|kgs|nos|pcs|pc|pieces?)?\s*$", clean, re.I)
+    # Strip trailing quantity + any unit-like suffix (including unrecognized ones like "30pis")
+    m = re.match(
+        r"^(.+?)\s*[-:]?\s*[\d\.]+\s*(?:kg|kgs|nos|pcs|pis|pc|pieces?|k)?\s*$",
+        clean, re.I
+    )
     if m:
         return m.group(1).strip().lower()
     return clean.lower()
