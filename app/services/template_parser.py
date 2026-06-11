@@ -252,27 +252,37 @@ def _match_product(raw_name: str):
 
 
 def _lookup_alias(raw_name: str, db) -> tuple | None:
-    """
-    Check unclear_item_aliases table for a manager-confirmed mapping.
-    Returns (canonical_product_name, unit) or None.
-    db can be None (caller doesn't always have a session).
-    """
     if db is None:
         return None
-    try:
-        from app.models.unclear_item_alias import UnclearItemAlias
-        normalized = raw_name.strip().lower()
+    
+    # Try exact match first
+    normalized = raw_name.strip().lower()
+    row = db.query(UnclearItemAlias).filter(
+        UnclearItemAlias.raw_text == normalized
+    ).first()
+    if row:
+        unit = _get_unit_for_canonical(row.canonical_product_name)
+        return (row.canonical_product_name, unit)
+
+    # Strip quantity/unit suffix and try again
+    # Handles "tandoori chicken 30pis" → "tandoori chicken"
+    stripped = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', normalized).strip()
+    if stripped and stripped != normalized:
         row = db.query(UnclearItemAlias).filter(
-            UnclearItemAlias.raw_text == normalized
+            UnclearItemAlias.raw_text == stripped
         ).first()
         if row:
-            # Find the unit for this canonical product
-            for display, unit, _ in PRODUCT_DEFINITIONS:
-                if display == row.canonical_product_name:
-                    return display, unit
-    except Exception:
-        pass
+            unit = _get_unit_for_canonical(row.canonical_product_name)
+            return (row.canonical_product_name, unit)
+
     return None
+
+def _get_unit_for_canonical(canonical_name: str) -> str:
+    """Find the unit for a canonical product name from PRODUCT_DEFINITIONS."""
+    for display_name, unit, _ in PRODUCT_DEFINITIONS:
+        if display_name.lower() == canonical_name.lower():
+            return unit
+    return "kg"  # default fallback
 
 def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -> tuple | None:
     """
@@ -298,22 +308,19 @@ def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -> tuple | No
 
 
 def _is_noise_phrase(raw_name: str, db) -> bool:
-    """
-    Check noise_phrases table for a manager-confirmed noise/irrelevant entry.
-    Returns True if this text should be silently skipped (not flagged unclear).
-    db can be None.
-    """
     if db is None:
         return False
-    try:
-        from app.models.noise_phrase import NoisePhrase
-        normalized = raw_name.strip().lower()
-        row = db.query(NoisePhrase).filter(
-            NoisePhrase.raw_text == normalized
-        ).first()
-        return row is not None
-    except Exception:
-        pass
+    normalized = raw_name.strip().lower()
+    # Try exact match
+    row = db.query(NoisePhrase).filter(NoisePhrase.raw_text == normalized).first()
+    if row:
+        return True
+    # Try after stripping quantity suffix
+    stripped = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', normalized).strip()
+    if stripped and stripped != normalized:
+        row = db.query(NoisePhrase).filter(NoisePhrase.raw_text == stripped).first()
+        if row:
+            return True
     return False
 
 

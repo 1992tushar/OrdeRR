@@ -947,15 +947,7 @@ def _extract_qty_from_line(line: str) -> float:
     return 1.0
 
 
-def _extract_qty_from_line(line: str) -> float:
-    """Extract numeric quantity from a raw line, defaulting to 1."""
-    m = re.search(r"([\d]+(?:[./][\d]+)?)", line)
-    if m:
-        try:
-            return float(m.group(1))
-        except ValueError:
-            pass
-    return 1.0
+
 
 
 @router.post("/unclear-items/resolve")
