@@ -1149,9 +1149,10 @@ async function loadUnclearOrders() {
 
 function _extractProductName(rawLine) {
     const clean = rawLine.replace(/__+/g, '').trim();
-    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|psc|pc|pieces?)?\s*$/i);
+    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pis|psc|pc|pieces?|k)?\s*$/i);
     if (m) return m[1].trim().toLowerCase();
-    return clean.toLowerCase();
+    // Fallback: strip any trailing number+word combo that looks like a quantity
+    return clean.replace(/\s*[-:]?\s*[\d\.]+\s*\w*\s*$/, '').trim().toLowerCase() || clean.toLowerCase();
 }
 
 // CHANGE 4: Updated resolveItem with customer_phone + scopeSelectId
