@@ -23,6 +23,8 @@ import re
 import os
 from app.models.customer_product_alias import CustomerProductAlias
 from app.models.unclear_item_alias import UnclearItemAlias
+from app.models.noise_phrase import NoisePhrase
+
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 
 # ── Product Catalog ───────────────────────────────────────────────────────────
