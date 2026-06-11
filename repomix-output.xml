@@ -29,6 +29,7 @@ app/auth.py
 app/database.py
 app/main.py
 app/models/__init__.py
+app/models/customer_product_alias.py
 app/models/customer.py
 app/models/inbound_message.py
 app/models/noise_phrase.py
@@ -68,7 +69,22 @@ password = os.getenv(&quot;DASHBOARD_PASSWORD&quot;, &quot;&quot;)
 ⋮----
 username_ok = secrets.compare_digest(
 ⋮----
-password_ok = secrets.compare_digest(</file><file path="app/models/inbound_message.py">class InboundMessage(Base)
+password_ok = secrets.compare_digest(</file><file path="app/models/customer_product_alias.py">IST = timezone(timedelta(hours=5, minutes=30))
+⋮----
+class CustomerProductAlias(Base)
+⋮----
+__tablename__ = &quot;customer_product_aliases&quot;
+⋮----
+id                     = Column(Integer, primary_key=True, index=True)
+customer_phone         = Column(String, index=True, nullable=False)
+raw_text               = Column(String, nullable=False)
+canonical_product_name = Column(String, nullable=False)
+created_at             = Column(DateTime, default=lambda: datetime.now(IST))
+updated_at             = Column(DateTime, default=lambda: datetime.now(IST),
+⋮----
+__table_args__ = (
+⋮----
+def __repr__(self)</file><file path="app/models/inbound_message.py">class InboundMessage(Base)
 ⋮----
 __tablename__ = &quot;inbound_messages&quot;
 ⋮----
@@ -882,71 +898,7 @@ forwarded_to_manager = Column(Boolean, default=False)
 created_at = Column(DateTime(timezone=True), server_default=func.now())
 updated_at = Column(
 ⋮----
-def __repr__(self)</file><file path="app/services/pending_notifier.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-⋮----
-TEMPLATE_SALESPERSON_PENDING = &quot;salesperson_pending_orders&quot;
-TEMPLATE_MANAGER_SUMMARY     = &quot;manager_daily_summary&quot;
-⋮----
-def send_customer_reminders(db: Session, delivery_date: date | None = None)
-⋮----
-delivery_date = get_delivery_date_for_now()
-⋮----
-grouped = get_pending_customers(db, delivery_date)
-all_pending_customers = [c for customers in grouped.values() for c in customers]
-⋮----
-sent = 0
-⋮----
-message = (
-result = send_whatsapp_message(customer.phone_number, message)
-⋮----
-def notify_salespersons_pending(db: Session, delivery_date: date | None = None)
-⋮----
-assigned = {
-⋮----
-salesperson = db.query(Salesperson).filter(
-⋮----
-customer_list = &quot;, &quot;.join(
-⋮----
-result = send_whatsapp_template(
-⋮----
-# ── 23:10 — Management summary ───────────────────────────────────────────────
-⋮----
-def send_management_summary(db: Session, delivery_date: date | None = None)
-⋮----
-&quot;&quot;&quot;
-    Sends the operations manager a daily completion summary
-    via approved template.
-    Template: manager_daily_summary
-    {{1}} = PLANT_NAME
-    {{2}} = date string
-    {{3}} = total customers
-    {{4}} = orders received
-    {{5}} = pending count
-    {{6}} = area breakdown (single line, pipe-separated — Meta rejects newlines)
-    &quot;&quot;&quot;
-⋮----
-total_active = (
-⋮----
-all_pending    = [c for customers in grouped.values() for c in customers]
-total_pending  = len(all_pending)
-total_received = total_active - total_pending
-⋮----
-area_customers: dict = {}
-⋮----
-area = c.area or &quot;Unassigned&quot;
-⋮----
-parts = []
-⋮----
-names_str = &quot;, &quot;.join(names)
-⋮----
-area_breakdown = &quot; | &quot;.join(parts)
-⋮----
-area_breakdown = &quot;None — all orders received&quot;
-⋮----
-unassigned_pending = len(grouped.get(None, []))
-⋮----
-date_str = delivery_date.strftime(&quot;%d %B %Y&quot;)</file><file path="app/services/reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+def __repr__(self)</file><file path="app/services/reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 IST           = timezone(timedelta(hours=5, minutes=30))
 ⋮----
@@ -1017,124 +969,112 @@ lines = [f&quot;📝 *Customer Notes — {PLANT_NAME}*&quot;, f&quot;{data[&apos
 ⋮----
 time_str = f&quot; ({n[&apos;time&apos;]})&quot; if n[&apos;time&apos;] else &quot;&quot;
 ⋮----
-notes_msg = &quot;\n&quot;.join(lines)</file><file path="app/services/template_parser.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+notes_msg = &quot;\n&quot;.join(lines)</file><file path="app/services/pending_notifier.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 ⋮----
-PRODUCT_DEFINITIONS = [
+TEMPLATE_SALESPERSON_PENDING = &quot;salesperson_pending_orders&quot;
+TEMPLATE_MANAGER_SUMMARY     = &quot;manager_daily_summary&quot;
 ⋮----
-VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
+def send_customer_reminders(db: Session, delivery_date: date | None = None)
 ⋮----
-def _normalize(text: str) -&gt; str
+delivery_date = get_delivery_date_for_now()
 ⋮----
-def _squish(text: str) -&gt; str
+grouped = get_pending_customers(db, delivery_date)
+all_pending_customers = [c for customers in grouped.values() for c in customers]
 ⋮----
-def _tokenize(text: str) -&gt; set
+sent = 0
 ⋮----
-def _match_product(raw_name: str)
+message = (
+result = send_whatsapp_message(customer.phone_number, message)
 ⋮----
-&quot;&quot;&quot;
-    Returns (display_name, unit) or None.
-    Priority: exact → partial/startswith → token subset
-    &quot;&quot;&quot;
-n = _normalize(raw_name)
-s = _squish(raw_name)
+def notify_salespersons_pending(db: Session, delivery_date: date | None = None)
 ⋮----
-# 1. Exact
+assigned = {
 ⋮----
-# 2. Partial / startswith
+salesperson = db.query(Salesperson).filter(
 ⋮----
-a  = _normalize(alias)
-aq = _squish(alias)
+customer_list = &quot;, &quot;.join(
 ⋮----
-# 3. Token subset
-raw_tokens = _tokenize(raw_name)
+result = send_whatsapp_template(
 ⋮----
-alias_tokens = _tokenize(alias)
+# ── 23:10 — Management summary ───────────────────────────────────────────────
 ⋮----
-def _lookup_alias(raw_name: str, db) -&gt; tuple | None
+def send_management_summary(db: Session, delivery_date: date | None = None)
 ⋮----
 &quot;&quot;&quot;
-    Check unclear_item_aliases table for a manager-confirmed mapping.
-    Returns (canonical_product_name, unit) or None.
-    db can be None (caller doesn&apos;t always have a session).
+    Sends the operations manager a daily completion summary
+    via approved template.
+    Template: manager_daily_summary
+    {{1}} = PLANT_NAME
+    {{2}} = date string
+    {{3}} = total customers
+    {{4}} = orders received
+    {{5}} = pending count
+    {{6}} = area breakdown (single line, pipe-separated — Meta rejects newlines)
     &quot;&quot;&quot;
 ⋮----
-normalized = raw_name.strip().lower()
-row = db.query(UnclearItemAlias).filter(
+total_active = (
 ⋮----
-# Find the unit for this canonical product
+all_pending    = [c for customers in grouped.values() for c in customers]
+total_pending  = len(all_pending)
+total_received = total_active - total_pending
 ⋮----
-def _is_noise_phrase(raw_name: str, db) -&gt; bool
+area_customers: dict = {}
 ⋮----
-&quot;&quot;&quot;
-    Check noise_phrases table for a manager-confirmed noise/irrelevant entry.
-    Returns True if this text should be silently skipped (not flagged unclear).
-    db can be None.
-    &quot;&quot;&quot;
+area = c.area or &quot;Unassigned&quot;
 ⋮----
-row = db.query(NoisePhrase).filter(
+parts = []
 ⋮----
-# ── Unit normalization ────────────────────────────────────────────────────────
+names_str = &quot;, &quot;.join(names)
 ⋮----
-UNIT_ALIASES = {
+area_breakdown = &quot; | &quot;.join(parts)
 ⋮----
-def _normalize_unit(raw: str) -&gt; str | None
+area_breakdown = &quot;None — all orders received&quot;
 ⋮----
-def _parse_quantity(raw: str)
+unassigned_pending = len(grouped.get(None, []))
 ⋮----
-qty = float(raw.strip())
+date_str = delivery_date.strftime(&quot;%d %B %Y&quot;)</file><file path="app/routes/dashboard.py">router = APIRouter()
+IST = timezone(timedelta(hours=5, minutes=30))
+templates = Jinja2Templates(directory=&quot;app/templates&quot;)
 ⋮----
-_DATE_LINE_RE = re.compile(
+def _safe_list(value) -&gt; list
 ⋮----
-# Common header/footer filler phrases customers add
-_FILLER_RE = re.compile(
+parsed = json.loads(value)
 ⋮----
-# Lines starting with a unit word are size annotations, not order lines
-# e.g. &quot;kg( 900 gm size)&quot;  /  &quot;pcs (big)&quot;
-_UNIT_ANNOTATION_RE = re.compile(
+# double-encoded: parsed is still a string
 ⋮----
-def _strip_emojis(text: str) -&gt; str
+inner = json.loads(parsed)
 ⋮----
-def _is_noise_line(line: str, restaurant_name_norm: str | None) -&gt; bool
+today = get_current_business_date()
 ⋮----
-&quot;&quot;&quot;
-    Return True if this line is a header/footer/annotation and should be
-    skipped entirely — not treated as an unclear item.
-    Handles:
-      • Restaurant name used as header/footer  e.g. &quot;Test hotel 10&quot;, &quot;Amrai hotel Order 🏨&quot;
-      • Date-only lines                         e.g. &quot;10/06/2026&quot;, &quot;10/06&quot;
-      • Filler phrases                          e.g. &quot;ORDER FOR THE DAY&quot;, &quot;Good morning&quot;
-      • Unit-annotation lines                   e.g. &quot;kg( 900 gm size)&quot;
-      • Emoji/symbol-only lines                 e.g. &quot;🏨🌟&quot;
-      • Numbered-list header lines              e.g. &quot;1.&quot; alone with no product text
-    &quot;&quot;&quot;
-stripped = line.strip()
+target_date = date.fromisoformat(view_date)
 ⋮----
-# Strip emojis for text-based checks
-text_only = _strip_emojis(stripped)
+target_date = today
 ⋮----
-# 1. Nothing left after removing emojis → purely decorative line
+orders = db.query(Order).filter(
 ⋮----
-# 2. No alphanumeric content at all
+unclear_list = _safe_list(order.unclear_items)
 ⋮----
-norm = _normalize(text_only)
+clear_orders   = [o for o in orders if not o.is_unclear]
+unclear_orders = [o for o in orders if o.is_unclear]
 ⋮----
-# 3. Date-only line
+product_summary = {}
 ⋮----
-# 4. Filler header/footer phrase
+product  = item.get(&quot;product&quot;, &quot;Unknown&quot;)
+quantity = item.get(&quot;quantity&quot;, 0)
+unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
+key      = f&quot;{product}__{unit}&quot;
 ⋮----
-# 5. Unit-annotation line (e.g. &quot;kg( 900 gm size)&quot;)
+yesterday = (target_date - timedelta(days=1)).isoformat()
+tomorrow  = (target_date + timedelta(days=1)).isoformat()
+is_today  = (target_date == today)
+now_ist = datetime.now(IST)
+is_before_cutoff = now_ist.hour &lt; 20
 ⋮----
-# 6. Restaurant name appears anywhere in the line
-#    Covers: &quot;Test hotel 10&quot;  /  &quot;Amrai hotel Order 🏨&quot;  /  footer variants
+failed_messages   = []
+reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
 ⋮----
-# ── Main parser ───────────────────────────────────────────────────────────────
-⋮----
-def parse_template_order(customer_phone: str, message: str, db=None) -&gt; dict
-⋮----
-customer_phone: sender&apos;s phone number
-message:        raw WhatsApp message text
-⋮----
-Returns:</file><file path="app/services/notifier.py">META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;)
+reliability_stats = get_reliability_stats(db)</file><file path="app/services/notifier.py">META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;)
 META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;)
 MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;)
 PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
@@ -1192,48 +1132,133 @@ def send_manager_menu(phone: str) -&gt; dict
     Buttons: Summary | Daily Report | Add Customer
     &quot;&quot;&quot;
 ⋮----
-def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/routes/dashboard.py">router = APIRouter()
-IST = timezone(timedelta(hours=5, minutes=30))
-templates = Jinja2Templates(directory=&quot;app/templates&quot;)
+def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/services/template_parser.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 ⋮----
-def _safe_list(value) -&gt; list
+PRODUCT_DEFINITIONS = [
 ⋮----
-parsed = json.loads(value)
+VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
 ⋮----
-# double-encoded: parsed is still a string
+def _normalize(text: str) -&gt; str
 ⋮----
-inner = json.loads(parsed)
+def _squish(text: str) -&gt; str
 ⋮----
-today = get_current_business_date()
+def _tokenize(text: str) -&gt; set
 ⋮----
-target_date = date.fromisoformat(view_date)
+def _match_product(raw_name: str)
 ⋮----
-target_date = today
+&quot;&quot;&quot;
+    Returns (display_name, unit) or None.
+    Priority: exact → partial/startswith → token subset
+    &quot;&quot;&quot;
+n = _normalize(raw_name)
+s = _squish(raw_name)
 ⋮----
-orders = db.query(Order).filter(
+# 1. Exact
 ⋮----
-unclear_list = _safe_list(order.unclear_items)
+# 2. Partial / startswith
 ⋮----
-clear_orders   = [o for o in orders if not o.is_unclear]
-unclear_orders = [o for o in orders if o.is_unclear]
+a  = _normalize(alias)
+aq = _squish(alias)
 ⋮----
-product_summary = {}
+# 3. Token subset
+raw_tokens = _tokenize(raw_name)
 ⋮----
-product  = item.get(&quot;product&quot;, &quot;Unknown&quot;)
-quantity = item.get(&quot;quantity&quot;, 0)
-unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
-key      = f&quot;{product}__{unit}&quot;
+alias_tokens = _tokenize(alias)
 ⋮----
-yesterday = (target_date - timedelta(days=1)).isoformat()
-tomorrow  = (target_date + timedelta(days=1)).isoformat()
-is_today  = (target_date == today)
-now_ist = datetime.now(IST)
-is_before_cutoff = now_ist.hour &lt; 20
+def _lookup_alias(raw_name: str, db) -&gt; tuple | None
 ⋮----
-failed_messages   = []
-reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
+&quot;&quot;&quot;
+    Check unclear_item_aliases table for a manager-confirmed mapping.
+    Returns (canonical_product_name, unit) or None.
+    db can be None (caller doesn&apos;t always have a session).
+    &quot;&quot;&quot;
 ⋮----
-reliability_stats = get_reliability_stats(db)</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
+normalized = raw_name.strip().lower()
+row = db.query(UnclearItemAlias).filter(
+⋮----
+# Find the unit for this canonical product
+⋮----
+def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -&gt; tuple | None
+⋮----
+&quot;&quot;&quot;
+    Check customer_product_aliases for a phone + raw_text match.
+    Returns (canonical_product_name, unit) or None.
+    db can be None (caller doesn&apos;t always have a session).
+    &quot;&quot;&quot;
+⋮----
+row = db.query(CustomerProductAlias).filter(
+⋮----
+# Find the unit for this canonical product (same logic as _lookup_alias)
+⋮----
+# Fallback: return with default unit kg
+⋮----
+def _is_noise_phrase(raw_name: str, db) -&gt; bool
+⋮----
+row = db.query(NoisePhrase).filter(
+⋮----
+UNIT_ALIASES = {
+⋮----
+def _normalize_unit(raw: str) -&gt; str | None
+⋮----
+def _parse_quantity(raw: str)
+⋮----
+qty = float(raw.strip())
+⋮----
+_DATE_LINE_RE = re.compile(
+⋮----
+# Matches lines where quantity comes FIRST: &quot;3 तंदूर&quot;, &quot;4 Leg piece&quot;, &quot;2 lollipop&quot;
+_QTY_FIRST_RE = re.compile(
+⋮----
+# Common header/footer filler phrases customers add
+_FILLER_RE = re.compile(
+⋮----
+# Lines starting with a unit word are size annotations, not order lines
+# e.g. &quot;kg( 900 gm size)&quot;  /  &quot;pcs (big)&quot;
+_UNIT_ANNOTATION_RE = re.compile(
+⋮----
+def _strip_emojis(text: str) -&gt; str
+⋮----
+def _is_noise_line(line: str, restaurant_name_norm: str | None) -&gt; bool
+⋮----
+&quot;&quot;&quot;
+    Return True if this line is a header/footer/annotation and should be
+    skipped entirely — not treated as an unclear item.
+    Handles:
+      • Restaurant name used as header/footer  e.g. &quot;Test hotel 10&quot;, &quot;Amrai hotel Order 🏨&quot;
+      • Date-only lines                         e.g. &quot;10/06/2026&quot;, &quot;10/06&quot;
+      • Filler phrases                          e.g. &quot;ORDER FOR THE DAY&quot;, &quot;Good morning&quot;
+      • Unit-annotation lines                   e.g. &quot;kg( 900 gm size)&quot;
+      • Emoji/symbol-only lines                 e.g. &quot;🏨🌟&quot;
+      • Numbered-list header lines              e.g. &quot;1.&quot; alone with no product text
+    &quot;&quot;&quot;
+stripped = line.strip()
+⋮----
+# Strip emojis for text-based checks
+text_only = _strip_emojis(stripped)
+⋮----
+# 1. Nothing left after removing emojis → purely decorative line
+⋮----
+# 2. No alphanumeric content at all
+⋮----
+norm = _normalize(text_only)
+⋮----
+# 3. Date-only line
+⋮----
+# 4. Filler header/footer phrase
+⋮----
+# 5. Unit-annotation line (e.g. &quot;kg( 900 gm size)&quot;)
+⋮----
+# 6. Restaurant name appears anywhere in the line
+#    Covers: &quot;Test hotel 10&quot;  /  &quot;Amrai hotel Order 🏨&quot;  /  footer variants
+⋮----
+# ── Main parser ───────────────────────────────────────────────────────────────
+⋮----
+def parse_template_order(customer_phone: str, message: str, db=None) -&gt; dict
+⋮----
+customer_phone: sender&apos;s phone number
+message:        raw WhatsApp message text
+⋮----
+Returns:</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
 router = APIRouter()
 MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 ADD_CUSTOMER_CMD = &quot;add customer&quot;
@@ -1419,276 +1444,7 @@ lower    = stripped.lower()
 letters_only = re.sub(r&apos;[^a-zA-Z]&apos;, &apos;&apos;, lower)
 ⋮----
 single_word_fillers = {
-words = lower.split()</file><file path="app/routes/admin.py">logger = logging.getLogger(__name__)
-⋮----
-router     = APIRouter()
-PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-IST        = timezone(timedelta(hours=5, minutes=30))
-⋮----
-# ── Schemas ───────────────────────────────────────────────────────────────────
-⋮----
-class SalespersonCreate(BaseModel)
-⋮----
-name: str
-phone: str
-⋮----
-class SalespersonUpdate(BaseModel)
-⋮----
-name:   Optional[str]  = None
-phone:  Optional[str]  = None
-active: Optional[bool] = None
-⋮----
-class CustomerAssign(BaseModel)
-⋮----
-area:           Optional[str] = None
-salesperson_id: Optional[int] = None
-⋮----
-class CustomerStatus(BaseModel)
-⋮----
-is_active: bool
-⋮----
-class CustomerCreate(BaseModel)
-⋮----
-restaurant_name: str
-area: Optional[str] = None
-⋮----
-class NextDayOverride(BaseModel)
-⋮----
-is_next_day: bool
-⋮----
-class PostOrderPayload(BaseModel)
-⋮----
-&quot;&quot;&quot;Payload for admin posting an order on behalf of a customer.&quot;&quot;&quot;
-message: str
-class CancelOrderPayload(BaseModel)
-⋮----
-reason: Optional[str] = None  # shown to customer + manager
-⋮----
-class NoisePhraseCreate(BaseModel)
-⋮----
-raw_text: str
-⋮----
-@router.get(&quot;/noise-phrases&quot;)
-def get_noise_phrases(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-phrases = db.query(NoisePhrase).order_by(NoisePhrase.raw_text).all()
-⋮----
-normalized = payload.raw_text.strip().lower()
-⋮----
-already_existed = False
-existing = db.query(NoisePhrase).filter(NoisePhrase.raw_text == normalized).first()
-⋮----
-already_existed = True
-phrase = existing
-⋮----
-phrase = NoisePhrase(raw_text=normalized)
-⋮----
-patched_count = 0
-orders_to_patch = (
-⋮----
-unclear = json.loads(order.unclear_items or &quot;[]&quot;)
-remaining = []
-changed = False
-⋮----
-changed = True
-⋮----
-phrase = db.query(NoisePhrase).filter(NoisePhrase.id == phrase_id).first()
-⋮----
-@router.get(&quot;/salespersons&quot;)
-def list_salespersons(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-sps = db.query(Salesperson).order_by(Salesperson.name).all()
-result = []
-⋮----
-count = db.query(Customer).filter(Customer.salesperson_id == sp.id).count()
-⋮----
-@router.post(&quot;/salespersons&quot;)
-def create_salesperson(payload: SalespersonCreate, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-normalized = normalize_phone(payload.phone)
-⋮----
-sp = Salesperson(name=payload.name.strip(), phone=normalized, active=True)
-⋮----
-@router.put(&quot;/salespersons/{salesperson_id}&quot;)
-def update_salesperson(salesperson_id: int, payload: SalespersonUpdate, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == salesperson_id).first()
-⋮----
-@router.delete(&quot;/salespersons/{salesperson_id}&quot;)
-def deactivate_salesperson(salesperson_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-affected = db.query(Customer).filter(Customer.salesperson_id == salesperson_id).count()
-⋮----
-@router.delete(&quot;/salespersons/{salesperson_id}/purge&quot;)
-def hard_delete_salesperson(salesperson_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-def _customer_row(c: Customer, db: Session) -&gt; dict
-⋮----
-sp_name = None
-⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == c.salesperson_id).first()
-sp_name = sp.name if sp else None
-⋮----
-@router.get(&quot;/customers&quot;)
-def list_customers(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-today_str = get_current_business_date_str()
-customers = (
-⋮----
-ordered_today = {
-⋮----
-row = _customer_row(c, db)
-⋮----
-@router.get(&quot;/customers/unassigned&quot;)
-def list_unassigned_customers(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-customer = create_customer_manually(
-⋮----
-sp_name = &quot;&quot;
-⋮----
-sp = db.query(Salesperson).filter(
-sp_name = f&quot;\n🧑 Salesperson: {sp.name}&quot; if sp else &quot;&quot;
-alert = (
-⋮----
-# ── Welcome message to customer ───────────────────────────────────
-⋮----
-welcome = (
-⋮----
-@router.get(&quot;/customers/{customer_id}/orders&quot;)
-def get_customer_orders(customer_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-customer = db.query(Customer).filter(Customer.id == customer_id).first()
-⋮----
-orders = (
-⋮----
-def safe_json(val)
-⋮----
-result = json.loads(val) if isinstance(val, str) else val
-if isinstance(result, str):          # double-encoded
-result = json.loads(result)
-⋮----
-@router.post(&quot;/customers/{customer_id}/assign&quot;)
-def assign_customer(customer_id: int, payload: CustomerAssign, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == payload.salesperson_id).first()
-⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == customer.salesperson_id).first()
-⋮----
-@router.put(&quot;/customers/{customer_id}/status&quot;)
-def update_customer_status(customer_id: int, payload: CustomerStatus, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-existing_orders = (
-⋮----
-result = process_incoming_order(
-⋮----
-status = result.get(&quot;status&quot;, &quot;&quot;)
-⋮----
-order = db.query(Order).filter(Order.id == order_id).first()
-⋮----
-reason_text = payload.reason or &quot;We are unable to fulfil this order today.&quot;
-⋮----
-# Notify manager
-⋮----
-@router.get(&quot;/pending&quot;)
-def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-target_date = date.fromisoformat(delivery_date)
-⋮----
-target_date = get_delivery_date_for_now()
-⋮----
-grouped = get_pending_customers(db, target_date)
-result  = []
-total   = 0
-⋮----
-sp_name = &quot;Unassigned&quot;; sp_phone = None
-⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == sp_id).first()
-sp_name = sp.name if sp else f&quot;Unknown (id={sp_id})&quot;
-sp_phone = sp.phone if sp else None
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-order_ist = order.created_at.astimezone(IST)
-cutoff = order_ist.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
-⋮----
-next_day = (order_ist.date() + timedelta(days=1)).strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-def _window_status(last_inbound: datetime | None, now: datetime) -&gt; dict
-⋮----
-last_inbound = last_inbound.replace(tzinfo=timezone.utc)
-⋮----
-window_expires = last_inbound + timedelta(hours=24)
-remaining = window_expires - now
-⋮----
-total_minutes = int(remaining.total_seconds() // 60)
-hours = total_minutes // 60
-minutes = total_minutes % 60
-status = &quot;OPEN&quot; if hours &gt;= 4 else &quot;AT_RISK&quot;
-⋮----
-@router.get(&quot;/window-status&quot;)
-def get_window_status(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-now = datetime.now(timezone.utc)
-stakeholders = []
-⋮----
-all_phones = [s[&quot;phone&quot;] for s in stakeholders]
-last_seen_map = {}
-⋮----
-rows = (
-last_seen_map = {row.customer_phone: row.last_seen for row in rows}
-⋮----
-closed_count = at_risk_count = 0
-⋮----
-window = _window_status(last_seen_map.get(s[&quot;phone&quot;]), now)
-⋮----
-@router.get(&quot;/unclear-items&quot;)
-def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-def _safe_list(val)
-⋮----
-result = json.loads(val)
-⋮----
-unclear = _safe_list(o.unclear_items)
-⋮----
-@router.get(&quot;/unclear-items/aliases&quot;)
-def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-aliases = db.query(UnclearItemAlias).order_by(UnclearItemAlias.raw_text).all()
-⋮----
-@router.get(&quot;/product-names&quot;)
-def get_product_names(username: str = Depends(require_auth))
-⋮----
-LINE_RE = re.compile(
-⋮----
-def _extract_product_name(raw_line: str) -&gt; tuple[str, float]
-⋮----
-&quot;&quot;&quot;
-    Given a raw unclear line like &quot;Raan -5&quot; or &quot;kaleji 2kg&quot;,
-    returns (product_name_lower, quantity).
-    Falls back to (full_line_lower, 1.0) if no quantity found.
-    Helper utility referenced by resolve_unclear_item documentation.
-    Looks up canonical product names directly via active alias tags.
-    Save raw_text → canonical_product_name alias and retroactively
-    patch all past orders that have that raw_text in their unclear_items.
-    raw_text is the PRODUCT NAME PART ONLY (e.g. &quot;raan&quot;), not the full
-    raw line with quantity (e.g. &quot;raan -5&quot;). The dashboard strips the
-    quantity before sending. This ensures the alias matches correctly
-    in both _lookup_alias() and future retroactive patches.
-Delete a saved alias.&quot;&quot;&quot;
-alias = db.query(UnclearItemAlias).filter(UnclearItemAlias.id == alias_id).first()
-⋮----
-@router.post(&quot;/test-notifications/customer-reminders&quot;)
-def test_customer_reminders(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-@router.post(&quot;/test-notifications/salesperson-pending&quot;)
-def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-@router.post(&quot;/test-notifications/management-summary&quot;)
-def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-@router.post(&quot;/test-notifications/daily-report&quot;)
-def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/templates/dashboard.html">&lt;!DOCTYPE html&gt;
+words = lower.split()</file><file path="app/templates/dashboard.html">&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
     &lt;meta charset=&quot;UTF-8&quot;&gt;
@@ -1834,6 +1590,10 @@ def test_daily_report(db: Session = Depends(get_db), username: str = Depends(req
         .aliases-table th { text-align:left; padding:6px 8px; color:#718096; font-weight:600; border-bottom:1px solid #e2e8f0; }
         .aliases-table td { padding:6px 8px; border-bottom:1px solid #f7fafc; }
         .alias-raw { font-family:monospace; color:#c53030; }
+        /* ── Scope toggle (unclear tab) ── */
+        .scope-select { font-size:12px; padding:4px 7px; border:1px solid #e2e8f0; border-radius:6px; background:white; color:#4a5568; }
+        .scope-select.customer { border-color:#3182ce; color:#2b6cb0; }
+        .scope-select.global   { border-color:#e67e22; color:#c05621; }
         /* ── Modals ── */
         .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:500; align-items:flex-end; justify-content:center; }
         .modal-overlay.open { display:flex; }
@@ -2023,6 +1783,15 @@ def test_daily_report(db: Session = Depends(get_db), username: str = Depends(req
             &lt;h2&gt;📖 Saved Aliases&lt;/h2&gt;
             &lt;p style=&quot;font-size:13px;color:#718096;margin-bottom:12px;&quot;&gt;These mappings are applied automatically by the parser from now on.&lt;/p&gt;
             &lt;div id=&quot;aliases-container&quot;&gt;
+                &lt;div class=&quot;empty&quot;&gt;Loading...&lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div style=&quot;margin-top:24px;&quot;&gt;
+            &lt;h2&gt;🏪 Per-Customer Aliases&lt;/h2&gt;
+            &lt;p style=&quot;font-size:13px;color:#718096;margin-bottom:12px;&quot;&gt;
+                These mappings apply only to the specific customer who typed that text.
+            &lt;/p&gt;
+            &lt;div id=&quot;customer-aliases-container&quot;&gt;
                 &lt;div class=&quot;empty&quot;&gt;Loading...&lt;/div&gt;
             &lt;/div&gt;
         &lt;/div&gt;
@@ -2270,8 +2039,8 @@ function switchTab(name, btn) {
     if (name === &apos;pending&apos;)      { loadPending(); }
     if (name === &apos;failed&apos;)       { loadFailedMessages(); }
     if (name === &apos;window&apos;)       { loadWindowStatus(); }
-    // ② Updated: also call loadNoisePhrases when switching to unclear
-    if (name === &apos;unclear&apos;)      { loadUnclearOrders(); loadAliases(); loadNoisePhrases(); }
+    // CHANGE 6: also call loadCustomerAliases when switching to unclear
+    if (name === &apos;unclear&apos;)      { loadUnclearOrders(); loadAliases(); loadNoisePhrases(); loadCustomerAliases(); }
 }
 function showToast(msg, type=&apos;&apos;) {
     const t = document.getElementById(&apos;toast&apos;);
@@ -2630,7 +2399,6 @@ async function loadUnclearOrders() {
         }
         if (orders.length === 0) {
             container.innerHTML = `&lt;div class=&quot;empty&quot; style=&quot;color:#38a169;&quot;&gt;✅ All orders fully parsed — no unclear items!&lt;/div&gt;`;
-            // ② Also load noise phrases when unclear orders finish loading
             loadNoisePhrases();
             return;
         }
@@ -2644,10 +2412,11 @@ async function loadUnclearOrders() {
                             &amp;nbsp;&amp;nbsp;• ${esc(i.product)} — ${Number.isInteger(i.quantity) || i.quantity%1===0 ? parseInt(i.quantity) : i.quantity} ${esc(i.unit)}
                         &lt;/div&gt;`).join(&apos;&apos;)}
                 &lt;/div&gt;` : &apos;&apos;;
-            // ③ Updated unclear item rows — now include the 🚫 Noise button
+            // CHANGE 3: Updated unclearSection with scope dropdown + customer_phone
             const unclearSection = `
                 &lt;div&gt;
                     &lt;div class=&quot;unclear-section-label unclear-raw-label&quot;&gt;❓ Unresolved items — assign correct product:&lt;/div&gt;
+                    &lt;div style=&quot;font-size:11px;color:#888;margin-bottom:8px;&quot;&gt;📱 ${esc(order.customer_phone)} — ${esc(order.customer_name)}&lt;/div&gt;
                     ${order.unclear_items.map((rawLine, idx) =&gt; `
                         &lt;div class=&quot;unclear-item-row&quot;&gt;
                             &lt;div class=&quot;unclear-raw-pill&quot;&gt;${esc(rawLine)}&lt;/div&gt;
@@ -2655,8 +2424,13 @@ async function loadUnclearOrders() {
                                 &lt;option value=&quot;&quot;&gt;— select product —&lt;/option&gt;
                                 ${productOptions}
                             &lt;/select&gt;
+                            &lt;select class=&quot;scope-select customer&quot; id=&quot;scope-${order.order_id}-${idx}&quot;
+                                onchange=&quot;this.className=&apos;scope-select &apos;+(this.value===&apos;customer&apos;?&apos;customer&apos;:&apos;global&apos;)&quot;&gt;
+                                &lt;option value=&quot;customer&quot;&gt;This customer only&lt;/option&gt;
+                                &lt;option value=&quot;global&quot;&gt;All customers (global)&lt;/option&gt;
+                            &lt;/select&gt;
                             &lt;button class=&quot;unclear-save-btn&quot;
-                                onclick=&quot;resolveItem(&apos;${esc(rawLine).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;, &apos;sel-${order.order_id}-${idx}&apos;, this)&quot;&gt;
+                                onclick=&quot;resolveItem(&apos;${esc(rawLine).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;, &apos;sel-${order.order_id}-${idx}&apos;, this, &apos;${esc(order.customer_phone)}&apos;, &apos;scope-${order.order_id}-${idx}&apos;)&quot;&gt;
                                 Save &amp;amp; Apply
                             &lt;/button&gt;
                             &lt;button class=&quot;unclear-save-btn&quot; style=&quot;background:#718096;&quot;
@@ -2682,7 +2456,6 @@ async function loadUnclearOrders() {
                     &lt;/details&gt;
                 &lt;/div&gt;`;
         }).join(&apos;&apos;);
-        // ② Also refresh noise phrases count after loading unclear orders
         loadNoisePhrases();
     } catch(e) {
         container.innerHTML = `&lt;div class=&quot;empty&quot; style=&quot;color:#e53e3e;&quot;&gt;Failed to load: ${esc(e.message)}&lt;/div&gt;`;
@@ -2694,22 +2467,31 @@ function _extractProductName(rawLine) {
     if (m) return m[1].trim().toLowerCase();
     return clean.toLowerCase();
 }
-async function resolveItem(rawText, selectId, btn) {
+// CHANGE 4: Updated resolveItem with customer_phone + scopeSelectId
+async function resolveItem(rawText, selectId, btn, customerPhone, scopeSelectId) {
     const select = document.getElementById(selectId);
     const canonical = select ? select.value : &apos;&apos;;
     if (!canonical) { showToast(&apos;Please select a product first&apos;, &apos;error&apos;); return; }
+    const scopeEl = document.getElementById(scopeSelectId);
+    const scope = scopeEl ? scopeEl.value : &apos;customer&apos;;
     const productName = _extractProductName(rawText);
     btn.disabled = true;
     btn.textContent = &apos;Saving…&apos;;
     try {
-        const data = await api(&apos;POST&apos;, &apos;/admin/unclear-items/resolve&apos;, {
+        const body = {
             raw_text: productName,
             canonical_product_name: canonical,
-        });
+            scope: scope,
+        };
+        if (scope === &apos;customer&apos; &amp;&amp; customerPhone) {
+            body.customer_phone = customerPhone;
+        }
+        const data = await api(&apos;POST&apos;, &apos;/admin/unclear-items/resolve&apos;, body);
+        const scopeLabel = scope === &apos;global&apos; ? &apos;🌍 global&apos; : &apos;🏪 this customer&apos;;
         btn.textContent = `✅ ${data.orders_patched} order${data.orders_patched !== 1 ? &apos;s&apos; : &apos;&apos;} updated`;
         btn.classList.add(&apos;done&apos;);
-        showToast(`✅ &quot;${productName}&quot; → ${canonical} (${data.orders_patched} orders updated)`, &apos;success&apos;);
-        setTimeout(() =&gt; { loadUnclearOrders(); loadAliases(); }, 1500);
+        showToast(`✅ &quot;${productName}&quot; → ${canonical} [${scopeLabel}] (${data.orders_patched} orders updated)`, &apos;success&apos;);
+        setTimeout(() =&gt; { loadUnclearOrders(); loadAliases(); loadCustomerAliases(); }, 1500);
     } catch(e) {
         btn.disabled = false;
         btn.textContent = &apos;Save &amp; Apply&apos;;
@@ -2767,6 +2549,59 @@ async function deleteAlias(id) {
         const count = document.querySelectorAll(&apos;[id^=&quot;alias-row-&quot;]&apos;).length;
         document.getElementById(&apos;unclear-aliases-count&apos;).textContent = count;
         if (count === 0) loadAliases();
+    } catch(e) { showToast(&apos;Delete failed&apos;, &apos;error&apos;); }
+}
+// CHANGE 5: loadCustomerAliases and deleteCustomerAlias
+async function loadCustomerAliases() {
+    const container = document.getElementById(&apos;customer-aliases-container&apos;);
+    if (!container) return;
+    try {
+        const aliases = await api(&apos;GET&apos;, &apos;/admin/customer-aliases&apos;);
+        if (!aliases.length) {
+            container.innerHTML = &apos;&lt;div class=&quot;empty&quot; style=&quot;padding:16px&quot;&gt;No per-customer aliases saved yet.&lt;/div&gt;&apos;;
+            return;
+        }
+        container.innerHTML = `
+            &lt;div class=&quot;summary-table&quot;&gt;
+                &lt;table class=&quot;aliases-table&quot;&gt;
+                    &lt;thead&gt;
+                        &lt;tr&gt;
+                            &lt;th&gt;Customer&lt;/th&gt;
+                            &lt;th&gt;Customer typed&lt;/th&gt;
+                            &lt;th&gt;Maps to&lt;/th&gt;
+                            &lt;th&gt;Saved on&lt;/th&gt;
+                            &lt;th&gt;&lt;/th&gt;
+                        &lt;/tr&gt;
+                    &lt;/thead&gt;
+                    &lt;tbody&gt;
+                        ${aliases.map(a =&gt; `
+                            &lt;tr id=&quot;ca-row-${a.id}&quot;&gt;
+                                &lt;td style=&quot;font-size:12px;color:#718096;&quot;&gt;${esc(a.customer_phone)}&lt;/td&gt;
+                                &lt;td class=&quot;alias-raw&quot;&gt;${esc(a.raw_text)}&lt;/td&gt;
+                                &lt;td style=&quot;color:#2d3748;font-weight:600;&quot;&gt;${esc(a.canonical_product_name)}&lt;/td&gt;
+                                &lt;td style=&quot;color:#aaa;font-size:12px;&quot;&gt;${a.created_at ? a.created_at.substring(0,10) : &apos;—&apos;}&lt;/td&gt;
+                                &lt;td&gt;
+                                    &lt;button onclick=&quot;deleteCustomerAlias(${a.id})&quot;
+                                        style=&quot;font-size:11px;color:#e53e3e;background:none;border:1px solid #e53e3e;border-radius:4px;padding:2px 8px;cursor:pointer;&quot;&gt;
+                                        Delete
+                                    &lt;/button&gt;
+                                &lt;/td&gt;
+                            &lt;/tr&gt;`).join(&apos;&apos;)}
+                    &lt;/tbody&gt;
+                &lt;/table&gt;
+            &lt;/div&gt;`;
+    } catch(e) {
+        if (container) container.innerHTML = &apos;&lt;div class=&quot;empty&quot; style=&quot;color:#e53e3e;&quot;&gt;Failed to load.&lt;/div&gt;&apos;;
+    }
+}
+async function deleteCustomerAlias(id) {
+    if (!confirm(&apos;Delete this customer alias? That customer\&apos;s orders with this text will be flagged unclear again.&apos;)) return;
+    try {
+        await api(&apos;DELETE&apos;, `/admin/customer-aliases/${id}`);
+        showToast(&apos;Customer alias deleted&apos;, &apos;&apos;);
+        document.getElementById(`ca-row-${id}`)?.remove();
+        const count = document.querySelectorAll(&apos;[id^=&quot;ca-row-&quot;]&apos;).length;
+        if (count === 0) loadCustomerAliases();
     } catch(e) { showToast(&apos;Delete failed&apos;, &apos;error&apos;); }
 }
 // ── Noise Phrases ─────────────────────────────────────────────────────────────
@@ -2949,7 +2784,334 @@ setInterval(() =&gt; {
 }, 60000);
 &lt;/script&gt;
 &lt;/body&gt;
-&lt;/html&gt;</file><file path="app/main.py">IST = timezone(timedelta(hours=5, minutes=30))
+&lt;/html&gt;</file><file path="app/routes/admin.py">logger = logging.getLogger(__name__)
+⋮----
+router     = APIRouter()
+PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+IST        = timezone(timedelta(hours=5, minutes=30))
+⋮----
+# ── Schemas ───────────────────────────────────────────────────────────────────
+⋮----
+class SalespersonCreate(BaseModel)
+⋮----
+name: str
+phone: str
+⋮----
+class SalespersonUpdate(BaseModel)
+⋮----
+name:   Optional[str]  = None
+phone:  Optional[str]  = None
+active: Optional[bool] = None
+⋮----
+class CustomerAssign(BaseModel)
+⋮----
+area:           Optional[str] = None
+salesperson_id: Optional[int] = None
+⋮----
+class CustomerStatus(BaseModel)
+⋮----
+is_active: bool
+⋮----
+class CustomerCreate(BaseModel)
+⋮----
+restaurant_name: str
+area: Optional[str] = None
+⋮----
+class NextDayOverride(BaseModel)
+⋮----
+is_next_day: bool
+⋮----
+class PostOrderPayload(BaseModel)
+⋮----
+&quot;&quot;&quot;Payload for admin posting an order on behalf of a customer.&quot;&quot;&quot;
+message: str
+⋮----
+class CancelOrderPayload(BaseModel)
+⋮----
+reason: Optional[str] = None  # shown to customer + manager
+⋮----
+class NoisePhraseCreate(BaseModel)
+⋮----
+raw_text: str
+⋮----
+class ResolveUnclearItem(BaseModel)
+⋮----
+canonical_product_name: str
+customer_phone: Optional[str] = None   # None = global
+scope: str = &quot;customer&quot;
+⋮----
+class CustomerAliasCreate(BaseModel)
+⋮----
+customer_phone: str
+⋮----
+@router.get(&quot;/noise-phrases&quot;)
+def get_noise_phrases(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+phrases = db.query(NoisePhrase).order_by(NoisePhrase.raw_text).all()
+⋮----
+normalized = payload.raw_text.strip().lower()
+⋮----
+already_existed = False
+existing = db.query(NoisePhrase).filter(NoisePhrase.raw_text == normalized).first()
+⋮----
+already_existed = True
+phrase = existing
+⋮----
+phrase = NoisePhrase(raw_text=normalized)
+⋮----
+patched_count = 0
+orders_to_patch = (
+⋮----
+unclear = json.loads(order.unclear_items or &quot;[]&quot;)
+remaining = []
+changed = False
+⋮----
+changed = True
+⋮----
+phrase = db.query(NoisePhrase).filter(NoisePhrase.id == phrase_id).first()
+⋮----
+@router.get(&quot;/salespersons&quot;)
+def list_salespersons(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+sps = db.query(Salesperson).order_by(Salesperson.name).all()
+result = []
+⋮----
+count = db.query(Customer).filter(Customer.salesperson_id == sp.id).count()
+⋮----
+@router.post(&quot;/salespersons&quot;)
+def create_salesperson(payload: SalespersonCreate, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+normalized = normalize_phone(payload.phone)
+⋮----
+sp = Salesperson(name=payload.name.strip(), phone=normalized, active=True)
+⋮----
+@router.put(&quot;/salespersons/{salesperson_id}&quot;)
+def update_salesperson(salesperson_id: int, payload: SalespersonUpdate, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+sp = db.query(Salesperson).filter(Salesperson.id == salesperson_id).first()
+⋮----
+@router.delete(&quot;/salespersons/{salesperson_id}&quot;)
+def deactivate_salesperson(salesperson_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+affected = db.query(Customer).filter(Customer.salesperson_id == salesperson_id).count()
+⋮----
+@router.delete(&quot;/salespersons/{salesperson_id}/purge&quot;)
+def hard_delete_salesperson(salesperson_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+def _customer_row(c: Customer, db: Session) -&gt; dict
+⋮----
+sp_name = None
+⋮----
+sp = db.query(Salesperson).filter(Salesperson.id == c.salesperson_id).first()
+sp_name = sp.name if sp else None
+⋮----
+@router.get(&quot;/customers&quot;)
+def list_customers(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+today_str = get_current_business_date_str()
+customers = (
+⋮----
+ordered_today = {
+⋮----
+row = _customer_row(c, db)
+⋮----
+@router.get(&quot;/customers/unassigned&quot;)
+def list_unassigned_customers(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+customer = create_customer_manually(
+⋮----
+sp_name = &quot;&quot;
+⋮----
+sp = db.query(Salesperson).filter(
+sp_name = f&quot;\n🧑 Salesperson: {sp.name}&quot; if sp else &quot;&quot;
+alert = (
+⋮----
+# ── Welcome message to customer ───────────────────────────────────
+⋮----
+welcome = (
+⋮----
+@router.get(&quot;/customers/{customer_id}/orders&quot;)
+def get_customer_orders(customer_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+customer = db.query(Customer).filter(Customer.id == customer_id).first()
+⋮----
+orders = (
+⋮----
+def safe_json(val)
+⋮----
+result = json.loads(val) if isinstance(val, str) else val
+if isinstance(result, str):          # double-encoded
+result = json.loads(result)
+⋮----
+@router.post(&quot;/customers/{customer_id}/assign&quot;)
+def assign_customer(customer_id: int, payload: CustomerAssign, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+sp = db.query(Salesperson).filter(Salesperson.id == payload.salesperson_id).first()
+⋮----
+sp = db.query(Salesperson).filter(Salesperson.id == customer.salesperson_id).first()
+⋮----
+@router.put(&quot;/customers/{customer_id}/status&quot;)
+def update_customer_status(customer_id: int, payload: CustomerStatus, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+existing_orders = (
+⋮----
+result = process_incoming_order(
+⋮----
+status = result.get(&quot;status&quot;, &quot;&quot;)
+⋮----
+order = db.query(Order).filter(Order.id == order_id).first()
+⋮----
+reason_text = payload.reason or &quot;We are unable to fulfil this order today.&quot;
+⋮----
+# Notify manager
+⋮----
+@router.get(&quot;/pending&quot;)
+def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+target_date = date.fromisoformat(delivery_date)
+⋮----
+target_date = get_delivery_date_for_now()
+⋮----
+grouped = get_pending_customers(db, target_date)
+result  = []
+total   = 0
+⋮----
+sp_name = &quot;Unassigned&quot;; sp_phone = None
+⋮----
+sp = db.query(Salesperson).filter(Salesperson.id == sp_id).first()
+sp_name = sp.name if sp else f&quot;Unknown (id={sp_id})&quot;
+sp_phone = sp.phone if sp else None
+⋮----
+now_ist = datetime.now(IST)
+⋮----
+order_ist = order.created_at.astimezone(IST)
+cutoff = order_ist.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
+⋮----
+next_day = (order_ist.date() + timedelta(days=1)).strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+def _window_status(last_inbound: datetime | None, now: datetime) -&gt; dict
+⋮----
+last_inbound = last_inbound.replace(tzinfo=timezone.utc)
+⋮----
+window_expires = last_inbound + timedelta(hours=24)
+remaining = window_expires - now
+⋮----
+total_minutes = int(remaining.total_seconds() // 60)
+hours = total_minutes // 60
+minutes = total_minutes % 60
+status = &quot;OPEN&quot; if hours &gt;= 4 else &quot;AT_RISK&quot;
+⋮----
+@router.get(&quot;/window-status&quot;)
+def get_window_status(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+now = datetime.now(timezone.utc)
+stakeholders = []
+⋮----
+all_phones = [s[&quot;phone&quot;] for s in stakeholders]
+last_seen_map = {}
+⋮----
+rows = (
+last_seen_map = {row.customer_phone: row.last_seen for row in rows}
+⋮----
+closed_count = at_risk_count = 0
+⋮----
+window = _window_status(last_seen_map.get(s[&quot;phone&quot;]), now)
+⋮----
+@router.get(&quot;/unclear-items&quot;)
+def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+def _safe_list(val)
+⋮----
+result = json.loads(val)
+⋮----
+unclear = _safe_list(o.unclear_items)
+⋮----
+@router.get(&quot;/unclear-items/aliases&quot;)
+def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+aliases = db.query(UnclearItemAlias).order_by(UnclearItemAlias.raw_text).all()
+⋮----
+@router.get(&quot;/product-names&quot;)
+def get_product_names(username: str = Depends(require_auth))
+⋮----
+LINE_RE = re.compile(
+⋮----
+def _extract_product_name(raw_line: str) -&gt; tuple[str, float]
+⋮----
+&quot;&quot;&quot;
+    Given a raw unclear line like &quot;Raan -5&quot; or &quot;kaleji 2kg&quot;,
+    returns (product_name_lower, quantity).
+    Falls back to (full_line_lower, 1.0) if no quantity found.
+Look up a global alias by raw_text. Returns canonical product name or None.&quot;&quot;&quot;
+alias_match = db.query(UnclearItemAlias).filter(
+⋮----
+# ── Retroactive patch helpers ─────────────────────────────────────────────────
+⋮----
+def _retroactive_patch_global(raw: str, canonical: str, db) -&gt; int
+⋮----
+&quot;&quot;&quot;Patch all past orders containing raw in unclear_items (global).&quot;&quot;&quot;
+⋮----
+patched = 0
+⋮----
+def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db) -&gt; int
+⋮----
+&quot;&quot;&quot;Patch past orders for ONE customer containing raw in unclear_items.&quot;&quot;&quot;
+⋮----
+def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -&gt; int
+⋮----
+&quot;&quot;&quot;
+    Remove `raw` from order.unclear_items and add it to order.parsed_items.
+    Returns 1 if the order was modified, 0 otherwise.
+Strip quantity/unit to get the lowercase product name.&quot;&quot;&quot;
+clean = line.replace(&quot;__&quot;, &quot;&quot;).strip()
+m = re.match(r&quot;^(.+?)\s*[-:]?\s*[\d\.]+\s*(?:kg|kgs|nos|pcs|pc|pieces?)?\s*$&quot;, clean, re.I)
+⋮----
+def _extract_qty_from_line(line: str) -&gt; float
+⋮----
+&quot;&quot;&quot;Extract numeric quantity from a raw line, defaulting to 1.&quot;&quot;&quot;
+m = re.search(r&quot;([\d]+(?:[./][\d]+)?)&quot;, line)
+⋮----
+&quot;&quot;&quot;
+    Save raw_text → canonical_product_name alias and retroactively
+    patch past orders that have that raw_text in their unclear_items.
+    scope=&quot;global&quot; (or no customer_phone): saves a global UnclearItemAlias
+    and patches ALL customers&apos; past orders.
+    scope=&quot;customer&quot; (with customer_phone): saves a CustomerProductAlias
+    for that phone only and patches only that customer&apos;s past orders.
+    raw_text is the PRODUCT NAME PART ONLY (e.g. &quot;raan&quot;), not the full
+    raw line with quantity (e.g. &quot;raan -5&quot;). The dashboard strips the
+    quantity before sending.
+Delete a saved global alias.&quot;&quot;&quot;
+alias = db.query(UnclearItemAlias).filter(UnclearItemAlias.id == alias_id).first()
+⋮----
+# ── Customer-scoped aliases ───────────────────────────────────────────────────
+⋮----
+&quot;&quot;&quot;List all customer-specific aliases.&quot;&quot;&quot;
+aliases = (
+⋮----
+&quot;&quot;&quot;List all aliases for a specific customer phone number.&quot;&quot;&quot;
+⋮----
+&quot;&quot;&quot;Create or update a customer-specific alias.&quot;&quot;&quot;
+raw = payload.raw_text.strip().lower()
+existing = db.query(CustomerProductAlias).filter(
+⋮----
+alias = CustomerProductAlias(
+⋮----
+&quot;&quot;&quot;Delete a customer-specific alias by ID.&quot;&quot;&quot;
+alias = db.query(CustomerProductAlias).filter(
+⋮----
+@router.post(&quot;/test-notifications/customer-reminders&quot;)
+def test_customer_reminders(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+@router.post(&quot;/test-notifications/salesperson-pending&quot;)
+def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+@router.post(&quot;/test-notifications/management-summary&quot;)
+def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+@router.post(&quot;/test-notifications/daily-report&quot;)
+def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/main.py">IST = timezone(timedelta(hours=5, minutes=30))
 ⋮----
 _last_report_time: str = &quot;Never&quot;
 ⋮----

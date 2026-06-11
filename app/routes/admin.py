@@ -875,7 +875,12 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -> int:
     Returns 1 if the order was modified, 0 otherwise.
     """
     try:
-        unclear = json.loads(order.unclear_items) if isinstance(order.unclear_items, str) else (order.unclear_items or [])
+        raw_val = order.unclear_items
+        if not raw_val or raw_val in ("null", "[]", ""):
+            return 0
+        unclear = json.loads(raw_val) if isinstance(raw_val, str) else (raw_val or [])
+        if not isinstance(unclear, list) or not unclear:
+            return 0
     except Exception:
         return 0
 
@@ -900,6 +905,8 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -> int:
 
     try:
         parsed = json.loads(order.parsed_items) if isinstance(order.parsed_items, str) else (order.parsed_items or [])
+        if not isinstance(parsed, list):
+            parsed = []
     except Exception:
         parsed = []
 
@@ -908,7 +915,7 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -> int:
         parsed.append({"product": canonical, "quantity": qty, "unit": unit})
 
     order.parsed_items  = json.dumps(parsed)
-    order.unclear_items = json.dumps(remaining)
+    order.unclear_items = json.dumps(remaining) if remaining else None
 
     if not remaining:
         order.is_unclear = False
