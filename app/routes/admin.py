@@ -21,6 +21,7 @@ Unclear:      GET /admin/unclear-items
 import os
 import re
 import json
+import logging
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
@@ -46,6 +47,11 @@ from app.services.order_service import get_current_business_date_str, RESET_HOUR
 from app.services.notifier import send_manager_alert
 from app.services.customer_service import get_customer_by_phone
 from app.models.noise_phrase import NoisePhrase
+from app.services.product_catalog import generate_order_template
+
+logger = logging.getLogger(__name__)
+
+
 
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")

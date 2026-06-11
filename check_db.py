@@ -36,9 +36,15 @@ def run_write(title, query, params=None):
         conn.rollback()
 
 
-run_write("BACKFILL business_date from delivery_date", """
-    ALTER TABLE customers ADD COLUMN ledger_token VARCHAR UNIQUE;
-""")
+
+run("inbound_messages", "SELECT * FROM inbound_messages ORDER BY id DESC LIMIT 20;")
+run("orders", "SELECT * FROM orders ORDER BY id DESC LIMIT 20;")
+run("customers", "SELECT * FROM customers ORDER BY id DESC LIMIT 20;")
+run("salespersons", "SELECT * FROM salespersons ORDER BY id DESC LIMIT 20;")
+run("unclear_item_aliases", "SELECT * FROM unclear_item_aliases ORDER BY id DESC LIMIT 20;")
+run("noise_phrases", "SELECT * FROM noise_phrases ORDER BY id DESC LIMIT 20;")
+
+
 cur.close()
 conn.close()
 print("\n✅ Done.")

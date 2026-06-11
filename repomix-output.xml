@@ -31,6 +31,7 @@ app/main.py
 app/models/__init__.py
 app/models/customer.py
 app/models/inbound_message.py
+app/models/noise_phrase.py
 app/models/order.py
 app/models/salesperson.py
 app/models/unclear_item_alias.py
@@ -61,14 +62,14 @@ Procfile
 pytest.ini
 render.yaml
 requirements.txt
-runtime.txt</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path=".python-version">3.11.0</file><file path="app/__init__.py"></file><file path="app/auth.py">security = HTTPBasic()
+runtime.txt</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path="app/__init__.py"></file><file path="app/models/__init__.py"></file><file path="app/routes/__init__.py"></file><file path="app/services/__init__.py"></file><file path=".python-version">3.11.0</file><file path="app/auth.py">security = HTTPBasic()
 ⋮----
 username = os.getenv(&quot;DASHBOARD_USERNAME&quot;, &quot;&quot;)
 password = os.getenv(&quot;DASHBOARD_PASSWORD&quot;, &quot;&quot;)
 ⋮----
 username_ok = secrets.compare_digest(
 ⋮----
-password_ok = secrets.compare_digest(</file><file path="app/models/__init__.py"></file><file path="app/models/inbound_message.py">class InboundMessage(Base)
+password_ok = secrets.compare_digest(</file><file path="app/models/inbound_message.py">class InboundMessage(Base)
 ⋮----
 __tablename__ = &quot;inbound_messages&quot;
 ⋮----
@@ -91,6 +92,16 @@ ack_failed               = Column(Boolean, default=False)
 is_duplicate             = Column(Boolean, default=False)
 created_at               = Column(DateTime(timezone=True), server_default=func.now())
 updated_at               = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+⋮----
+def __repr__(self)</file><file path="app/models/noise_phrase.py">IST = timezone(timedelta(hours=5, minutes=30))
+⋮----
+class NoisePhrase(Base)
+⋮----
+__tablename__ = &quot;noise_phrases&quot;
+⋮----
+id         = Column(Integer, primary_key=True, index=True)
+raw_text   = Column(String, unique=True, nullable=False, index=True)
+created_at = Column(DateTime, default=lambda: datetime.now(IST))
 ⋮----
 def __repr__(self)</file><file path="app/models/salesperson.py">class Salesperson(Base)
 ⋮----
@@ -118,7 +129,7 @@ id                   = Column(Integer, primary_key=True, index=True)
 raw_text             = Column(String, unique=True, nullable=False, index=True)
 canonical_product_name = Column(String, nullable=False)
 created_at           = Column(DateTime, default=lambda: datetime.now(IST))
-updated_at           = Column(DateTime, default=lambda: datetime.now(IST),</file><file path="app/routes/__init__.py"></file><file path="app/routes/unclear_items_routes.py">UNCLEAR_ROUTES = &apos;&apos;&apos;</file><file path="app/services/__init__.py"></file><file path="app/services/retry_scheduler.py">logger = logging.getLogger(__name__)
+updated_at           = Column(DateTime, default=lambda: datetime.now(IST),</file><file path="app/routes/unclear_items_routes.py">UNCLEAR_ROUTES = &apos;&apos;&apos;</file><file path="app/services/retry_scheduler.py">logger = logging.getLogger(__name__)
 ⋮----
 def retry_failed_messages()
 ⋮----
@@ -128,7 +139,19 @@ due_messages = get_messages_pending_retry(db)
 ⋮----
 result = process_incoming_order(</file><file path="Procfile">web: uvicorn app.main:app --host 0.0.0.0 --port $PORT</file><file path="pytest.ini">[pytest]
 pythonpath = .
-testpaths = tests</file><file path="runtime.txt">python-3.11.0</file><file path="app/routes/ledger.py">router = APIRouter()
+testpaths = tests</file><file path="runtime.txt">python-3.11.0</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
+⋮----
+DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
+⋮----
+engine = create_engine(
+⋮----
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+⋮----
+class Base(DeclarativeBase)
+⋮----
+def get_db()
+⋮----
+db = SessionLocal()</file><file path="app/routes/ledger.py">router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 templates = Jinja2Templates(directory=&quot;app/templates&quot;)
@@ -597,19 +620,12 @@ alert = (</file><file path="app/templates/ledger.html">&lt;!DOCTYPE html&gt;
   Showing confirmed orders only · Cancelled orders not shown
 &lt;/div&gt;
 &lt;/body&gt;
-&lt;/html&gt;</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
-⋮----
-DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
-⋮----
-engine = create_engine(
-⋮----
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-⋮----
-class Base(DeclarativeBase)
-⋮----
-def get_db()
-⋮----
-db = SessionLocal()</file><file path="app/models/customer.py">class Customer(Base)
+&lt;/html&gt;</file><file path=".gitignore">venv/
+.env
+__pycache__/
+*.pyc
+orderr.db
+repomix-output.xml</file><file path="app/models/customer.py">class Customer(Base)
 ⋮----
 __tablename__ = &quot;customers&quot;
 ⋮----
@@ -710,12 +726,7 @@ alert = (
 ⋮----
 def _alert_processing_failure(msg: InboundMessage, reason: str)
 ⋮----
-def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path=".gitignore">venv/
-.env
-__pycache__/
-*.pyc
-orderr.db
-repomix-output.xml</file><file path="app/services/customer_service.py">def normalize_phone(phone: str) -&gt; str
+def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path="app/services/customer_service.py">def normalize_phone(phone: str) -&gt; str
 ⋮----
 phone = (
 ⋮----
@@ -835,117 +846,7 @@ def get_product_by_id(product_id: str) -&gt; dict | None
 ⋮----
 def get_quantity_buttons(product_name: str) -&gt; list
 ⋮----
-nos_products = {</file><file path="app/services/template_parser.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-⋮----
-PRODUCT_DEFINITIONS = [
-⋮----
-VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
-⋮----
-def _normalize(text: str) -&gt; str
-⋮----
-def _squish(text: str) -&gt; str
-⋮----
-def _tokenize(text: str) -&gt; set
-⋮----
-def _match_product(raw_name: str)
-⋮----
-&quot;&quot;&quot;
-    Returns (display_name, unit) or None.
-    Priority: exact → partial/startswith → token subset
-    &quot;&quot;&quot;
-n = _normalize(raw_name)
-s = _squish(raw_name)
-⋮----
-# 1. Exact
-⋮----
-# 2. Partial / startswith
-⋮----
-a  = _normalize(alias)
-aq = _squish(alias)
-⋮----
-# 3. Token subset
-raw_tokens = _tokenize(raw_name)
-⋮----
-alias_tokens = _tokenize(alias)
-⋮----
-def _lookup_alias(raw_name: str, db) -&gt; tuple | None
-⋮----
-&quot;&quot;&quot;
-    Check unclear_item_aliases table for a manager-confirmed mapping.
-    Returns (canonical_product_name, unit) or None.
-    db can be None (caller doesn&apos;t always have a session).
-    &quot;&quot;&quot;
-⋮----
-normalized = raw_name.strip().lower()
-row = db.query(UnclearItemAlias).filter(
-⋮----
-# Find the unit for this canonical product
-⋮----
-# ── Unit normalization ────────────────────────────────────────────────────────
-⋮----
-UNIT_ALIASES = {
-⋮----
-def _normalize_unit(raw: str) -&gt; str | None
-⋮----
-def _parse_quantity(raw: str)
-⋮----
-qty = float(raw.strip())
-⋮----
-def parse_template_order(customer_phone: str, message: str, db=None) -&gt; dict
-⋮----
-items          = []
-unclear_items  = []
-errors         = []
-delivery_time  = None
-⋮----
-lines = message.strip().splitlines()
-⋮----
-line = raw_line.strip()
-⋮----
-lower = _normalize(line)
-⋮----
-time_match = re.search(r&quot;[:\-]\s*(.+)$&quot;, line)
-⋮----
-t = time_match.group(1).strip()
-⋮----
-delivery_time = t
-⋮----
-# Skip header/instruction/note lines
-⋮----
-line_clean = re.sub(r&apos;__+&apos;, &apos;&apos;, line).strip()
-⋮----
-# No digits → unfilled template line, skip silently
-⋮----
-line_clean = re.sub(r&apos;(\d+)\s*k\b&apos;, r&apos;\1 kg&apos;, line_clean)
-⋮----
-split_match = re.match(
-⋮----
-raw_name     = split_match.group(1).strip()
-raw_qty      = split_match.group(2).strip()
-raw_unit_str = (split_match.group(3) or &quot;&quot;).strip()
-raw_unit     = _normalize_unit(raw_unit_str) if raw_unit_str else None
-⋮----
-# ── Product match: catalog first, then alias table ────────────────────
-product_match = _match_product(raw_name)
-⋮----
-# Try manager-confirmed alias table
-product_match = _lookup_alias(raw_name, db)
-⋮----
-# Truly unclear — store raw line for manager review
-⋮----
-qty = _parse_quantity(raw_qty)
-⋮----
-# Unit mismatch — only flag if customer explicitly typed a wrong unit
-⋮----
-final_unit = raw_unit if raw_unit else expected_unit
-⋮----
-# Merge duplicates
-⋮----
-is_unclear = len(items) == 0 and len(unclear_items) == 0
-⋮----
-def build_error_message(errors: list) -&gt; str
-⋮----
-lines = [&quot;⚠️ *Small issue with your order:*\n&quot;]</file><file path="app/models/order.py">class Order(Base)
+nos_products = {</file><file path="app/models/order.py">class Order(Base)
 ⋮----
 __tablename__ = &quot;orders&quot;
 ⋮----
@@ -1116,7 +1017,124 @@ lines = [f&quot;📝 *Customer Notes — {PLANT_NAME}*&quot;, f&quot;{data[&apos
 ⋮----
 time_str = f&quot; ({n[&apos;time&apos;]})&quot; if n[&apos;time&apos;] else &quot;&quot;
 ⋮----
-notes_msg = &quot;\n&quot;.join(lines)</file><file path="app/routes/dashboard.py">router = APIRouter()
+notes_msg = &quot;\n&quot;.join(lines)</file><file path="app/services/template_parser.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+⋮----
+PRODUCT_DEFINITIONS = [
+⋮----
+VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
+⋮----
+def _normalize(text: str) -&gt; str
+⋮----
+def _squish(text: str) -&gt; str
+⋮----
+def _tokenize(text: str) -&gt; set
+⋮----
+def _match_product(raw_name: str)
+⋮----
+&quot;&quot;&quot;
+    Returns (display_name, unit) or None.
+    Priority: exact → partial/startswith → token subset
+    &quot;&quot;&quot;
+n = _normalize(raw_name)
+s = _squish(raw_name)
+⋮----
+# 1. Exact
+⋮----
+# 2. Partial / startswith
+⋮----
+a  = _normalize(alias)
+aq = _squish(alias)
+⋮----
+# 3. Token subset
+raw_tokens = _tokenize(raw_name)
+⋮----
+alias_tokens = _tokenize(alias)
+⋮----
+def _lookup_alias(raw_name: str, db) -&gt; tuple | None
+⋮----
+&quot;&quot;&quot;
+    Check unclear_item_aliases table for a manager-confirmed mapping.
+    Returns (canonical_product_name, unit) or None.
+    db can be None (caller doesn&apos;t always have a session).
+    &quot;&quot;&quot;
+⋮----
+normalized = raw_name.strip().lower()
+row = db.query(UnclearItemAlias).filter(
+⋮----
+# Find the unit for this canonical product
+⋮----
+def _is_noise_phrase(raw_name: str, db) -&gt; bool
+⋮----
+&quot;&quot;&quot;
+    Check noise_phrases table for a manager-confirmed noise/irrelevant entry.
+    Returns True if this text should be silently skipped (not flagged unclear).
+    db can be None.
+    &quot;&quot;&quot;
+⋮----
+row = db.query(NoisePhrase).filter(
+⋮----
+# ── Unit normalization ────────────────────────────────────────────────────────
+⋮----
+UNIT_ALIASES = {
+⋮----
+def _normalize_unit(raw: str) -&gt; str | None
+⋮----
+def _parse_quantity(raw: str)
+⋮----
+qty = float(raw.strip())
+⋮----
+_DATE_LINE_RE = re.compile(
+⋮----
+# Common header/footer filler phrases customers add
+_FILLER_RE = re.compile(
+⋮----
+# Lines starting with a unit word are size annotations, not order lines
+# e.g. &quot;kg( 900 gm size)&quot;  /  &quot;pcs (big)&quot;
+_UNIT_ANNOTATION_RE = re.compile(
+⋮----
+def _strip_emojis(text: str) -&gt; str
+⋮----
+def _is_noise_line(line: str, restaurant_name_norm: str | None) -&gt; bool
+⋮----
+&quot;&quot;&quot;
+    Return True if this line is a header/footer/annotation and should be
+    skipped entirely — not treated as an unclear item.
+    Handles:
+      • Restaurant name used as header/footer  e.g. &quot;Test hotel 10&quot;, &quot;Amrai hotel Order 🏨&quot;
+      • Date-only lines                         e.g. &quot;10/06/2026&quot;, &quot;10/06&quot;
+      • Filler phrases                          e.g. &quot;ORDER FOR THE DAY&quot;, &quot;Good morning&quot;
+      • Unit-annotation lines                   e.g. &quot;kg( 900 gm size)&quot;
+      • Emoji/symbol-only lines                 e.g. &quot;🏨🌟&quot;
+      • Numbered-list header lines              e.g. &quot;1.&quot; alone with no product text
+    &quot;&quot;&quot;
+stripped = line.strip()
+⋮----
+# Strip emojis for text-based checks
+text_only = _strip_emojis(stripped)
+⋮----
+# 1. Nothing left after removing emojis → purely decorative line
+⋮----
+# 2. No alphanumeric content at all
+⋮----
+norm = _normalize(text_only)
+⋮----
+# 3. Date-only line
+⋮----
+# 4. Filler header/footer phrase
+⋮----
+# 5. Unit-annotation line (e.g. &quot;kg( 900 gm size)&quot;)
+⋮----
+# 6. Restaurant name appears anywhere in the line
+#    Covers: &quot;Test hotel 10&quot;  /  &quot;Amrai hotel Order 🏨&quot;  /  footer variants
+⋮----
+# ── Main parser ───────────────────────────────────────────────────────────────
+⋮----
+def parse_template_order(customer_phone: str, message: str, db=None) -&gt; dict
+⋮----
+customer_phone: sender&apos;s phone number
+message:        raw WhatsApp message text
+⋮----
+Returns:</file><file path="app/routes/dashboard.py">router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 templates = Jinja2Templates(directory=&quot;app/templates&quot;)
 ⋮----
@@ -1215,7 +1233,58 @@ def send_manager_menu(phone: str) -&gt; dict
     Buttons: Summary | Daily Report | Add Customer
     &quot;&quot;&quot;
 ⋮----
-def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/routes/admin.py">router     = APIRouter()
+def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
+router = APIRouter()
+MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+ADD_CUSTOMER_CMD = &quot;add customer&quot;
+⋮----
+NON_ORDER_STATUSES = {
+⋮----
+_rate_limit: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX = 10
+RATE_LIMIT_WINDOW = 60
+⋮----
+def _is_rate_limited(phone: str) -&gt; bool
+⋮----
+now = time.time()
+timestamps = _rate_limit[phone]
+⋮----
+def verify_meta_signature(body: bytes, signature_header: str) -&gt; bool
+⋮----
+app_secret = os.getenv(&quot;META_APP_SECRET&quot;, &quot;&quot;)
+⋮----
+expected = hmac.new(app_secret.encode(&quot;utf-8&quot;), body, hashlib.sha256).hexdigest()
+received = signature_header[len(&quot;sha256=&quot;):]
+⋮----
+@router.get(&quot;/health&quot;)
+def health_check()
+⋮----
+payload        = await request.json()
+customer_phone = payload.get(&quot;phone&quot;, &quot;919999999999&quot;)
+message_text   = payload.get(&quot;message&quot;, &quot;&quot;)
+⋮----
+normalized_sender  = normalize_phone(customer_phone)
+normalized_manager = normalize_phone(MANAGER_PHONE) if MANAGER_PHONE else &quot;&quot;
+⋮----
+reply = handle_manager_add_customer(db, message_text)
+⋮----
+result = process_incoming_order(db=db, customer_phone=customer_phone, message=message_text)
+⋮----
+@router.get(&quot;/meta&quot;)
+async def meta_webhook_verify(request: Request)
+⋮----
+mode      = request.query_params.get(&quot;hub.mode&quot;)
+token     = request.query_params.get(&quot;hub.verify_token&quot;)
+challenge = request.query_params.get(&quot;hub.challenge&quot;)
+⋮----
+def handle_manager_add_customer(db: Session, message_text: str) -&gt; str
+⋮----
+parts = message_text.strip()[len(ADD_CUSTOMER_CMD):].strip()
+tokens = parts.split(None, 1)
+⋮----
+customer = create_customer_manually(
+⋮----
+def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/routes/admin.py">router     = APIRouter()
 PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 IST        = timezone(timedelta(hours=5, minutes=30))
@@ -1258,7 +1327,36 @@ message: str
 class CancelOrderPayload(BaseModel)
 ⋮----
 reason: Optional[str] = None  # shown to customer + manager
-# ── Salespersons ──────────────────────────────────────────────────────────────
+⋮----
+class NoisePhraseCreate(BaseModel)
+⋮----
+raw_text: str
+⋮----
+@router.get(&quot;/noise-phrases&quot;)
+def get_noise_phrases(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+phrases = db.query(NoisePhrase).order_by(NoisePhrase.raw_text).all()
+⋮----
+normalized = payload.raw_text.strip().lower()
+⋮----
+already_existed = False
+existing = db.query(NoisePhrase).filter(NoisePhrase.raw_text == normalized).first()
+⋮----
+already_existed = True
+phrase = existing
+⋮----
+phrase = NoisePhrase(raw_text=normalized)
+⋮----
+patched_count = 0
+orders_to_patch = (
+⋮----
+unclear = json.loads(order.unclear_items or &quot;[]&quot;)
+remaining = []
+changed = False
+⋮----
+changed = True
+⋮----
+phrase = db.query(NoisePhrase).filter(NoisePhrase.id == phrase_id).first()
 ⋮----
 @router.get(&quot;/salespersons&quot;)
 def list_salespersons(db: Session = Depends(get_db), username: str = Depends(require_auth))
@@ -1453,7 +1551,142 @@ def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depe
 def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
 @router.post(&quot;/test-notifications/daily-report&quot;)
-def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/templates/dashboard.html">&lt;!DOCTYPE html&gt;
+def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+BASE_URL             = os.getenv(&quot;BASE_URL&quot;, &quot;&quot;)   # e.g. https://orderr.onrender.com
+IST                  = timezone(timedelta(hours=5, minutes=30))
+RESET_HOUR           = 20  # 8 PM IST
+DISPATCH_CUTOFF_HOUR = int(os.getenv(&quot;DISPATCH_CUTOFF_HOUR&quot;, &quot;9&quot;))
+⋮----
+def get_today_ist() -&gt; date
+⋮----
+def compute_business_date(created_at_utc: datetime) -&gt; date
+⋮----
+ist_time = created_at_utc.astimezone(IST)
+⋮----
+def get_current_business_date() -&gt; date
+⋮----
+now_ist = datetime.now(IST)
+⋮----
+def get_current_business_date_str() -&gt; str
+⋮----
+def get_delivery_date_str() -&gt; str
+⋮----
+def get_internal_phones(db: Session) -&gt; set
+⋮----
+salesperson_phones = {
+internal = salesperson_phones
+⋮----
+internal = internal | {MANAGER_PHONE}
+⋮----
+def get_todays_active_order(db: Session, customer_phone: str) -&gt; Order | None
+⋮----
+business_date_str = get_current_business_date_str()
+⋮----
+def get_last_order(db: Session, customer_phone: str) -&gt; Order | None
+⋮----
+def _get_pending_repeat(db: Session, customer_phone: str) -&gt; Order | None
+⋮----
+def _get_pending_replace(db: Session, customer_phone: str) -&gt; Order | None
+⋮----
+lines = [
+⋮----
+qty = int(i[&apos;quantity&apos;]) if i[&apos;quantity&apos;] == int(i[&apos;quantity&apos;]) else i[&apos;quantity&apos;]
+⋮----
+customer_phone  = customer.phone_number
+restaurant_name = customer.restaurant_name
+unclear_items   = parsed.get(&quot;unclear_items&quot;, [])
+parsed_items    = parsed.get(&quot;items&quot;, [])
+⋮----
+order = Order(
+⋮----
+items_text = &quot;\n&quot;.join(
+⋮----
+def _handle_onboarding(db: Session, customer: Customer, message: str) -&gt; dict
+⋮----
+customer_phone = customer.phone_number
+error = validate_restaurant_name(message.strip())
+⋮----
+def _handle_cancel(db: Session, customer: Customer) -&gt; dict
+⋮----
+existing = get_todays_active_order(db, customer_phone)
+⋮----
+def _handle_repeat(db: Session, customer: Customer) -&gt; dict
+⋮----
+last = get_last_order(db, customer_phone)
+⋮----
+items = json.loads(last.parsed_items)
+pending = Order(
+⋮----
+def _handle_history(db: Session, customer: Customer) -&gt; dict
+⋮----
+ledger_url = f&quot;{BASE_URL}/ledger/{customer.ledger_token}&quot;
+⋮----
+def _handle_confirm_yes(db: Session, customer: Customer) -&gt; dict
+⋮----
+customer_phone    = customer.phone_number
+pending_repeat    = _get_pending_repeat(db, customer_phone)
+pending_replace   = _get_pending_replace(db, customer_phone)
+⋮----
+items  = json.loads(pending_repeat.parsed_items)
+parsed = {
+⋮----
+old_order = (
+⋮----
+items  = json.loads(pending_replace.parsed_items)
+⋮----
+def _handle_confirm_no(db: Session, customer: Customer) -&gt; dict
+⋮----
+pending_repeat  = _get_pending_repeat(db, customer_phone)
+pending_replace = _get_pending_replace(db, customer_phone)
+⋮----
+def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool) -&gt; dict
+⋮----
+parsed = parse_template_order(customer_phone, message, db=db)
+⋮----
+existing_order = get_todays_active_order(db, customer_phone)
+⋮----
+current_time_ist = datetime.now(IST)
+cutoff_time = current_time_ist.replace(
+⋮----
+result = _save_and_notify(db, customer, parsed, message, is_photo=is_photo)
+existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
+⋮----
+business_date = compute_business_date(datetime.now(timezone.utc)).strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+msg_lower = message.strip().lower()
+⋮----
+customer = get_customer_by_phone(db, customer_phone)
+⋮----
+internal_phones = get_internal_phones(db)
+⋮----
+customer = create_new_customer(db, customer_phone)
+⋮----
+intent = classify_intent(
+⋮----
+def get_all_orders(db: Session) -&gt; list
+⋮----
+def get_unclear_orders(db: Session) -&gt; list
+⋮----
+def get_todays_orders(db: Session) -&gt; list
+⋮----
+today_str = get_current_business_date_str()
+⋮----
+def get_orders_by_date(db: Session, target_date: date) -&gt; list
+⋮----
+def get_customer_order_history(db: Session, customer_id: int) -&gt; list
+⋮----
+customer = db.query(Customer).filter(Customer.id == customer_id).first()
+⋮----
+def validate_restaurant_name(name: str) -&gt; str | None
+⋮----
+stripped = name.strip()
+lower    = stripped.lower()
+⋮----
+letters_only = re.sub(r&apos;[^a-zA-Z]&apos;, &apos;&apos;, lower)
+⋮----
+single_word_fillers = {
+words = lower.split()</file><file path="app/templates/dashboard.html">&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
     &lt;meta charset=&quot;UTF-8&quot;&gt;
@@ -1770,6 +2003,10 @@ def test_daily_report(db: Session = Depends(get_db), username: str = Depends(req
         &lt;div class=&quot;card danger&quot;&gt;&lt;div class=&quot;number&quot; id=&quot;unclear-count&quot;&gt;—&lt;/div&gt;&lt;div class=&quot;label&quot;&gt;Unclear Orders&lt;/div&gt;&lt;/div&gt;
         &lt;div class=&quot;card warning&quot;&gt;&lt;div class=&quot;number&quot; id=&quot;unclear-items-count&quot;&gt;—&lt;/div&gt;&lt;div class=&quot;label&quot;&gt;Unresolved Items&lt;/div&gt;&lt;/div&gt;
         &lt;div class=&quot;card success&quot;&gt;&lt;div class=&quot;number&quot; id=&quot;unclear-aliases-count&quot;&gt;—&lt;/div&gt;&lt;div class=&quot;label&quot;&gt;Saved Aliases&lt;/div&gt;&lt;/div&gt;
+        &lt;div class=&quot;card&quot; style=&quot;border-top:3px solid #718096;&quot;&gt;
+            &lt;div class=&quot;number&quot; id=&quot;unclear-noise-count&quot;&gt;—&lt;/div&gt;
+            &lt;div class=&quot;label&quot;&gt;Noise Phrases&lt;/div&gt;
+        &lt;/div&gt;
     &lt;/div&gt;
     &lt;div class=&quot;section&quot;&gt;
         &lt;h2&gt;⚠️ Unclear Items &lt;button class=&quot;section-btn&quot; onclick=&quot;loadUnclearOrders()&quot;&gt;↻&lt;/button&gt;&lt;/h2&gt;
@@ -1784,6 +2021,15 @@ def test_daily_report(db: Session = Depends(get_db), username: str = Depends(req
             &lt;h2&gt;📖 Saved Aliases&lt;/h2&gt;
             &lt;p style=&quot;font-size:13px;color:#718096;margin-bottom:12px;&quot;&gt;These mappings are applied automatically by the parser from now on.&lt;/p&gt;
             &lt;div id=&quot;aliases-container&quot;&gt;
+                &lt;div class=&quot;empty&quot;&gt;Loading...&lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div style=&quot;margin-top:24px;&quot;&gt;
+            &lt;h2&gt;🚫 Noise Phrases&lt;/h2&gt;
+            &lt;p style=&quot;font-size:13px;color:#718096;margin-bottom:12px;&quot;&gt;
+                These texts are silently ignored by the parser — never shown as unclear again.
+            &lt;/p&gt;
+            &lt;div id=&quot;noise-container&quot;&gt;
                 &lt;div class=&quot;empty&quot;&gt;Loading...&lt;/div&gt;
             &lt;/div&gt;
         &lt;/div&gt;
@@ -2022,7 +2268,8 @@ function switchTab(name, btn) {
     if (name === &apos;pending&apos;)      { loadPending(); }
     if (name === &apos;failed&apos;)       { loadFailedMessages(); }
     if (name === &apos;window&apos;)       { loadWindowStatus(); }
-    if (name === &apos;unclear&apos;)      { loadUnclearOrders(); loadAliases(); }
+    // ② Updated: also call loadNoisePhrases when switching to unclear
+    if (name === &apos;unclear&apos;)      { loadUnclearOrders(); loadAliases(); loadNoisePhrases(); }
 }
 function showToast(msg, type=&apos;&apos;) {
     const t = document.getElementById(&apos;toast&apos;);
@@ -2381,6 +2628,8 @@ async function loadUnclearOrders() {
         }
         if (orders.length === 0) {
             container.innerHTML = `&lt;div class=&quot;empty&quot; style=&quot;color:#38a169;&quot;&gt;✅ All orders fully parsed — no unclear items!&lt;/div&gt;`;
+            // ② Also load noise phrases when unclear orders finish loading
+            loadNoisePhrases();
             return;
         }
         const productOptions = products.map(p =&gt; `&lt;option value=&quot;${esc(p)}&quot;&gt;${esc(p)}&lt;/option&gt;`).join(&apos;&apos;);
@@ -2393,6 +2642,7 @@ async function loadUnclearOrders() {
                             &amp;nbsp;&amp;nbsp;• ${esc(i.product)} — ${Number.isInteger(i.quantity) || i.quantity%1===0 ? parseInt(i.quantity) : i.quantity} ${esc(i.unit)}
                         &lt;/div&gt;`).join(&apos;&apos;)}
                 &lt;/div&gt;` : &apos;&apos;;
+            // ③ Updated unclear item rows — now include the 🚫 Noise button
             const unclearSection = `
                 &lt;div&gt;
                     &lt;div class=&quot;unclear-section-label unclear-raw-label&quot;&gt;❓ Unresolved items — assign correct product:&lt;/div&gt;
@@ -2406,6 +2656,10 @@ async function loadUnclearOrders() {
                             &lt;button class=&quot;unclear-save-btn&quot;
                                 onclick=&quot;resolveItem(&apos;${esc(rawLine).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;, &apos;sel-${order.order_id}-${idx}&apos;, this)&quot;&gt;
                                 Save &amp;amp; Apply
+                            &lt;/button&gt;
+                            &lt;button class=&quot;unclear-save-btn&quot; style=&quot;background:#718096;&quot;
+                                onclick=&quot;markAsNoise(&apos;${esc(rawLine).replace(/&apos;/g,&quot;\\&apos;&quot;)}&apos;, this)&quot;&gt;
+                                🚫 Noise
                             &lt;/button&gt;
                         &lt;/div&gt;`).join(&apos;&apos;)}
                 &lt;/div&gt;`;
@@ -2426,13 +2680,15 @@ async function loadUnclearOrders() {
                     &lt;/details&gt;
                 &lt;/div&gt;`;
         }).join(&apos;&apos;);
+        // ② Also refresh noise phrases count after loading unclear orders
+        loadNoisePhrases();
     } catch(e) {
         container.innerHTML = `&lt;div class=&quot;empty&quot; style=&quot;color:#e53e3e;&quot;&gt;Failed to load: ${esc(e.message)}&lt;/div&gt;`;
     }
 }
 function _extractProductName(rawLine) {
     const clean = rawLine.replace(/__+/g, &apos;&apos;).trim();
-    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pieces?)?\s*$/i);
+    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|psc|pc|pieces?)?\s*$/i);
     if (m) return m[1].trim().toLowerCase();
     return clean.toLowerCase();
 }
@@ -2509,6 +2765,79 @@ async function deleteAlias(id) {
         const count = document.querySelectorAll(&apos;[id^=&quot;alias-row-&quot;]&apos;).length;
         document.getElementById(&apos;unclear-aliases-count&apos;).textContent = count;
         if (count === 0) loadAliases();
+    } catch(e) { showToast(&apos;Delete failed&apos;, &apos;error&apos;); }
+}
+// ── Noise Phrases ─────────────────────────────────────────────────────────────
+async function markAsNoise(rawText, btn) {
+    const productName = _extractProductName(rawText);
+    if (!confirm(`Mark &quot;${productName}&quot; as noise/irrelevant?\n\nThe parser will silently skip this text in all future orders.`)) return;
+    btn.disabled = true;
+    btn.textContent = &apos;Saving…&apos;;
+    try {
+        const data = await api(&apos;POST&apos;, &apos;/admin/noise-phrases&apos;, { raw_text: productName });
+        btn.textContent = &apos;🚫 Ignored&apos;;
+        btn.style.background = &apos;#c53030&apos;;
+        showToast(
+            data.already_existed
+                ? `&quot;${productName}&quot; was already marked as noise`
+                : `✅ &quot;${productName}&quot; added to noise list`,
+            &apos;success&apos;
+        );
+        setTimeout(() =&gt; { loadUnclearOrders(); loadNoisePhrases(); }, 1200);
+    } catch(e) {
+        btn.disabled = false;
+        btn.textContent = &apos;🚫 Noise&apos;;
+        showToast(&apos;❌ Failed to save noise phrase&apos;, &apos;error&apos;);
+    }
+}
+async function loadNoisePhrases() {
+    const container = document.getElementById(&apos;noise-container&apos;);
+    if (!container) return;
+    try {
+        const phrases = await api(&apos;GET&apos;, &apos;/admin/noise-phrases&apos;);
+        document.getElementById(&apos;unclear-noise-count&apos;).textContent = phrases.length;
+        if (!phrases.length) {
+            container.innerHTML = &apos;&lt;div class=&quot;empty&quot; style=&quot;padding:16px&quot;&gt;No noise phrases saved yet.&lt;/div&gt;&apos;;
+            return;
+        }
+        container.innerHTML = `
+            &lt;div class=&quot;summary-table&quot;&gt;
+                &lt;table class=&quot;aliases-table&quot;&gt;
+                    &lt;thead&gt;
+                        &lt;tr&gt;
+                            &lt;th&gt;Ignored text&lt;/th&gt;
+                            &lt;th&gt;Saved on&lt;/th&gt;
+                            &lt;th&gt;&lt;/th&gt;
+                        &lt;/tr&gt;
+                    &lt;/thead&gt;
+                    &lt;tbody&gt;
+                        ${phrases.map(p =&gt; `
+                            &lt;tr id=&quot;noise-row-${p.id}&quot;&gt;
+                                &lt;td class=&quot;alias-raw&quot;&gt;${esc(p.raw_text)}&lt;/td&gt;
+                                &lt;td style=&quot;color:#aaa;font-size:12px;&quot;&gt;${p.created_at ? p.created_at.substring(0,10) : &apos;—&apos;}&lt;/td&gt;
+                                &lt;td&gt;
+                                    &lt;button onclick=&quot;deleteNoisePhrase(${p.id})&quot;
+                                        style=&quot;font-size:11px;color:#e53e3e;background:none;border:1px solid #e53e3e;border-radius:4px;padding:2px 8px;cursor:pointer;&quot;&gt;
+                                        Delete
+                                    &lt;/button&gt;
+                                &lt;/td&gt;
+                            &lt;/tr&gt;`).join(&apos;&apos;)}
+                    &lt;/tbody&gt;
+                &lt;/table&gt;
+            &lt;/div&gt;`;
+    } catch(e) {
+        if (container) container.innerHTML = &apos;&lt;div class=&quot;empty&quot; style=&quot;color:#e53e3e;&quot;&gt;Failed to load.&lt;/div&gt;&apos;;
+    }
+}
+async function deleteNoisePhrase(id) {
+    if (!confirm(&apos;Delete this noise phrase? The parser will flag it as unclear again if seen.&apos;)) return;
+    try {
+        await api(&apos;DELETE&apos;, `/admin/noise-phrases/${id}`);
+        showToast(&apos;Noise phrase deleted&apos;, &apos;&apos;);
+        document.getElementById(`noise-row-${id}`)?.remove();
+        const count = document.querySelectorAll(&apos;[id^=&quot;noise-row-&quot;]&apos;).length;
+        document.getElementById(&apos;unclear-noise-count&apos;).textContent = count;
+        if (count === 0) loadNoisePhrases();
     } catch(e) { showToast(&apos;Delete failed&apos;, &apos;error&apos;); }
 }
 // ── Failed Messages ────────────────────────────────────────────────────────────
@@ -2618,193 +2947,7 @@ setInterval(() =&gt; {
 }, 60000);
 &lt;/script&gt;
 &lt;/body&gt;
-&lt;/html&gt;</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
-router = APIRouter()
-MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-ADD_CUSTOMER_CMD = &quot;add customer&quot;
-⋮----
-NON_ORDER_STATUSES = {
-⋮----
-_rate_limit: dict[str, list[float]] = defaultdict(list)
-RATE_LIMIT_MAX = 10
-RATE_LIMIT_WINDOW = 60
-⋮----
-def _is_rate_limited(phone: str) -&gt; bool
-⋮----
-now = time.time()
-timestamps = _rate_limit[phone]
-⋮----
-def verify_meta_signature(body: bytes, signature_header: str) -&gt; bool
-⋮----
-app_secret = os.getenv(&quot;META_APP_SECRET&quot;, &quot;&quot;)
-⋮----
-expected = hmac.new(app_secret.encode(&quot;utf-8&quot;), body, hashlib.sha256).hexdigest()
-received = signature_header[len(&quot;sha256=&quot;):]
-⋮----
-@router.get(&quot;/health&quot;)
-def health_check()
-⋮----
-payload        = await request.json()
-customer_phone = payload.get(&quot;phone&quot;, &quot;919999999999&quot;)
-message_text   = payload.get(&quot;message&quot;, &quot;&quot;)
-⋮----
-normalized_sender  = normalize_phone(customer_phone)
-normalized_manager = normalize_phone(MANAGER_PHONE) if MANAGER_PHONE else &quot;&quot;
-⋮----
-reply = handle_manager_add_customer(db, message_text)
-⋮----
-result = process_incoming_order(db=db, customer_phone=customer_phone, message=message_text)
-⋮----
-@router.get(&quot;/meta&quot;)
-async def meta_webhook_verify(request: Request)
-⋮----
-mode      = request.query_params.get(&quot;hub.mode&quot;)
-token     = request.query_params.get(&quot;hub.verify_token&quot;)
-challenge = request.query_params.get(&quot;hub.challenge&quot;)
-⋮----
-def handle_manager_add_customer(db: Session, message_text: str) -&gt; str
-⋮----
-parts = message_text.strip()[len(ADD_CUSTOMER_CMD):].strip()
-tokens = parts.split(None, 1)
-⋮----
-customer = create_customer_manually(
-⋮----
-def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-BASE_URL             = os.getenv(&quot;BASE_URL&quot;, &quot;&quot;)   # e.g. https://orderr.onrender.com
-IST                  = timezone(timedelta(hours=5, minutes=30))
-RESET_HOUR           = 20  # 8 PM IST
-DISPATCH_CUTOFF_HOUR = int(os.getenv(&quot;DISPATCH_CUTOFF_HOUR&quot;, &quot;9&quot;))
-⋮----
-def get_today_ist() -&gt; date
-⋮----
-def compute_business_date(created_at_utc: datetime) -&gt; date
-⋮----
-ist_time = created_at_utc.astimezone(IST)
-⋮----
-def get_current_business_date() -&gt; date
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-def get_current_business_date_str() -&gt; str
-⋮----
-def get_delivery_date_str() -&gt; str
-⋮----
-def get_internal_phones(db: Session) -&gt; set
-⋮----
-salesperson_phones = {
-internal = salesperson_phones
-⋮----
-internal = internal | {MANAGER_PHONE}
-⋮----
-def get_todays_active_order(db: Session, customer_phone: str) -&gt; Order | None
-⋮----
-business_date_str = get_current_business_date_str()
-⋮----
-def get_last_order(db: Session, customer_phone: str) -&gt; Order | None
-⋮----
-def _get_pending_repeat(db: Session, customer_phone: str) -&gt; Order | None
-⋮----
-def _get_pending_replace(db: Session, customer_phone: str) -&gt; Order | None
-⋮----
-lines = [
-⋮----
-qty = int(i[&apos;quantity&apos;]) if i[&apos;quantity&apos;] == int(i[&apos;quantity&apos;]) else i[&apos;quantity&apos;]
-⋮----
-customer_phone  = customer.phone_number
-restaurant_name = customer.restaurant_name
-unclear_items   = parsed.get(&quot;unclear_items&quot;, [])
-parsed_items    = parsed.get(&quot;items&quot;, [])
-⋮----
-order = Order(
-⋮----
-items_text = &quot;\n&quot;.join(
-⋮----
-def _handle_onboarding(db: Session, customer: Customer, message: str) -&gt; dict
-⋮----
-customer_phone = customer.phone_number
-error = validate_restaurant_name(message.strip())
-⋮----
-def _handle_cancel(db: Session, customer: Customer) -&gt; dict
-⋮----
-existing = get_todays_active_order(db, customer_phone)
-⋮----
-def _handle_repeat(db: Session, customer: Customer) -&gt; dict
-⋮----
-last = get_last_order(db, customer_phone)
-⋮----
-items = json.loads(last.parsed_items)
-pending = Order(
-⋮----
-def _handle_history(db: Session, customer: Customer) -&gt; dict
-⋮----
-ledger_url = f&quot;{BASE_URL}/ledger/{customer.ledger_token}&quot;
-⋮----
-def _handle_confirm_yes(db: Session, customer: Customer) -&gt; dict
-⋮----
-customer_phone    = customer.phone_number
-pending_repeat    = _get_pending_repeat(db, customer_phone)
-pending_replace   = _get_pending_replace(db, customer_phone)
-⋮----
-items  = json.loads(pending_repeat.parsed_items)
-parsed = {
-⋮----
-old_order = (
-⋮----
-items  = json.loads(pending_replace.parsed_items)
-⋮----
-def _handle_confirm_no(db: Session, customer: Customer) -&gt; dict
-⋮----
-pending_repeat  = _get_pending_repeat(db, customer_phone)
-pending_replace = _get_pending_replace(db, customer_phone)
-⋮----
-def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool) -&gt; dict
-⋮----
-parsed = parse_template_order(customer_phone, message, db=db)
-⋮----
-existing_order = get_todays_active_order(db, customer_phone)
-⋮----
-current_time_ist = datetime.now(IST)
-cutoff_time = current_time_ist.replace(
-⋮----
-result = _save_and_notify(db, customer, parsed, message, is_photo=is_photo)
-existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
-⋮----
-business_date = compute_business_date(datetime.now(timezone.utc)).strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-msg_lower = message.strip().lower()
-⋮----
-customer = get_customer_by_phone(db, customer_phone)
-⋮----
-internal_phones = get_internal_phones(db)
-⋮----
-customer = create_new_customer(db, customer_phone)
-⋮----
-intent = classify_intent(
-⋮----
-def get_all_orders(db: Session) -&gt; list
-⋮----
-def get_unclear_orders(db: Session) -&gt; list
-⋮----
-def get_todays_orders(db: Session) -&gt; list
-⋮----
-today_str = get_current_business_date_str()
-⋮----
-def get_orders_by_date(db: Session, target_date: date) -&gt; list
-⋮----
-def get_customer_order_history(db: Session, customer_id: int) -&gt; list
-⋮----
-customer = db.query(Customer).filter(Customer.id == customer_id).first()
-⋮----
-def validate_restaurant_name(name: str) -&gt; str | None
-⋮----
-stripped = name.strip()
-lower    = stripped.lower()
-⋮----
-letters_only = re.sub(r&apos;[^a-zA-Z]&apos;, &apos;&apos;, lower)
-⋮----
-single_word_fillers = {
-words = lower.split()</file><file path="app/main.py">IST = timezone(timedelta(hours=5, minutes=30))
+&lt;/html&gt;</file><file path="app/main.py">IST = timezone(timedelta(hours=5, minutes=30))
 ⋮----
 _last_report_time: str = &quot;Never&quot;
 ⋮----
