@@ -59,7 +59,6 @@ from app.services.product_catalog import generate_order_template
 logger = logging.getLogger(__name__)
 
 
-
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
@@ -98,7 +97,7 @@ class PostOrderPayload(BaseModel):
     message: str
 
 class CancelOrderPayload(BaseModel):
-    reason: Optional[str] = None  # shown to customer + manager
+    reason: Optional[str] = None
 
 class NoisePhraseCreate(BaseModel):
     raw_text: str
@@ -106,14 +105,273 @@ class NoisePhraseCreate(BaseModel):
 class ResolveUnclearItem(BaseModel):
     raw_text: str
     canonical_product_name: str
-    customer_phone: Optional[str] = None   # None = global
-    scope: str = "customer"                # "customer" | "global"
+    customer_phone: Optional[str] = None
+    scope: str = "customer"  # "customer" | "global"
 
 class CustomerAliasCreate(BaseModel):
     customer_phone: str
     raw_text: str
     canonical_product_name: str
 
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _safe_list(val) -> list:
+    """
+    Safely coerce a JSONB column value to a Python list.
+    Handles: None, already-a-list, JSON string, double-encoded JSON string.
+    Never raises.
+    """
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        if val in ("null", "[]", ""):
+            return []
+        try:
+            result = json.loads(val)
+            if isinstance(result, str):          # double-encoded
+                result = json.loads(result)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+    return []
+
+
+LINE_RE = re.compile(
+    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pis|psc|pc|pieces?|piece|k)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _extract_product_name(raw_line: str) -> tuple[str, float]:
+    """
+    Given a raw unclear line like "Raan -5", "kaleji 2kg", "tandoori chicken 30pis",
+    returns (product_name_lower, quantity).
+    """
+    line_clean = re.sub(r'__+', '', raw_line).strip()
+    line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
+    m = LINE_RE.match(line_clean)
+    if m:
+        name = m.group(1).strip().lower()
+        try:
+            qty = float(m.group(2))
+        except (TypeError, ValueError):
+            qty = 1.0
+        return name, qty
+    fallback = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', line_clean).strip()
+    return (fallback.lower() if fallback else line_clean.lower()), 1.0
+
+
+def _extract_product_name_from_line(line: str) -> str:
+    name, _ = _extract_product_name(line)
+    return name
+
+
+def _extract_qty_from_line(line: str) -> float:
+    m = re.search(r"([\d]+(?:[./][\d]+)?)", line)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+    return 1.0
+
+
+def _get_unit_for_canonical(canonical: str) -> str:
+    for display_name, unit, _ in PRODUCT_DEFINITIONS:
+        if display_name.lower() == canonical.lower():
+            return unit
+    return "kg"
+
+
+# ── Retroactive patch helpers ─────────────────────────────────────────────────
+# All functions here use the ORM directly (no json.dumps, no raw SQL).
+# JSONB columns store and return native Python lists — treat them that way.
+
+def _retroactive_remove_noise(normalized: str, db: Session) -> int:
+    """
+    Remove all unclear_items matching `normalized` from every existing order.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    """
+    orders = db.query(Order).filter(
+        Order.unclear_items.isnot(None),
+        Order.is_cancelled == False,
+    ).all()
+
+    patched_ids = []
+    for order in orders:
+        unclear = _safe_list(order.unclear_items)
+        if not unclear:
+            continue
+
+        remaining = []
+        changed   = False
+        for raw_line in unclear:
+            product_name, _ = _extract_product_name(raw_line)
+            if product_name == normalized:
+                changed = True
+            else:
+                remaining.append(raw_line)
+
+        if changed:
+            # ✅ Assign native list — no json.dumps needed for JSONB
+            order.unclear_items = remaining if remaining else None
+            if not remaining:
+                order.is_unclear = False
+            patched_ids.append(order.id)
+
+    if patched_ids:
+        db.commit()
+        print(f"✅ Noise patch committed for orders: {patched_ids}")
+
+    return len(patched_ids)
+
+
+def _retroactive_patch_global(raw: str, canonical: str, db: Session) -> int:
+    """
+    Move unclear items matching `raw` into parsed_items for ALL orders.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    """
+    orders = db.query(Order).filter(
+        Order.unclear_items.isnot(None),
+    ).all()
+
+    unit = _get_unit_for_canonical(canonical)
+    patched_ids = []
+
+    for order in orders:
+        unclear = _safe_list(order.unclear_items)
+        parsed  = _safe_list(order.parsed_items)
+        if not unclear:
+            continue
+
+        remaining     = []
+        matched_lines = []
+        for line in unclear:
+            product_part = _extract_product_name_from_line(line)
+            if product_part == raw or product_part.startswith(raw) or raw in product_part:
+                matched_lines.append(line)
+            else:
+                remaining.append(line)
+
+        if not matched_lines:
+            continue
+
+        for line in matched_lines:
+            qty = _extract_qty_from_line(line)
+            parsed.append({"product": canonical, "quantity": qty, "unit": unit})
+
+        # ✅ Assign native lists — no json.dumps needed for JSONB
+        order.parsed_items  = parsed
+        order.unclear_items = remaining if remaining else None
+        if not remaining:
+            order.is_unclear = False
+        patched_ids.append(order.id)
+
+    if patched_ids:
+        db.commit()
+        print(f"✅ Alias patch committed for orders: {patched_ids}")
+
+    return len(patched_ids)
+
+
+def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db: Session) -> int:
+    """
+    Move unclear items matching `raw` into parsed_items for ONE customer's orders.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    """
+    orders = db.query(Order).filter(
+        Order.customer_phone == phone,
+        Order.unclear_items.isnot(None),
+    ).all()
+
+    unit = _get_unit_for_canonical(canonical)
+    patched_ids = []
+
+    for order in orders:
+        unclear = _safe_list(order.unclear_items)
+        parsed  = _safe_list(order.parsed_items)
+        if not unclear:
+            continue
+
+        remaining     = []
+        matched_lines = []
+        for line in unclear:
+            product_part = _extract_product_name_from_line(line)
+            if product_part == raw or product_part.startswith(raw) or raw in product_part:
+                matched_lines.append(line)
+            else:
+                remaining.append(line)
+
+        if not matched_lines:
+            continue
+
+        for line in matched_lines:
+            qty = _extract_qty_from_line(line)
+            parsed.append({"product": canonical, "quantity": qty, "unit": unit})
+
+        # ✅ Assign native lists — no json.dumps needed for JSONB
+        order.parsed_items  = parsed
+        order.unclear_items = remaining if remaining else None
+        if not remaining:
+            order.is_unclear = False
+        patched_ids.append(order.id)
+
+    if patched_ids:
+        db.commit()
+        print(f"✅ Customer alias patch committed for orders: {patched_ids}")
+
+    return len(patched_ids)
+
+
+def _patch_order_unclear(order: Order, raw: str, canonical: str, db: Session) -> int:
+    """
+    Single-order patch used by _retroactive_patch_customer.
+    NO db.commit() here — caller commits after all orders are patched.
+    """
+    unclear = _safe_list(order.unclear_items)
+    if not unclear:
+        return 0
+
+    parsed  = _safe_list(order.parsed_items)
+    unit    = _get_unit_for_canonical(canonical)
+
+    remaining     = []
+    matched_lines = []
+    for line in unclear:
+        product_part = _extract_product_name_from_line(line)
+        if product_part == raw or product_part.startswith(raw) or raw in product_part:
+            matched_lines.append(line)
+        else:
+            remaining.append(line)
+
+    if not matched_lines:
+        return 0
+
+    for line in matched_lines:
+        qty = _extract_qty_from_line(line)
+        parsed.append({"product": canonical, "quantity": qty, "unit": unit})
+
+    # ✅ Assign native lists — no json.dumps needed for JSONB
+    order.parsed_items  = parsed
+    order.unclear_items = remaining if remaining else None
+    if not remaining:
+        order.is_unclear = False
+
+    # ✅ No db.commit() here — caller commits
+    return 1
+
+
+def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
+    alias_match = db.query(UnclearItemAlias).filter(
+        UnclearItemAlias.raw_text == raw_text.strip().lower()
+    ).first()
+    return alias_match.canonical_product_name if alias_match else None
+
+
+# ── Noise Phrases ─────────────────────────────────────────────────────────────
 
 @router.get("/noise-phrases")
 def get_noise_phrases(db: Session = Depends(get_db), username: str = Depends(require_auth)):
@@ -149,7 +407,6 @@ def create_noise_phrase(
         db.commit()
         db.refresh(phrase)
 
-    # ── Retroactively remove this noise phrase from existing unclear_items ──
     patched_count = _retroactive_remove_noise(normalized, db)
 
     return {
@@ -158,77 +415,6 @@ def create_noise_phrase(
         "already_existed": already_existed,
         "orders_patched": patched_count,
     }
-
-
-def _retroactive_remove_noise(normalized: str, db: Session) -> int:
-    from sqlalchemy import text
-    print(f"🔍 NOISE PATCH v2 called: normalized='{normalized}'")
-
-    rows = db.execute(
-        text("""
-            SELECT id, unclear_items::text
-            FROM orders
-            WHERE unclear_items IS NOT NULL
-              AND unclear_items::text NOT IN ('[]', 'null')
-              AND is_cancelled = false
-        """)
-    ).fetchall()
-
-    print(f"🔍 Found {len(rows)} orders to check")
-    for row in rows:
-        print(f"  RAW ROW: id={row[0]} type={type(row[1])} value={repr(row[1][:200] if row[1] else None)}")
-
-    patched_ids = []
-    new_values  = {}
-
-    for row in rows:
-        order_id     = row[0]
-        unclear_json = row[1]
-
-        print(f"  RAW ROW: id={order_id} type={type(unclear_json)} value={repr(str(unclear_json)[:200])}")
-
-        try:
-            unclear = json.loads(unclear_json)
-            if not isinstance(unclear, list):
-                print(f"  NOT A LIST: {type(unclear)}")
-                continue
-
-            remaining = []
-            changed   = False
-
-            for raw_line in unclear:
-                product_name, _ = _extract_product_name(raw_line)
-                print(f"  line='{raw_line}' → product_name='{product_name}' normalized='{normalized}' match={product_name == normalized}")
-
-                if product_name == normalized:
-                    changed = True
-                else:
-                    remaining.append(raw_line)
-
-            if changed:
-                patched_ids.append(order_id)
-                new_values[order_id] = json.dumps(remaining) if remaining else None
-
-        except Exception as e:
-            print(f"⚠️ EXCEPTION for order {order_id}: type={type(unclear_json)} error={e}")
-            continue
-
-    for order_id, new_val in new_values.items():
-        db.execute(
-            text("""
-                UPDATE orders
-                SET unclear_items = :val::jsonb,
-                    is_unclear = CASE WHEN :val IS NULL THEN false ELSE is_unclear END
-                WHERE id = :id
-            """),
-            {"val": new_val, "id": order_id}
-        )
-
-    if patched_ids:
-        db.commit()
-        print(f"✅ Noise patch committed for orders: {patched_ids}")
-
-    return len(patched_ids)
 
 
 @router.delete("/noise-phrases/{phrase_id}")
@@ -308,14 +494,11 @@ def deactivate_salesperson(salesperson_id: int, db: Session = Depends(get_db), u
     return {"status": "deactivated", "salesperson_id": salesperson_id, "affected_customers": affected}
 
 
-# ── Hard Delete Extension for Salespersons (Added to support full CRUD without modifying original logic) ──
 @router.delete("/salespersons/{salesperson_id}/purge")
 def hard_delete_salesperson(salesperson_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
     sp = db.query(Salesperson).filter(Salesperson.id == salesperson_id).first()
     if not sp:
         raise HTTPException(status_code=404, detail="Salesperson not found")
-
-    # Unassign customers first to prevent foreign key issues
     db.query(Customer).filter(Customer.salesperson_id == salesperson_id).update({Customer.salesperson_id: None})
     db.delete(sp)
     db.commit()
@@ -347,17 +530,12 @@ def list_customers(db: Session = Depends(get_db), username: str = Depends(requir
         .order_by(Customer.restaurant_name)
         .all()
     )
-
     ordered_today = {
         row[0]
         for row in db.query(Order.customer_phone)
-        .filter(
-            Order.business_date == today_str,
-            Order.is_cancelled == False,
-        )
+        .filter(Order.business_date == today_str, Order.is_cancelled == False)
         .all()
     }
-
     result = []
     for c in customers:
         row = _customer_row(c, db)
@@ -376,6 +554,7 @@ def list_unassigned_customers(db: Session = Depends(get_db), username: str = Dep
     )
     return {"customers": [_customer_row(c, db) for c in customers], "total": len(customers)}
 
+
 @router.post("/customers")
 def add_customer_manually(
     payload: CustomerCreate,
@@ -390,50 +569,39 @@ def add_customer_manually(
             area=payload.area,
             salesperson_id=payload.salesperson_id,
         )
-
-        # ── Notify manager ────────────────────────────────────────────────
         try:
             if MANAGER_PHONE:
                 sp_name = ""
                 if customer.salesperson_id:
-                    sp = db.query(Salesperson).filter(
-                        Salesperson.id == customer.salesperson_id
-                    ).first()
+                    sp = db.query(Salesperson).filter(Salesperson.id == customer.salesperson_id).first()
                     sp_name = f"\n🧑 Salesperson: {sp.name}" if sp else ""
-                alert = (
+                send_whatsapp_message(MANAGER_PHONE, (
                     f"🆕 *New customer registered*\n"
                     f"🏪 {customer.restaurant_name}\n"
                     f"📱 {customer.phone_number}\n"
-                    f"📍 {customer.area or 'Area not set'}"
-                    f"{sp_name}"
-                )
-                send_whatsapp_message(MANAGER_PHONE, alert)
+                    f"📍 {customer.area or 'Area not set'}{sp_name}"
+                ))
         except Exception as e:
             logger.warning(f"Manager notification failed for new customer {customer.phone_number}: {e}")
-
-        # ── Welcome message to customer ───────────────────────────────────
         try:
-            welcome = (
+            send_whatsapp_message(customer.phone_number, (
                 f"👋 Welcome to {PLANT_NAME}!\n\n"
                 f"You've been registered as a daily order customer. "
                 f"To place your order, simply send us a message with your items.\n\n"
                 f"{generate_order_template()}"
-            )
-            send_whatsapp_message(customer.phone_number, welcome)
+            ))
         except Exception as e:
             logger.warning(f"Welcome message failed for {customer.phone_number}: {e}")
-
         return {"status": "created", "customer": _customer_row(customer, db)}
-
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+
 
 @router.get("/customers/{customer_id}/orders")
 def get_customer_orders(customer_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
-
     orders = (
         db.query(Order)
         .filter(Order.customer_phone == customer.phone_number)
@@ -441,18 +609,6 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
         .limit(60)
         .all()
     )
-
-    def safe_json(val):
-        if not val or val in ("null", "[]", ""):
-            return []
-        try:
-            result = json.loads(val) if isinstance(val, str) else val
-            if isinstance(result, str):          # double-encoded
-                result = json.loads(result)
-            return result if isinstance(result, list) else []
-        except Exception:
-            return []
-
     result = []
     for o in orders:
         result.append({
@@ -463,12 +619,11 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
             "is_cancelled"  : o.is_cancelled,
             "is_unclear"    : o.is_unclear,
             "unclear_reason": o.unclear_reason,
-            "unclear_items" : safe_json(getattr(o, 'unclear_items', None)),
+            "unclear_items" : _safe_list(o.unclear_items),
             "raw_message"   : o.raw_message,
-            "items"         : safe_json(o.parsed_items),
+            "items"         : _safe_list(o.parsed_items),
             "created_at"    : o.created_at.isoformat() if o.created_at else None,
         })
-
     return {
         "customer_id"    : customer_id,
         "restaurant_name": customer.restaurant_name,
@@ -495,7 +650,11 @@ def assign_customer(customer_id: int, payload: CustomerAssign, db: Session = Dep
     if customer.salesperson_id:
         sp = db.query(Salesperson).filter(Salesperson.id == customer.salesperson_id).first()
         sp_name = sp.name if sp else None
-    return {"status": "assigned", "customer": {"id": customer.id, "restaurant_name": customer.restaurant_name, "area": customer.area, "salesperson_id": customer.salesperson_id, "salesperson_name": sp_name}}
+    return {"status": "assigned", "customer": {
+        "id": customer.id, "restaurant_name": customer.restaurant_name,
+        "area": customer.area, "salesperson_id": customer.salesperson_id,
+        "salesperson_name": sp_name,
+    }}
 
 
 @router.put("/customers/{customer_id}/status")
@@ -505,7 +664,10 @@ def update_customer_status(customer_id: int, payload: CustomerStatus, db: Sessio
         raise HTTPException(status_code=404, detail="Customer not found")
     customer.is_active = payload.is_active
     db.commit(); db.refresh(customer)
-    return {"status": "updated", "customer": {"id": customer.id, "restaurant_name": customer.restaurant_name, "phone_number": customer.phone_number, "is_active": customer.is_active}}
+    return {"status": "updated", "customer": {
+        "id": customer.id, "restaurant_name": customer.restaurant_name,
+        "phone_number": customer.phone_number, "is_active": customer.is_active,
+    }}
 
 
 @router.post("/customers/{customer_id}/post-order")
@@ -523,8 +685,6 @@ def post_order_on_behalf(
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Order message cannot be empty")
 
-    # Cancel any existing today's orders so pipeline does a clean save
-    # without triggering the replace-confirmation flow
     existing_orders = (
         db.query(Order)
         .filter(
@@ -545,7 +705,6 @@ def post_order_on_behalf(
         customer_phone=customer.phone_number,
         message=payload.message.strip(),
     )
-
     status = result.get("status", "")
     if status in ("order_saved", "order_updated", "repeat_confirmed", "unclear", "received"):
         return {
@@ -555,11 +714,11 @@ def post_order_on_behalf(
             "customer": customer.restaurant_name or customer.phone_number,
             "message": result.get("message", "Order posted successfully"),
         }
-
     raise HTTPException(
         status_code=400,
         detail=result.get("message") or f"Pipeline returned unexpected status: {status}",
     )
+
 
 @router.post("/orders/{order_id}/cancel")
 def cancel_order_on_behalf(
@@ -568,10 +727,6 @@ def cancel_order_on_behalf(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    """
-    Admin cancels/rejects an order on behalf of — or regardless of — the customer.
-    Sends a WhatsApp notification to the customer explaining the cancellation.
-    """
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -584,8 +739,6 @@ def cancel_order_on_behalf(
     db.commit()
 
     reason_text = payload.reason or "We are unable to fulfil this order today."
-
-    # Notify customer
     try:
         send_whatsapp_message(
             order.customer_phone,
@@ -597,8 +750,6 @@ def cancel_order_on_behalf(
         )
     except Exception as e:
         print(f"⚠️ Customer cancel notification failed: {e}")
-
-    # Notify manager
     try:
         if MANAGER_PHONE and order.customer_phone != MANAGER_PHONE:
             send_whatsapp_message(
@@ -619,6 +770,7 @@ def cancel_order_on_behalf(
         "reason": reason_text,
     }
 
+
 # ── Pending orders ────────────────────────────────────────────────────────────
 
 @router.get("/pending")
@@ -634,7 +786,6 @@ def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(g
     grouped = get_pending_customers(db, target_date)
     result  = []
     total   = 0
-
     for sp_id, customers in grouped.items():
         sp_name = "Unassigned"; sp_phone = None
         if sp_id is not None:
@@ -647,9 +798,7 @@ def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(g
             "customers": [{"id": c.id, "restaurant_name": c.restaurant_name, "phone_number": c.phone_number, "area": c.area} for c in customers],
         })
         total += len(customers)
-
     return {"delivery_date": target_date.isoformat(), "total_pending": total, "groups": result}
-
 
 
 @router.put("/orders/{order_id}/next-day")
@@ -665,43 +814,30 @@ def set_next_day_override(
 
     now_ist = datetime.now(IST)
     if now_ist.hour >= RESET_HOUR:
-        raise HTTPException(
-            status_code=403,
-            detail="Override window closed. Orders are locked after 8 PM IST."
-        )
+        raise HTTPException(status_code=403, detail="Override window closed. Orders are locked after 8 PM IST.")
 
     order_ist = order.created_at.astimezone(IST)
     cutoff = order_ist.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
     if order_ist >= cutoff:
-        raise HTTPException(
-            status_code=400,
-            detail="This order was placed after 8 PM IST and is already assigned to the next day."
-        )
+        raise HTTPException(status_code=400, detail="This order was placed after 8 PM IST and is already assigned to the next day.")
 
     if payload.is_next_day:
-        next_day = (order_ist.date() + timedelta(days=1)).strftime("%Y-%m-%d")
-        order.business_date = next_day
+        order.business_date = (order_ist.date() + timedelta(days=1)).strftime("%Y-%m-%d")
         order.is_next_day_override = True
     else:
         order.business_date = order_ist.date().strftime("%Y-%m-%d")
         order.is_next_day_override = False
 
-    db.commit()
-    db.refresh(order)
+    db.commit(); db.refresh(order)
     return {"success": True, "order_id": order.id, "business_date": order.business_date}
+
 
 # ── WhatsApp Window Status ────────────────────────────────────────────────────
 
 def _window_status(last_inbound: datetime | None, now: datetime) -> dict:
     if last_inbound is None:
-        return {
-            "status": "CLOSED",
-            "status_label": "Never messaged",
-            "hours_remaining": 0,
-            "minutes_remaining": 0,
-            "last_seen_ist": None,
-            "last_seen_display": "Never",
-        }
+        return {"status": "CLOSED", "status_label": "Never messaged", "hours_remaining": 0,
+                "minutes_remaining": 0, "last_seen_ist": None, "last_seen_display": "Never"}
 
     if last_inbound.tzinfo is None:
         last_inbound = last_inbound.replace(tzinfo=timezone.utc)
@@ -710,20 +846,15 @@ def _window_status(last_inbound: datetime | None, now: datetime) -> dict:
     remaining = window_expires - now
 
     if remaining.total_seconds() <= 0:
-        return {
-            "status": "CLOSED",
-            "status_label": "Closed",
-            "hours_remaining": 0,
-            "minutes_remaining": 0,
-            "last_seen_ist": last_inbound.astimezone(IST).isoformat(),
-            "last_seen_display": last_inbound.astimezone(IST).strftime("%d %b %H:%M"),
-        }
+        return {"status": "CLOSED", "status_label": "Closed", "hours_remaining": 0,
+                "minutes_remaining": 0,
+                "last_seen_ist": last_inbound.astimezone(IST).isoformat(),
+                "last_seen_display": last_inbound.astimezone(IST).strftime("%d %b %H:%M")}
 
     total_minutes = int(remaining.total_seconds() // 60)
     hours = total_minutes // 60
     minutes = total_minutes % 60
     status = "OPEN" if hours >= 4 else "AT_RISK"
-
     return {
         "status": status,
         "status_label": f"{hours}h {minutes}m left",
@@ -738,13 +869,10 @@ def _window_status(last_inbound: datetime | None, now: datetime) -> dict:
 def get_window_status(db: Session = Depends(get_db), username: str = Depends(require_auth)):
     now = datetime.now(timezone.utc)
     stakeholders = []
-
     if MANAGER_PHONE:
         stakeholders.append({"name": "Manager", "phone": MANAGER_PHONE, "role": "manager"})
-
     for sp in db.query(Salesperson).filter(Salesperson.active == True).all():
         stakeholders.append({"name": sp.name, "phone": sp.phone, "role": "salesperson"})
-
     for c in (
         db.query(Customer)
         .filter(Customer.is_active == True, Customer.onboarding_status == "active")
@@ -769,7 +897,7 @@ def get_window_status(db: Session = Depends(get_db), username: str = Depends(req
     for s in stakeholders:
         window = _window_status(last_seen_map.get(s["phone"]), now)
         result.append({"name": s["name"], "phone": s["phone"], "role": s["role"], **window})
-        if window["status"] == "CLOSED":   closed_count += 1
+        if window["status"] == "CLOSED":    closed_count += 1
         elif window["status"] == "AT_RISK": at_risk_count += 1
 
     return {
@@ -786,18 +914,6 @@ def get_window_status(db: Session = Depends(get_db), username: str = Depends(req
 @router.get("/unclear-items")
 def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(require_auth)):
     """Orders that have unresolved unclear items."""
-
-    def _safe_list(val):
-        if not val or val in ("null", "[]", ""):
-            return []
-        try:
-            result = json.loads(val)
-            if isinstance(result, str):
-                result = json.loads(result)
-            return result if isinstance(result, list) else []
-        except Exception:
-            return []
-
     orders = (
         db.query(Order)
         .filter(
@@ -829,7 +945,6 @@ def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(req
 
 @router.get("/unclear-items/aliases")
 def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth)):
-    """List all saved global aliases."""
     aliases = db.query(UnclearItemAlias).order_by(UnclearItemAlias.raw_text).all()
     return [
         {
@@ -844,238 +959,7 @@ def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_a
 
 @router.get("/product-names")
 def get_product_names(username: str = Depends(require_auth)):
-    """Valid canonical product names for the alias dropdown."""
     return sorted([display for display, _, _ in PRODUCT_DEFINITIONS])
-
-
-# ── Helper: extract product name part from a raw unclear line ─────────────────
-
-LINE_RE = re.compile(
-    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pis|psc|pc|pieces?|piece|k)?\s*$",
-    re.IGNORECASE,
-)
-
-
-
-def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
-    """Look up a global alias by raw_text. Returns canonical product name or None."""
-    alias_match = db.query(UnclearItemAlias).filter(
-        UnclearItemAlias.raw_text == raw_text.strip().lower()
-    ).first()
-    return alias_match.canonical_product_name if alias_match else None
-
-
-# ── Retroactive patch helpers ─────────────────────────────────────────────────
-
-def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
-    from sqlalchemy import text
-    print(f"🔍 ALIAS PATCH v2 called: raw='{raw}' canonical='{canonical}'")
-
-    rows = db.execute(
-        text("""
-            SELECT id, unclear_items::text, parsed_items::text
-            FROM orders
-            WHERE unclear_items IS NOT NULL
-              AND unclear_items::text NOT IN ('[]', 'null')
-        """)
-    ).fetchall()
-
-    print(f"🔍 Found {len(rows)} orders to check")
-
-    for row in rows:
-        print(
-            f"  RAW ROW: id={row[0]} type={type(row[1])} "
-            f"value={repr(row[1][:200] if row[1] else None)}"
-        )
-
-    unit = "kg"
-    for display_name, u, _ in PRODUCT_DEFINITIONS:
-        if display_name.lower() == canonical.lower():
-            unit = u
-            break
-
-    patched_ids = []
-
-    for row in rows:
-        order_id     = row[0]
-        unclear_json = row[1]
-        parsed_json  = row[2]
-
-        print(f"  RAW ROW: id={order_id} type={type(unclear_json)} value={repr(str(unclear_json)[:200])}")
-
-        try:
-            unclear = json.loads(unclear_json or "[]")
-            parsed  = json.loads(parsed_json  or "[]")
-
-            if not isinstance(unclear, list):
-                unclear = []
-            if not isinstance(parsed, list):
-                parsed = []
-
-            remaining     = []
-            matched_lines = []
-
-            for line in unclear:
-                product_part = _extract_product_name_from_line(line)
-                print(f"  line='{line}' → product_part='{product_part}' raw='{raw}' match={product_part == raw or raw in product_part}")
-
-                if product_part == raw or product_part.startswith(raw) or raw in product_part:
-                    matched_lines.append(line)
-                else:
-                    remaining.append(line)
-
-            if not matched_lines:
-                print(f"  NO MATCHES FOUND for order {order_id}")
-                continue
-
-            for line in matched_lines:
-                qty = _extract_qty_from_line(line)
-                parsed.append({
-                    "product": canonical,
-                    "quantity": qty,
-                    "unit": unit
-                })
-
-            new_unclear = json.dumps(remaining) if remaining else None
-            new_parsed  = json.dumps(parsed)
-
-            db.execute(
-                text("""
-                    UPDATE orders
-                    SET unclear_items = :unclear::jsonb,
-                        parsed_items  = :parsed::jsonb,
-                        is_unclear    = CASE WHEN :unclear IS NULL THEN false ELSE is_unclear END
-                    WHERE id = :id
-                """),
-                {
-                    "unclear": new_unclear,
-                    "parsed": new_parsed,
-                    "id": order_id
-                }
-            )
-
-            patched_ids.append(order_id)
-
-        except Exception as e:
-            print(f"⚠️ EXCEPTION for order {order_id}: type={type(unclear_json)} error={e}")
-            continue
-
-    if patched_ids:
-        db.commit()
-        print(f"✅ Alias patch committed for orders: {patched_ids}")
-
-    return len(patched_ids)
-
-
-def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db) -> int:
-    """Patch past orders for ONE customer containing raw in unclear_items."""
-    orders_to_patch = (
-        db.query(Order)
-        .filter(Order.customer_phone == phone, Order.unclear_items.isnot(None))
-        .all()
-    )
-    patched = 0
-    for order in orders_to_patch:
-        patched += _patch_order_unclear(order, raw, canonical, db)
-    return patched
-
-
-def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -> int:
-    """
-    Remove `raw` from order.unclear_items and add it to order.parsed_items.
-    Returns 1 if the order was modified, 0 otherwise.
-    """
-    try:
-        raw_val = order.unclear_items
-        if not raw_val or raw_val in ("null", "[]", ""):
-            return 0
-        unclear = json.loads(raw_val) if isinstance(raw_val, str) else (raw_val or [])
-        if not isinstance(unclear, list) or not unclear:
-            return 0
-    except Exception:
-        return 0
-
-    remaining = []
-    matched_lines = []
-    for line in unclear:
-        product_part = _extract_product_name_from_line(line)
-        # Match if extracted name equals raw, OR if raw is a substring of the extracted name
-        # This handles cases like "tandoori chicken 30pis" where unit-stripping may be imperfect
-        if product_part == raw or product_part.startswith(raw) or raw in product_part:
-            matched_lines.append(line)
-        else:
-            remaining.append(line)
-
-    if not matched_lines:
-        return 0
-
-    # Determine unit from canonical
-    unit = "kg"
-    for display_name, u, _ in PRODUCT_DEFINITIONS:
-        if display_name.lower() == canonical.lower():
-            unit = u
-            break
-
-    try:
-        parsed = json.loads(order.parsed_items) if isinstance(order.parsed_items, str) else (order.parsed_items or [])
-        if not isinstance(parsed, list):
-            parsed = []
-    except Exception:
-        parsed = []
-
-    for line in matched_lines:
-        qty = _extract_qty_from_line(line)
-        parsed.append({"product": canonical, "quantity": qty, "unit": unit})
-
-    order.parsed_items  = json.dumps(parsed)
-    order.unclear_items = json.dumps(remaining) if remaining else None
-
-    if not remaining:
-        order.is_unclear = False
-
-    db.commit()
-    return 1
-
-
-def _extract_product_name(raw_line: str) -> tuple[str, float]:
-    """
-    Given a raw unclear line like "Raan -5", "kaleji 2kg", "tandoori chicken 30pis",
-    returns (product_name_lower, quantity).
-    Falls back to stripping any trailing <digits><letters> glob if regex doesn't match.
-    """
-    line_clean = re.sub(r'__+', '', raw_line).strip()
-    line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
-    m = LINE_RE.match(line_clean)
-    if m:
-        name = m.group(1).strip().lower()
-        try:
-            qty = float(m.group(2))
-        except (TypeError, ValueError):
-            qty = 1.0
-        return name, qty
-    # Fallback: strip any trailing <number><optional-letters> e.g. "30pis", "5kg", "10nos"
-    fallback = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', line_clean).strip()
-    return (fallback.lower() if fallback else line_clean.lower()), 1.0
-
-
-def _extract_product_name_from_line(line: str) -> str:
-    """Strip quantity/unit to get the lowercase product name. Delegates to _extract_product_name."""
-    name, _ = _extract_product_name(line)
-    return name
-
-
-def _extract_qty_from_line(line: str) -> float:
-    """Extract numeric quantity from a raw line, defaulting to 1."""
-    m = re.search(r"([\d]+(?:[./][\d]+)?)", line)
-    if m:
-        try:
-            return float(m.group(1))
-        except ValueError:
-            pass
-    return 1.0
-
-
-
 
 
 @router.post("/unclear-items/resolve")
@@ -1084,20 +968,6 @@ def resolve_unclear_item(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    """
-    Save raw_text → canonical_product_name alias and retroactively
-    patch past orders that have that raw_text in their unclear_items.
-
-    scope="global" (or no customer_phone): saves a global UnclearItemAlias
-    and patches ALL customers' past orders.
-
-    scope="customer" (with customer_phone): saves a CustomerProductAlias
-    for that phone only and patches only that customer's past orders.
-
-    raw_text is the PRODUCT NAME PART ONLY (e.g. "raan"), not the full
-    raw line with quantity (e.g. "raan -5"). The dashboard strips the
-    quantity before sending.
-    """
     raw       = payload.raw_text.strip().lower()
     canonical = payload.canonical_product_name.strip()
 
@@ -1110,9 +980,7 @@ def resolve_unclear_item(
 
     # ── GLOBAL scope ──────────────────────────────────────────────────────────
     if payload.scope == "global" or not payload.customer_phone:
-        existing = db.query(UnclearItemAlias).filter(
-            UnclearItemAlias.raw_text == raw
-        ).first()
+        existing = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw).first()
         if existing:
             existing.canonical_product_name = canonical
             existing.updated_at = datetime.now(IST)
@@ -1132,11 +1000,7 @@ def resolve_unclear_item(
     if existing:
         existing.canonical_product_name = canonical
     else:
-        db.add(CustomerProductAlias(
-            customer_phone=phone,
-            raw_text=raw,
-            canonical_product_name=canonical,
-        ))
+        db.add(CustomerProductAlias(customer_phone=phone, raw_text=raw, canonical_product_name=canonical))
     db.commit()
 
     patched = _retroactive_patch_customer(raw, canonical, phone, db)
@@ -1144,12 +1008,7 @@ def resolve_unclear_item(
 
 
 @router.delete("/unclear-items/aliases/{alias_id}")
-def delete_alias(
-    alias_id: int,
-    db: Session = Depends(get_db),
-    username: str = Depends(require_auth),
-):
-    """Delete a saved global alias."""
+def delete_alias(alias_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
     alias = db.query(UnclearItemAlias).filter(UnclearItemAlias.id == alias_id).first()
     if not alias:
         raise HTTPException(status_code=404, detail="Alias not found")
@@ -1161,11 +1020,7 @@ def delete_alias(
 # ── Customer-scoped aliases ───────────────────────────────────────────────────
 
 @router.get("/customer-aliases")
-def list_customer_aliases(
-    db: Session = Depends(get_db),
-    username: str = Depends(require_auth),
-):
-    """List all customer-specific aliases."""
+def list_customer_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth)):
     aliases = (
         db.query(CustomerProductAlias)
         .order_by(CustomerProductAlias.customer_phone, CustomerProductAlias.raw_text)
@@ -1184,12 +1039,7 @@ def list_customer_aliases(
 
 
 @router.get("/customer-aliases/{phone}")
-def list_customer_aliases_by_phone(
-    phone: str,
-    db: Session = Depends(get_db),
-    username: str = Depends(require_auth),
-):
-    """List all aliases for a specific customer phone number."""
+def list_customer_aliases_by_phone(phone: str, db: Session = Depends(get_db), username: str = Depends(require_auth)):
     aliases = (
         db.query(CustomerProductAlias)
         .filter(CustomerProductAlias.customer_phone == phone)
@@ -1209,12 +1059,7 @@ def list_customer_aliases_by_phone(
 
 
 @router.post("/customer-aliases")
-def create_customer_alias(
-    payload: CustomerAliasCreate,
-    db: Session = Depends(get_db),
-    username: str = Depends(require_auth),
-):
-    """Create or update a customer-specific alias."""
+def create_customer_alias(payload: CustomerAliasCreate, db: Session = Depends(get_db), username: str = Depends(require_auth)):
     raw = payload.raw_text.strip().lower()
     existing = db.query(CustomerProductAlias).filter(
         CustomerProductAlias.customer_phone == payload.customer_phone,
@@ -1229,22 +1074,13 @@ def create_customer_alias(
         raw_text=raw,
         canonical_product_name=payload.canonical_product_name.strip(),
     )
-    db.add(alias)
-    db.commit()
-    db.refresh(alias)
+    db.add(alias); db.commit(); db.refresh(alias)
     return {"status": "created", "id": alias.id}
 
 
 @router.delete("/customer-aliases/{alias_id}")
-def delete_customer_alias(
-    alias_id: int,
-    db: Session = Depends(get_db),
-    username: str = Depends(require_auth),
-):
-    """Delete a customer-specific alias by ID."""
-    alias = db.query(CustomerProductAlias).filter(
-        CustomerProductAlias.id == alias_id
-    ).first()
+def delete_customer_alias(alias_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    alias = db.query(CustomerProductAlias).filter(CustomerProductAlias.id == alias_id).first()
     if not alias:
         raise HTTPException(status_code=404, detail="Alias not found")
     db.delete(alias)
