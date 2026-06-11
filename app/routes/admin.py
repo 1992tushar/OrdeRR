@@ -161,25 +161,21 @@ def create_noise_phrase(
 
 
 def _retroactive_remove_noise(normalized: str, db: Session) -> int:
-    """
-    Remove noise phrase from all orders' unclear_items using raw SQL
-    to avoid ORM session state issues.
-    """
     from sqlalchemy import text
-    print(f"🔍 NOISE PATCH v2 called: normalized='{normalized}'")  # canary
+    print(f"🔍 NOISE PATCH v2 called: normalized='{normalized}'")
 
-
-    # Fetch all orders with unclear items (raw query, no ORM)
     rows = db.execute(
         text("""
-            SELECT id, unclear_items
+            SELECT id, unclear_items::text
             FROM orders
             WHERE unclear_items IS NOT NULL
-              AND unclear_items NOT IN ('[]', 'null')
+              AND unclear_items::text NOT IN ('[]', 'null')
               AND is_cancelled = false
         """)
     ).fetchall()
-    print(f"🔍 Found {len(rows)} orders to check")  # canary
+
+    print(f"🔍 Found {len(rows)} orders to check")
+
     patched_ids = []
     new_values  = {}
 
@@ -187,6 +183,7 @@ def _retroactive_remove_noise(normalized: str, db: Session) -> int:
         order_id     = row[0]
         unclear_json = row[1]
         try:
+            # Cast to text in SQL, so this is always a string now
             unclear = json.loads(unclear_json)
             if not isinstance(unclear, list):
                 continue
@@ -194,6 +191,7 @@ def _retroactive_remove_noise(normalized: str, db: Session) -> int:
             changed   = False
             for raw_line in unclear:
                 product_name, _ = _extract_product_name(raw_line)
+                print(f"  order {order_id}: line='{raw_line}' → product_name='{product_name}' match={product_name == normalized}")
                 if product_name == normalized:
                     changed = True
                 else:
@@ -209,7 +207,7 @@ def _retroactive_remove_noise(normalized: str, db: Session) -> int:
         db.execute(
             text("""
                 UPDATE orders
-                SET unclear_items = :val,
+                SET unclear_items = :val::jsonb,
                     is_unclear = CASE WHEN :val IS NULL THEN false ELSE is_unclear END
                 WHERE id = :id
             """),
@@ -861,27 +859,26 @@ def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
 
 def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
     from sqlalchemy import text
-    print(f"🔍 ALIAS PATCH v2 called: raw='{raw}' canonical='{canonical}'")  # canary
-
+    print(f"🔍 ALIAS PATCH v2 called: raw='{raw}' canonical='{canonical}'")
 
     rows = db.execute(
         text("""
-            SELECT id, unclear_items, parsed_items
+            SELECT id, unclear_items::text, parsed_items::text
             FROM orders
             WHERE unclear_items IS NOT NULL
-              AND unclear_items NOT IN ('[]', 'null')
+              AND unclear_items::text NOT IN ('[]', 'null')
         """)
     ).fetchall()
 
-
-    print(f"🔍 Found {len(rows)} orders to check")  # canary
-    patched_ids = []
+    print(f"🔍 Found {len(rows)} orders to check")
 
     unit = "kg"
     for display_name, u, _ in PRODUCT_DEFINITIONS:
         if display_name.lower() == canonical.lower():
             unit = u
             break
+
+    patched_ids = []
 
     for row in rows:
         order_id     = row[0]
@@ -897,6 +894,7 @@ def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
             matched_lines = []
             for line in unclear:
                 product_part = _extract_product_name_from_line(line)
+                print(f"  order {order_id}: line='{line}' → product_part='{product_part}' match={product_part == raw or raw in product_part}")
                 if product_part == raw or product_part.startswith(raw) or raw in product_part:
                     matched_lines.append(line)
                 else:
@@ -911,13 +909,12 @@ def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
 
             new_unclear = json.dumps(remaining) if remaining else None
             new_parsed  = json.dumps(parsed)
-            new_is_unclear = False if not remaining else None  # None = don't change
 
             db.execute(
                 text("""
                     UPDATE orders
-                    SET unclear_items = :unclear,
-                        parsed_items  = :parsed,
+                    SET unclear_items = :unclear::jsonb,
+                        parsed_items  = :parsed::jsonb,
                         is_unclear    = CASE WHEN :unclear IS NULL THEN false ELSE is_unclear END
                     WHERE id = :id
                 """),
