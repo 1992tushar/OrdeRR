@@ -175,33 +175,36 @@ def _retroactive_remove_noise(normalized: str, db: Session) -> int:
     ).fetchall()
 
     print(f"🔍 Found {len(rows)} orders to check")
+    for row in rows:
+        print(f"  RAW ROW: id={row[0]} type={type(row[1])} value={repr(row[1][:200] if row[1] else None)}")
 
     patched_ids = []
     new_values  = {}
 
     for row in rows:
-        order_id     = row[0]
-        unclear_json = row[1]
-        try:
-            # Cast to text in SQL, so this is always a string now
-            unclear = json.loads(unclear_json)
-            if not isinstance(unclear, list):
-                continue
-            remaining = []
-            changed   = False
-            for raw_line in unclear:
-                product_name, _ = _extract_product_name(raw_line)
-                print(f"  order {order_id}: line='{raw_line}' → product_name='{product_name}' match={product_name == normalized}")
-                if product_name == normalized:
-                    changed = True
-                else:
-                    remaining.append(raw_line)
-            if changed:
-                patched_ids.append(order_id)
-                new_values[order_id] = json.dumps(remaining) if remaining else None
-        except Exception as e:
-            print(f"⚠️ Noise patch failed for order {order_id}: {e}")
+    order_id     = row[0]
+    unclear_json = row[1]
+    print(f"  RAW ROW: id={order_id} type={type(unclear_json)} value={repr(str(unclear_json)[:200])}")
+    try:
+        unclear = json.loads(unclear_json)
+        if not isinstance(unclear, list):
+            print(f"  NOT A LIST: {type(unclear)}")
             continue
+        remaining = []
+        changed   = False
+        for raw_line in unclear:
+            product_name, _ = _extract_product_name(raw_line)
+            print(f"  line='{raw_line}' → product_name='{product_name}' normalized='{normalized}' match={product_name == normalized}")
+            if product_name == normalized:
+                changed = True
+            else:
+                remaining.append(raw_line)
+        if changed:
+            patched_ids.append(order_id)
+            new_values[order_id] = json.dumps(remaining) if remaining else None
+    except Exception as e:
+        print(f"⚠️ EXCEPTION for order {order_id}: type={type(unclear_json)} error={e}")
+        continue
 
     for order_id, new_val in new_values.items():
         db.execute(
@@ -872,6 +875,9 @@ def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
 
     print(f"🔍 Found {len(rows)} orders to check")
 
+    for row in rows:
+    print(f"  RAW ROW: id={row[0]} type={type(row[1])} value={repr(row[1][:200] if row[1] else None)}")
+
     unit = "kg"
     for display_name, u, _ in PRODUCT_DEFINITIONS:
         if display_name.lower() == canonical.lower():
@@ -881,50 +887,52 @@ def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
     patched_ids = []
 
     for row in rows:
-        order_id     = row[0]
-        unclear_json = row[1]
-        parsed_json  = row[2]
-        try:
-            unclear = json.loads(unclear_json or "[]")
-            parsed  = json.loads(parsed_json  or "[]")
-            if not isinstance(unclear, list): unclear = []
-            if not isinstance(parsed,  list): parsed  = []
+    order_id     = row[0]
+    unclear_json = row[1]
+    parsed_json  = row[2]
+    print(f"  RAW ROW: id={order_id} type={type(unclear_json)} value={repr(str(unclear_json)[:200])}")
+    try:
+        unclear = json.loads(unclear_json or "[]")
+        parsed  = json.loads(parsed_json  or "[]")
+        if not isinstance(unclear, list): unclear = []
+        if not isinstance(parsed,  list): parsed  = []
 
-            remaining     = []
-            matched_lines = []
-            for line in unclear:
-                product_part = _extract_product_name_from_line(line)
-                print(f"  order {order_id}: line='{line}' → product_part='{product_part}' match={product_part == raw or raw in product_part}")
-                if product_part == raw or product_part.startswith(raw) or raw in product_part:
-                    matched_lines.append(line)
-                else:
-                    remaining.append(line)
+        remaining     = []
+        matched_lines = []
+        for line in unclear:
+            product_part = _extract_product_name_from_line(line)
+            print(f"  line='{line}' → product_part='{product_part}' raw='{raw}' match={product_part == raw or raw in product_part}")
+            if product_part == raw or product_part.startswith(raw) or raw in product_part:
+                matched_lines.append(line)
+            else:
+                remaining.append(line)
 
-            if not matched_lines:
-                continue
-
-            for line in matched_lines:
-                qty = _extract_qty_from_line(line)
-                parsed.append({"product": canonical, "quantity": qty, "unit": unit})
-
-            new_unclear = json.dumps(remaining) if remaining else None
-            new_parsed  = json.dumps(parsed)
-
-            db.execute(
-                text("""
-                    UPDATE orders
-                    SET unclear_items = :unclear::jsonb,
-                        parsed_items  = :parsed::jsonb,
-                        is_unclear    = CASE WHEN :unclear IS NULL THEN false ELSE is_unclear END
-                    WHERE id = :id
-                """),
-                {"unclear": new_unclear, "parsed": new_parsed, "id": order_id}
-            )
-            patched_ids.append(order_id)
-
-        except Exception as e:
-            print(f"⚠️ Alias patch failed for order {order_id}: {e}")
+        if not matched_lines:
+            print(f"  NO MATCHES FOUND for order {order_id}")
             continue
+
+        for line in matched_lines:
+            qty = _extract_qty_from_line(line)
+            parsed.append({"product": canonical, "quantity": qty, "unit": unit})
+
+        new_unclear = json.dumps(remaining) if remaining else None
+        new_parsed  = json.dumps(parsed)
+
+        db.execute(
+            text("""
+                UPDATE orders
+                SET unclear_items = :unclear::jsonb,
+                    parsed_items  = :parsed::jsonb,
+                    is_unclear    = CASE WHEN :unclear IS NULL THEN false ELSE is_unclear END
+                WHERE id = :id
+            """),
+            {"unclear": new_unclear, "parsed": new_parsed, "id": order_id}
+        )
+        patched_ids.append(order_id)
+
+    except Exception as e:
+        print(f"⚠️ EXCEPTION for order {order_id}: type={type(unclear_json)} error={e}")
+        continue
 
     if patched_ids:
         db.commit()
