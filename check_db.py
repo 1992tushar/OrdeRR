@@ -35,7 +35,9 @@ def run_write(title, query, params=None):
         print(f"  ❌ ERROR: {e}")
         conn.rollback()
 
-
+run_write("Delete all tables", """
+    TRUNCATE inbound_messages, orders, unclear_item_aliases, noise_phrases, customers, salespersons RESTART IDENTITY CASCADE;
+""")
 
 run("inbound_messages", "SELECT * FROM inbound_messages ORDER BY id DESC LIMIT 20;")
 run("orders", "SELECT * FROM orders ORDER BY id DESC LIMIT 20;")

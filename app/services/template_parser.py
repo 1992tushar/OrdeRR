@@ -21,6 +21,7 @@ v3 changes:
 
 import re
 import os
+from app.models.customer_product_alias import CustomerProductAlias
 
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 
@@ -42,7 +43,7 @@ PRODUCT_DEFINITIONS = [
         "no skin tandoor", "no skin td",
         "sl tandoor", "wos tandoor",
         "al faham", "al-faham", "alfaham",
-        "skin remove tandoor",
+        "skin remove tandoor","तंदूर", "तंदूरी", "तंदूर चिकन", "तंदूरी चिकन", "तंदूर साइज", "तंदूर बर्ड",
     ]),
 
     ("W/O Skin Regular Chicken", "nos", [
@@ -97,7 +98,7 @@ PRODUCT_DEFINITIONS = [
         "bonless", "boneless",
         "bb", "cb",
         "bl breast", "breast bl", "b/l breast", "b.l breast",
-        "brest", "brest boneless", "breast bnls",
+        "brest", "brest boneless", "breast bnls","bonlesh", "bonles", "bonless chicken", "bonlesh chicken",
     ]),
 
     ("Leg Boneless", "kg", [
@@ -169,7 +170,7 @@ PRODUCT_DEFINITIONS = [
         "leg piece", "complete leg",
         "wl",
         "tangdi", "tangadi", "t leg",
-        "wholeleg", "fullleg",
+        "wholeleg", "fullleg","leg piece", "leg pcs", "leg pscs", "leg psc",
     ]),
 
     # ── Organ Meat ────────────────────────────────────────────────────────────
@@ -286,6 +287,28 @@ def _lookup_alias(raw_name: str, db) -> tuple | None:
         pass
     return None
 
+def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -> tuple | None:
+    """
+    Check customer_product_aliases for a phone + raw_text match.
+    Returns (canonical_product_name, unit) or None.
+    db can be None (caller doesn't always have a session).
+    """
+    if db is None or not customer_phone:
+        return None
+    normalized = raw_name.strip().lower()
+    row = db.query(CustomerProductAlias).filter(
+        CustomerProductAlias.customer_phone == customer_phone,
+        CustomerProductAlias.raw_text == normalized,
+    ).first()
+    if not row:
+        return None
+    # Find the unit for this canonical product (same logic as _lookup_alias)
+    for display_name, unit, aliases in PRODUCT_DEFINITIONS:
+        if display_name.lower() == row.canonical_product_name.lower():
+            return (row.canonical_product_name, unit)
+    # Fallback: return with default unit kg
+    return (row.canonical_product_name, "kg")
+
 
 def _is_noise_phrase(raw_name: str, db) -> bool:
     """
@@ -354,6 +377,14 @@ _DATE_LINE_RE = re.compile(
     r'|^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+[\d]{1,2}',
     re.IGNORECASE,
 )
+
+import re
+ 
+# Matches lines where quantity comes FIRST: "3 तंदूर", "4 Leg piece", "2 lollipop"
+_QTY_FIRST_RE = re.compile(
+    r"^([\d]+(?:[./][\d]+)?)\s+(.+)$"
+)
+
 
 # Common header/footer filler phrases customers add
 _FILLER_RE = re.compile(
@@ -526,10 +557,9 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
         ]):
             continue
 
-        # ── NEW: skip noise lines (dates, hotel names, filler phrases etc.) ──
+        # Skip noise lines (dates, hotel names, filler phrases etc.)
         if _is_noise_line(line, restaurant_name_norm):
             continue
-        # ─────────────────────────────────────────────────────────────────────
 
         # Strip placeholder tokens
         line_clean = re.sub(r'__+', '', line).strip()
@@ -545,6 +575,7 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
         line_clean = re.sub(r'^[\d]+[)\.\-]\s*', '', line_clean).strip()
         line_clean = re.sub(r'^[•\-\*]\s*', '', line_clean).strip()
 
+        # ── CHANGE 6: Primary regex, then qty-first fallback ──────────────────
         # Pattern: <product name> <separator?> <quantity> [unit]
         split_match = re.match(
             r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|nos|no|nos\.|pcs|psc|pc|pis|pieces|piece|k)?\s*$",
@@ -552,33 +583,50 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
             re.IGNORECASE,
         )
 
-        if not split_match:
-            if len(line_clean) > 3:
-                unclear_items.append(line)
-            continue
-
-        raw_name     = split_match.group(1).strip()
-        raw_qty      = split_match.group(2).strip()
-        raw_unit_str = (split_match.group(3) or "").strip()
-        raw_unit     = _normalize_unit(raw_unit_str) if raw_unit_str else None
+        if split_match:
+            raw_name     = split_match.group(1).strip()
+            raw_qty      = split_match.group(2).strip()
+            raw_unit_str = (split_match.group(3) or "").strip()
+            raw_unit     = _normalize_unit(raw_unit_str) if raw_unit_str else None
+        else:
+            # Fallback: quantity-first format e.g. "3 तंदूर", "4 Leg piece"
+            qty_first_match = _QTY_FIRST_RE.match(line_clean)
+            if qty_first_match:
+                raw_qty      = qty_first_match.group(1).strip()
+                raw_name     = qty_first_match.group(2).strip()
+                raw_unit_str = ""
+                raw_unit     = None
+            else:
+                # No quantity found at all — treat whole line as product name, qty=1
+                raw_name     = line_clean
+                raw_qty      = "1"
+                raw_unit_str = ""
+                raw_unit     = None
+        # ─────────────────────────────────────────────────────────────────────
 
         if raw_qty in ("__", "0", ""):
             continue
 
-        # ── Product match: catalog first, then alias table ────────────────────
+        # ── CHANGE 5: Updated lookup chain ────────────────────────────────────
+        # 1. Global catalog aliases
         product_match = _match_product(raw_name)
 
+        # 2. Customer-specific alias  ← NEW
         if not product_match:
-            # Try manager-confirmed alias table
+            product_match = _lookup_customer_alias(raw_name, customer_phone, db)
+
+        # 3. Global unclear_item_aliases
+        if not product_match:
             product_match = _lookup_alias(raw_name, db)
 
+        # 4. Noise check — skip silently
         if not product_match:
-            # Check if manager has marked this as noise/irrelevant — skip silently
             if _is_noise_phrase(raw_name, db):
                 continue
-            # Truly unclear — store raw line for manager review
+            # 5. Truly unclear — store raw line for manager review
             unclear_items.append(line)
             continue
+        # ─────────────────────────────────────────────────────────────────────
 
         display_name, expected_unit = product_match
 

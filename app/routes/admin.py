@@ -16,6 +16,11 @@ Unclear:      GET /admin/unclear-items
               GET /admin/product-names
               POST /admin/unclear-items/resolve
               DELETE /admin/unclear-items/aliases/{id}
+Customer Aliases:
+              GET  /admin/customer-aliases
+              GET  /admin/customer-aliases/{phone}
+              POST /admin/customer-aliases
+              DELETE /admin/customer-aliases/{alias_id}
 """
 
 import os
@@ -37,6 +42,7 @@ from app.models.order import Order
 from app.models.salesperson import Salesperson
 from app.models.inbound_message import InboundMessage
 from app.models.unclear_item_alias import UnclearItemAlias
+from app.models.customer_product_alias import CustomerProductAlias
 from app.services.customer_service import normalize_phone
 from app.services.notifier import send_whatsapp_message
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
@@ -48,6 +54,7 @@ from app.services.notifier import send_manager_alert
 from app.services.customer_service import get_customer_by_phone
 from app.models.noise_phrase import NoisePhrase
 from app.services.product_catalog import generate_order_template
+
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +96,24 @@ class NextDayOverride(BaseModel):
 class PostOrderPayload(BaseModel):
     """Payload for admin posting an order on behalf of a customer."""
     message: str
+
 class CancelOrderPayload(BaseModel):
     reason: Optional[str] = None  # shown to customer + manager
 
 class NoisePhraseCreate(BaseModel):
     raw_text: str
+
+class ResolveUnclearItem(BaseModel):
+    raw_text: str
+    canonical_product_name: str
+    customer_phone: Optional[str] = None   # None = global
+    scope: str = "customer"                # "customer" | "global"
+
+class CustomerAliasCreate(BaseModel):
+    customer_phone: str
+    raw_text: str
+    canonical_product_name: str
+
 
 @router.get("/noise-phrases")
 def get_noise_phrases(db: Session = Depends(get_db), username: str = Depends(require_auth)):
@@ -106,8 +126,8 @@ def get_noise_phrases(db: Session = Depends(get_db), username: str = Depends(req
         }
         for p in phrases
     ]
- 
- 
+
+
 @router.post("/noise-phrases")
 def create_noise_phrase(
     payload: NoisePhraseCreate,
@@ -168,8 +188,8 @@ def create_noise_phrase(
         "already_existed": already_existed,
         "orders_patched": patched_count,
     }
- 
- 
+
+
 @router.delete("/noise-phrases/{phrase_id}")
 def delete_noise_phrase(
     phrase_id: int,
@@ -253,7 +273,7 @@ def hard_delete_salesperson(salesperson_id: int, db: Session = Depends(get_db), 
     sp = db.query(Salesperson).filter(Salesperson.id == salesperson_id).first()
     if not sp:
         raise HTTPException(status_code=404, detail="Salesperson not found")
-    
+
     # Unassign customers first to prevent foreign key issues
     db.query(Customer).filter(Customer.salesperson_id == salesperson_id).update({Customer.salesperson_id: None})
     db.delete(sp)
@@ -288,15 +308,14 @@ def list_customers(db: Session = Depends(get_db), username: str = Depends(requir
     )
 
     ordered_today = {
-    row[0]
-    for row in db.query(Order.customer_phone)
-    .filter(
-        Order.business_date == today_str,
-        Order.is_cancelled == False,
-    )
-    .all()
+        row[0]
+        for row in db.query(Order.customer_phone)
+        .filter(
+            Order.business_date == today_str,
+            Order.is_cancelled == False,
+        )
+        .all()
     }
-
 
     result = []
     for c in customers:
@@ -558,6 +577,7 @@ def cancel_order_on_behalf(
         "customer": order.customer_name or order.customer_phone,
         "reason": reason_text,
     }
+
 # ── Pending orders ────────────────────────────────────────────────────────────
 
 @router.get("/pending")
@@ -768,7 +788,7 @@ def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(req
 
 @router.get("/unclear-items/aliases")
 def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth)):
-    """List all saved aliases."""
+    """List all saved global aliases."""
     aliases = db.query(UnclearItemAlias).order_by(UnclearItemAlias.raw_text).all()
     return [
         {
@@ -813,130 +833,173 @@ def _extract_product_name(raw_line: str) -> tuple[str, float]:
     return line_clean.lower(), 1.0
 
 
-# ── Missing Helper Function: _lookup_alias (Added back based on code documentation requirements) ──
 def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
-    """
-    Helper utility referenced by resolve_unclear_item documentation.
-    Looks up canonical product names directly via active alias tags.
-    """
-    alias_match = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw_text.strip().lower()).first()
+    """Look up a global alias by raw_text. Returns canonical product name or None."""
+    alias_match = db.query(UnclearItemAlias).filter(
+        UnclearItemAlias.raw_text == raw_text.strip().lower()
+    ).first()
     return alias_match.canonical_product_name if alias_match else None
+
+
+# ── Retroactive patch helpers ─────────────────────────────────────────────────
+
+def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
+    """Patch all past orders containing raw in unclear_items (global)."""
+    orders_to_patch = (
+        db.query(Order)
+        .filter(Order.unclear_items.isnot(None))
+        .all()
+    )
+    patched = 0
+    for order in orders_to_patch:
+        patched += _patch_order_unclear(order, raw, canonical, db)
+    return patched
+
+
+def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db) -> int:
+    """Patch past orders for ONE customer containing raw in unclear_items."""
+    orders_to_patch = (
+        db.query(Order)
+        .filter(Order.customer_phone == phone, Order.unclear_items.isnot(None))
+        .all()
+    )
+    patched = 0
+    for order in orders_to_patch:
+        patched += _patch_order_unclear(order, raw, canonical, db)
+    return patched
+
+
+def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -> int:
+    """
+    Remove `raw` from order.unclear_items and add it to order.parsed_items.
+    Returns 1 if the order was modified, 0 otherwise.
+    """
+    try:
+        unclear = json.loads(order.unclear_items) if isinstance(order.unclear_items, str) else (order.unclear_items or [])
+    except Exception:
+        return 0
+
+    remaining = []
+    matched_lines = []
+    for line in unclear:
+        product_part = _extract_product_name_from_line(line)
+        if product_part == raw:
+            matched_lines.append(line)
+        else:
+            remaining.append(line)
+
+    if not matched_lines:
+        return 0
+
+    # Determine unit from canonical
+    unit = "kg"
+    for display_name, u, _ in PRODUCT_DEFINITIONS:
+        if display_name.lower() == canonical.lower():
+            unit = u
+            break
+
+    try:
+        parsed = json.loads(order.parsed_items) if isinstance(order.parsed_items, str) else (order.parsed_items or [])
+    except Exception:
+        parsed = []
+
+    for line in matched_lines:
+        qty = _extract_qty_from_line(line)
+        parsed.append({"product": canonical, "quantity": qty, "unit": unit})
+
+    order.parsed_items  = json.dumps(parsed)
+    order.unclear_items = json.dumps(remaining)
+
+    if not remaining:
+        order.is_unclear = False
+
+    db.commit()
+    return 1
+
+
+def _extract_product_name_from_line(line: str) -> str:
+    """Strip quantity/unit to get the lowercase product name."""
+    clean = line.replace("__", "").strip()
+    m = re.match(r"^(.+?)\s*[-:]?\s*[\d\.]+\s*(?:kg|kgs|nos|pcs|pc|pieces?)?\s*$", clean, re.I)
+    if m:
+        return m.group(1).strip().lower()
+    return clean.lower()
+
+
+def _extract_qty_from_line(line: str) -> float:
+    """Extract numeric quantity from a raw line, defaulting to 1."""
+    m = re.search(r"([\d]+(?:[./][\d]+)?)", line)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+    return 1.0
 
 
 @router.post("/unclear-items/resolve")
 def resolve_unclear_item(
-    payload: dict,
+    payload: ResolveUnclearItem,
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
     """
     Save raw_text → canonical_product_name alias and retroactively
-    patch all past orders that have that raw_text in their unclear_items.
+    patch past orders that have that raw_text in their unclear_items.
+
+    scope="global" (or no customer_phone): saves a global UnclearItemAlias
+    and patches ALL customers' past orders.
+
+    scope="customer" (with customer_phone): saves a CustomerProductAlias
+    for that phone only and patches only that customer's past orders.
 
     raw_text is the PRODUCT NAME PART ONLY (e.g. "raan"), not the full
     raw line with quantity (e.g. "raan -5"). The dashboard strips the
-    quantity before sending. This ensures the alias matches correctly
-    in both _lookup_alias() and future retroactive patches.
+    quantity before sending.
     """
-    raw_text  = payload.get("raw_text", "").strip().lower()
-    canonical = payload.get("canonical_product_name", "").strip()
+    raw       = payload.raw_text.strip().lower()
+    canonical = payload.canonical_product_name.strip()
 
-    if not raw_text or not canonical:
+    if not raw or not canonical:
         raise HTTPException(status_code=400, detail="raw_text and canonical_product_name are required")
 
     valid_names = {display for display, _, _ in PRODUCT_DEFINITIONS}
     if canonical not in valid_names:
         raise HTTPException(status_code=400, detail=f"'{canonical}' is not a valid product name")
 
-    # Find unit for this canonical product
-    unit = next((u for d, u, _ in PRODUCT_DEFINITIONS if d == canonical), "kg")
+    # ── GLOBAL scope ──────────────────────────────────────────────────────────
+    if payload.scope == "global" or not payload.customer_phone:
+        existing = db.query(UnclearItemAlias).filter(
+            UnclearItemAlias.raw_text == raw
+        ).first()
+        if existing:
+            existing.canonical_product_name = canonical
+            existing.updated_at = datetime.now(IST)
+        else:
+            db.add(UnclearItemAlias(raw_text=raw, canonical_product_name=canonical))
+        db.commit()
 
-    # Upsert alias — key is product name only (no quantity)
-    existing = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw_text).first()
+        patched = _retroactive_patch_global(raw, canonical, db)
+        return {"status": "ok", "scope": "global", "orders_patched": patched}
+
+    # ── CUSTOMER scope ────────────────────────────────────────────────────────
+    phone = payload.customer_phone.strip()
+    existing = db.query(CustomerProductAlias).filter(
+        CustomerProductAlias.customer_phone == phone,
+        CustomerProductAlias.raw_text == raw,
+    ).first()
     if existing:
         existing.canonical_product_name = canonical
-        existing.updated_at = datetime.now(IST)
     else:
-        db.add(UnclearItemAlias(raw_text=raw_text, canonical_product_name=canonical))
+        db.add(CustomerProductAlias(
+            customer_phone=phone,
+            raw_text=raw,
+            canonical_product_name=canonical,
+        ))
     db.commit()
 
-    # Retroactive patch — scan all orders with unclear_items
-    # Match by extracting the product name part from each raw line,
-    # then compare against raw_text (product name only).
-    orders_to_patch = (
-        db.query(Order)
-        .filter(
-            Order.unclear_items.isnot(None),
-            Order.unclear_items != "[]",
-            Order.unclear_items != "null",
-            Order.is_cancelled == False,
-        )
-        .all()
-    )
-
-    patched_count = 0
-    for order in orders_to_patch:
-        try:
-            unclear    = json.loads(order.unclear_items or "[]")
-            remaining  = []
-            qty_to_add = 0.0
-
-            for raw_line in unclear:
-                product_name, qty = _extract_product_name(raw_line)
-                if product_name == raw_text:
-                    qty_to_add += qty
-                else:
-                    remaining.append(raw_line)
-
-            if qty_to_add > 0:
-                parsed = json.loads(order.parsed_items or "[]")
-                merged = False
-                for item in parsed:
-                    if item["product"] == canonical and item["unit"] == unit:
-                        item["quantity"] += qty_to_add
-                        merged = True
-                        break
-                if not merged:
-                    parsed.append({"product": canonical, "quantity": qty_to_add, "unit": unit})
-                order.parsed_items  = json.dumps(parsed)
-                order.unclear_items = json.dumps(remaining) if remaining else None
-                patched_count += 1
-
-        except Exception as e:
-            print(f"⚠️ Retroactive patch failed for order {order.id}: {e}")
-            continue
-
-    db.commit()
-
-    # Notify manager for every order that was patched and is now fully resolved
-    for order in orders_to_patch:
-        remaining_unclear = json.loads(order.unclear_items) if order.unclear_items else []
-        if remaining_unclear:
-            continue  # Still has unresolved items — skip
-        # Check this order was actually patched in this request (patched_count
-        # tracks count not ids, so we re-check by seeing if canonical is in parsed)
-        parsed_items = json.loads(order.parsed_items or "[]")
-        was_patched  = any(i["product"] == canonical for i in parsed_items)
-        if not was_patched:
-            continue
-        try:
-            customer = get_customer_by_phone(db, order.customer_phone)
-            send_manager_alert(
-                manager_phone   = MANAGER_PHONE,
-                customer_phone  = order.customer_phone,
-                parsed          = {"items": parsed_items, "delivery_time": order.delivery_time},
-                restaurant_name = customer.restaurant_name if customer else order.customer_phone,
-            )
-        except Exception as e:
-            print(f"⚠️ Post-resolve manager alert failed for order {order.id}: {e}")
-
-    return {
-        "status"        : "ok",
-        "alias_saved"   : True,
-        "orders_patched": patched_count,
-        "raw_text"      : raw_text,
-        "mapped_to"     : canonical,
-    }
+    patched = _retroactive_patch_customer(raw, canonical, phone, db)
+    return {"status": "ok", "scope": "customer", "orders_patched": patched}
 
 
 @router.delete("/unclear-items/aliases/{alias_id}")
@@ -945,8 +1008,102 @@ def delete_alias(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    """Delete a saved alias."""
+    """Delete a saved global alias."""
     alias = db.query(UnclearItemAlias).filter(UnclearItemAlias.id == alias_id).first()
+    if not alias:
+        raise HTTPException(status_code=404, detail="Alias not found")
+    db.delete(alias)
+    db.commit()
+    return {"status": "deleted", "id": alias_id}
+
+
+# ── Customer-scoped aliases ───────────────────────────────────────────────────
+
+@router.get("/customer-aliases")
+def list_customer_aliases(
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """List all customer-specific aliases."""
+    aliases = (
+        db.query(CustomerProductAlias)
+        .order_by(CustomerProductAlias.customer_phone, CustomerProductAlias.raw_text)
+        .all()
+    )
+    return [
+        {
+            "id":                     a.id,
+            "customer_phone":         a.customer_phone,
+            "raw_text":               a.raw_text,
+            "canonical_product_name": a.canonical_product_name,
+            "created_at":             a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in aliases
+    ]
+
+
+@router.get("/customer-aliases/{phone}")
+def list_customer_aliases_by_phone(
+    phone: str,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """List all aliases for a specific customer phone number."""
+    aliases = (
+        db.query(CustomerProductAlias)
+        .filter(CustomerProductAlias.customer_phone == phone)
+        .order_by(CustomerProductAlias.raw_text)
+        .all()
+    )
+    return [
+        {
+            "id":                     a.id,
+            "customer_phone":         a.customer_phone,
+            "raw_text":               a.raw_text,
+            "canonical_product_name": a.canonical_product_name,
+            "created_at":             a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in aliases
+    ]
+
+
+@router.post("/customer-aliases")
+def create_customer_alias(
+    payload: CustomerAliasCreate,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Create or update a customer-specific alias."""
+    raw = payload.raw_text.strip().lower()
+    existing = db.query(CustomerProductAlias).filter(
+        CustomerProductAlias.customer_phone == payload.customer_phone,
+        CustomerProductAlias.raw_text == raw,
+    ).first()
+    if existing:
+        existing.canonical_product_name = payload.canonical_product_name.strip()
+        db.commit()
+        return {"status": "updated", "id": existing.id}
+    alias = CustomerProductAlias(
+        customer_phone=payload.customer_phone,
+        raw_text=raw,
+        canonical_product_name=payload.canonical_product_name.strip(),
+    )
+    db.add(alias)
+    db.commit()
+    db.refresh(alias)
+    return {"status": "created", "id": alias.id}
+
+
+@router.delete("/customer-aliases/{alias_id}")
+def delete_customer_alias(
+    alias_id: int,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Delete a customer-specific alias by ID."""
+    alias = db.query(CustomerProductAlias).filter(
+        CustomerProductAlias.id == alias_id
+    ).first()
     if not alias:
         raise HTTPException(status_code=404, detail="Alias not found")
     db.delete(alias)

@@ -57,7 +57,6 @@ app/services/template_parser.py
 app/services/webhook_health.py
 app/templates/dashboard.html
 app/templates/ledger.html
-check_db.py
 Procfile
 pytest.ini
 render.yaml
@@ -620,12 +619,7 @@ alert = (</file><file path="app/templates/ledger.html">&lt;!DOCTYPE html&gt;
   Showing confirmed orders only · Cancelled orders not shown
 &lt;/div&gt;
 &lt;/body&gt;
-&lt;/html&gt;</file><file path=".gitignore">venv/
-.env
-__pycache__/
-*.pyc
-orderr.db
-repomix-output.xml</file><file path="app/models/customer.py">class Customer(Base)
+&lt;/html&gt;</file><file path="app/models/customer.py">class Customer(Base)
 ⋮----
 __tablename__ = &quot;customers&quot;
 ⋮----
@@ -726,7 +720,13 @@ alert = (
 ⋮----
 def _alert_processing_failure(msg: InboundMessage, reason: str)
 ⋮----
-def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path="app/services/customer_service.py">def normalize_phone(phone: str) -&gt; str
+def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path=".gitignore">venv/
+.env
+__pycache__/
+*.pyc
+orderr.db
+repomix-output.xml
+check_db.py</file><file path="app/services/customer_service.py">def normalize_phone(phone: str) -&gt; str
 ⋮----
 phone = (
 ⋮----
@@ -1134,48 +1134,7 @@ def parse_template_order(customer_phone: str, message: str, db=None) -&gt; dict
 customer_phone: sender&apos;s phone number
 message:        raw WhatsApp message text
 ⋮----
-Returns:</file><file path="app/routes/dashboard.py">router = APIRouter()
-IST = timezone(timedelta(hours=5, minutes=30))
-templates = Jinja2Templates(directory=&quot;app/templates&quot;)
-⋮----
-def _safe_list(value) -&gt; list
-⋮----
-parsed = json.loads(value)
-⋮----
-# double-encoded: parsed is still a string
-⋮----
-inner = json.loads(parsed)
-⋮----
-today = get_current_business_date()
-⋮----
-target_date = date.fromisoformat(view_date)
-⋮----
-target_date = today
-⋮----
-orders = db.query(Order).filter(
-⋮----
-unclear_list = _safe_list(order.unclear_items)
-⋮----
-clear_orders   = [o for o in orders if not o.is_unclear]
-unclear_orders = [o for o in orders if o.is_unclear]
-⋮----
-product_summary = {}
-⋮----
-product  = item.get(&quot;product&quot;, &quot;Unknown&quot;)
-quantity = item.get(&quot;quantity&quot;, 0)
-unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
-key      = f&quot;{product}__{unit}&quot;
-⋮----
-yesterday = (target_date - timedelta(days=1)).isoformat()
-tomorrow  = (target_date + timedelta(days=1)).isoformat()
-is_today  = (target_date == today)
-now_ist = datetime.now(IST)
-is_before_cutoff = now_ist.hour &lt; 20
-⋮----
-failed_messages   = []
-reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
-⋮----
-reliability_stats = get_reliability_stats(db)</file><file path="app/services/notifier.py">META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;)
+Returns:</file><file path="app/services/notifier.py">META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;)
 META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;)
 MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;)
 PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
@@ -1233,7 +1192,48 @@ def send_manager_menu(phone: str) -&gt; dict
     Buttons: Summary | Daily Report | Add Customer
     &quot;&quot;&quot;
 ⋮----
-def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
+def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/routes/dashboard.py">router = APIRouter()
+IST = timezone(timedelta(hours=5, minutes=30))
+templates = Jinja2Templates(directory=&quot;app/templates&quot;)
+⋮----
+def _safe_list(value) -&gt; list
+⋮----
+parsed = json.loads(value)
+⋮----
+# double-encoded: parsed is still a string
+⋮----
+inner = json.loads(parsed)
+⋮----
+today = get_current_business_date()
+⋮----
+target_date = date.fromisoformat(view_date)
+⋮----
+target_date = today
+⋮----
+orders = db.query(Order).filter(
+⋮----
+unclear_list = _safe_list(order.unclear_items)
+⋮----
+clear_orders   = [o for o in orders if not o.is_unclear]
+unclear_orders = [o for o in orders if o.is_unclear]
+⋮----
+product_summary = {}
+⋮----
+product  = item.get(&quot;product&quot;, &quot;Unknown&quot;)
+quantity = item.get(&quot;quantity&quot;, 0)
+unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
+key      = f&quot;{product}__{unit}&quot;
+⋮----
+yesterday = (target_date - timedelta(days=1)).isoformat()
+tomorrow  = (target_date + timedelta(days=1)).isoformat()
+is_today  = (target_date == today)
+now_ist = datetime.now(IST)
+is_before_cutoff = now_ist.hour &lt; 20
+⋮----
+failed_messages   = []
+reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
+⋮----
+reliability_stats = get_reliability_stats(db)</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
 router = APIRouter()
 MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 ADD_CUSTOMER_CMD = &quot;add customer&quot;
@@ -1284,7 +1284,144 @@ tokens = parts.split(None, 1)
 ⋮----
 customer = create_customer_manually(
 ⋮----
-def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/routes/admin.py">router     = APIRouter()
+def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+BASE_URL             = os.getenv(&quot;BASE_URL&quot;, &quot;&quot;)   # e.g. https://orderr.onrender.com
+IST                  = timezone(timedelta(hours=5, minutes=30))
+RESET_HOUR           = 20  # 8 PM IST
+DISPATCH_CUTOFF_HOUR = int(os.getenv(&quot;DISPATCH_CUTOFF_HOUR&quot;, &quot;9&quot;))
+⋮----
+def get_today_ist() -&gt; date
+⋮----
+def compute_business_date(created_at_utc: datetime) -&gt; date
+⋮----
+ist_time = created_at_utc.astimezone(IST)
+⋮----
+def get_current_business_date() -&gt; date
+⋮----
+now_ist = datetime.now(IST)
+⋮----
+def get_current_business_date_str() -&gt; str
+⋮----
+def get_delivery_date_str() -&gt; str
+⋮----
+def get_internal_phones(db: Session) -&gt; set
+⋮----
+salesperson_phones = {
+internal = salesperson_phones
+⋮----
+internal = internal | {MANAGER_PHONE}
+⋮----
+def get_todays_active_order(db: Session, customer_phone: str) -&gt; Order | None
+⋮----
+business_date_str = get_current_business_date_str()
+⋮----
+def get_last_order(db: Session, customer_phone: str) -&gt; Order | None
+⋮----
+def _get_pending_repeat(db: Session, customer_phone: str) -&gt; Order | None
+⋮----
+def _get_pending_replace(db: Session, customer_phone: str) -&gt; Order | None
+⋮----
+lines = [
+⋮----
+qty = int(i[&apos;quantity&apos;]) if i[&apos;quantity&apos;] == int(i[&apos;quantity&apos;]) else i[&apos;quantity&apos;]
+⋮----
+customer_phone  = customer.phone_number
+restaurant_name = customer.restaurant_name
+unclear_items   = parsed.get(&quot;unclear_items&quot;, [])
+parsed_items    = parsed.get(&quot;items&quot;, [])
+⋮----
+order = Order(
+⋮----
+items_text = &quot;\n&quot;.join(
+⋮----
+def _handle_onboarding(db: Session, customer: Customer, message: str) -&gt; dict
+⋮----
+customer_phone = customer.phone_number
+error = validate_restaurant_name(message.strip())
+⋮----
+def _handle_cancel(db: Session, customer: Customer) -&gt; dict
+⋮----
+existing = get_todays_active_order(db, customer_phone)
+⋮----
+def _handle_repeat(db: Session, customer: Customer) -&gt; dict
+⋮----
+last = get_last_order(db, customer_phone)
+⋮----
+items = json.loads(last.parsed_items)
+pending = Order(
+⋮----
+def _handle_history(db: Session, customer: Customer) -&gt; dict
+⋮----
+ledger_url = f&quot;{BASE_URL}/ledger/{customer.ledger_token}&quot;
+⋮----
+def _handle_confirm_yes(db: Session, customer: Customer) -&gt; dict
+⋮----
+customer_phone    = customer.phone_number
+pending_repeat    = _get_pending_repeat(db, customer_phone)
+pending_replace   = _get_pending_replace(db, customer_phone)
+⋮----
+items  = json.loads(pending_repeat.parsed_items)
+parsed = {
+⋮----
+old_order = (
+⋮----
+items  = json.loads(pending_replace.parsed_items)
+⋮----
+def _handle_confirm_no(db: Session, customer: Customer) -&gt; dict
+⋮----
+pending_repeat  = _get_pending_repeat(db, customer_phone)
+pending_replace = _get_pending_replace(db, customer_phone)
+⋮----
+def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool) -&gt; dict
+⋮----
+parsed = parse_template_order(customer_phone, message, db=db)
+⋮----
+existing_order = get_todays_active_order(db, customer_phone)
+⋮----
+current_time_ist = datetime.now(IST)
+cutoff_time = current_time_ist.replace(
+⋮----
+result = _save_and_notify(db, customer, parsed, message, is_photo=is_photo)
+existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
+⋮----
+business_date = compute_business_date(datetime.now(timezone.utc)).strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+msg_lower = message.strip().lower()
+⋮----
+customer = get_customer_by_phone(db, customer_phone)
+⋮----
+internal_phones = get_internal_phones(db)
+⋮----
+customer = create_new_customer(db, customer_phone)
+⋮----
+intent = classify_intent(
+⋮----
+def get_all_orders(db: Session) -&gt; list
+⋮----
+def get_unclear_orders(db: Session) -&gt; list
+⋮----
+def get_todays_orders(db: Session) -&gt; list
+⋮----
+today_str = get_current_business_date_str()
+⋮----
+def get_orders_by_date(db: Session, target_date: date) -&gt; list
+⋮----
+def get_customer_order_history(db: Session, customer_id: int) -&gt; list
+⋮----
+customer = db.query(Customer).filter(Customer.id == customer_id).first()
+⋮----
+def validate_restaurant_name(name: str) -&gt; str | None
+⋮----
+stripped = name.strip()
+lower    = stripped.lower()
+⋮----
+letters_only = re.sub(r&apos;[^a-zA-Z]&apos;, &apos;&apos;, lower)
+⋮----
+single_word_fillers = {
+words = lower.split()</file><file path="app/routes/admin.py">logger = logging.getLogger(__name__)
+⋮----
+router     = APIRouter()
 PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 IST        = timezone(timedelta(hours=5, minutes=30))
@@ -1551,142 +1688,7 @@ def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depe
 def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
 @router.post(&quot;/test-notifications/daily-report&quot;)
-def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-BASE_URL             = os.getenv(&quot;BASE_URL&quot;, &quot;&quot;)   # e.g. https://orderr.onrender.com
-IST                  = timezone(timedelta(hours=5, minutes=30))
-RESET_HOUR           = 20  # 8 PM IST
-DISPATCH_CUTOFF_HOUR = int(os.getenv(&quot;DISPATCH_CUTOFF_HOUR&quot;, &quot;9&quot;))
-⋮----
-def get_today_ist() -&gt; date
-⋮----
-def compute_business_date(created_at_utc: datetime) -&gt; date
-⋮----
-ist_time = created_at_utc.astimezone(IST)
-⋮----
-def get_current_business_date() -&gt; date
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-def get_current_business_date_str() -&gt; str
-⋮----
-def get_delivery_date_str() -&gt; str
-⋮----
-def get_internal_phones(db: Session) -&gt; set
-⋮----
-salesperson_phones = {
-internal = salesperson_phones
-⋮----
-internal = internal | {MANAGER_PHONE}
-⋮----
-def get_todays_active_order(db: Session, customer_phone: str) -&gt; Order | None
-⋮----
-business_date_str = get_current_business_date_str()
-⋮----
-def get_last_order(db: Session, customer_phone: str) -&gt; Order | None
-⋮----
-def _get_pending_repeat(db: Session, customer_phone: str) -&gt; Order | None
-⋮----
-def _get_pending_replace(db: Session, customer_phone: str) -&gt; Order | None
-⋮----
-lines = [
-⋮----
-qty = int(i[&apos;quantity&apos;]) if i[&apos;quantity&apos;] == int(i[&apos;quantity&apos;]) else i[&apos;quantity&apos;]
-⋮----
-customer_phone  = customer.phone_number
-restaurant_name = customer.restaurant_name
-unclear_items   = parsed.get(&quot;unclear_items&quot;, [])
-parsed_items    = parsed.get(&quot;items&quot;, [])
-⋮----
-order = Order(
-⋮----
-items_text = &quot;\n&quot;.join(
-⋮----
-def _handle_onboarding(db: Session, customer: Customer, message: str) -&gt; dict
-⋮----
-customer_phone = customer.phone_number
-error = validate_restaurant_name(message.strip())
-⋮----
-def _handle_cancel(db: Session, customer: Customer) -&gt; dict
-⋮----
-existing = get_todays_active_order(db, customer_phone)
-⋮----
-def _handle_repeat(db: Session, customer: Customer) -&gt; dict
-⋮----
-last = get_last_order(db, customer_phone)
-⋮----
-items = json.loads(last.parsed_items)
-pending = Order(
-⋮----
-def _handle_history(db: Session, customer: Customer) -&gt; dict
-⋮----
-ledger_url = f&quot;{BASE_URL}/ledger/{customer.ledger_token}&quot;
-⋮----
-def _handle_confirm_yes(db: Session, customer: Customer) -&gt; dict
-⋮----
-customer_phone    = customer.phone_number
-pending_repeat    = _get_pending_repeat(db, customer_phone)
-pending_replace   = _get_pending_replace(db, customer_phone)
-⋮----
-items  = json.loads(pending_repeat.parsed_items)
-parsed = {
-⋮----
-old_order = (
-⋮----
-items  = json.loads(pending_replace.parsed_items)
-⋮----
-def _handle_confirm_no(db: Session, customer: Customer) -&gt; dict
-⋮----
-pending_repeat  = _get_pending_repeat(db, customer_phone)
-pending_replace = _get_pending_replace(db, customer_phone)
-⋮----
-def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool) -&gt; dict
-⋮----
-parsed = parse_template_order(customer_phone, message, db=db)
-⋮----
-existing_order = get_todays_active_order(db, customer_phone)
-⋮----
-current_time_ist = datetime.now(IST)
-cutoff_time = current_time_ist.replace(
-⋮----
-result = _save_and_notify(db, customer, parsed, message, is_photo=is_photo)
-existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
-⋮----
-business_date = compute_business_date(datetime.now(timezone.utc)).strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-msg_lower = message.strip().lower()
-⋮----
-customer = get_customer_by_phone(db, customer_phone)
-⋮----
-internal_phones = get_internal_phones(db)
-⋮----
-customer = create_new_customer(db, customer_phone)
-⋮----
-intent = classify_intent(
-⋮----
-def get_all_orders(db: Session) -&gt; list
-⋮----
-def get_unclear_orders(db: Session) -&gt; list
-⋮----
-def get_todays_orders(db: Session) -&gt; list
-⋮----
-today_str = get_current_business_date_str()
-⋮----
-def get_orders_by_date(db: Session, target_date: date) -&gt; list
-⋮----
-def get_customer_order_history(db: Session, customer_id: int) -&gt; list
-⋮----
-customer = db.query(Customer).filter(Customer.id == customer_id).first()
-⋮----
-def validate_restaurant_name(name: str) -&gt; str | None
-⋮----
-stripped = name.strip()
-lower    = stripped.lower()
-⋮----
-letters_only = re.sub(r&apos;[^a-zA-Z]&apos;, &apos;&apos;, lower)
-⋮----
-single_word_fillers = {
-words = lower.split()</file><file path="app/templates/dashboard.html">&lt;!DOCTYPE html&gt;
+def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/templates/dashboard.html">&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
     &lt;meta charset=&quot;UTF-8&quot;&gt;
