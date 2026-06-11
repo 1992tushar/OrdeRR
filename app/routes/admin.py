@@ -166,6 +166,8 @@ def _retroactive_remove_noise(normalized: str, db: Session) -> int:
     to avoid ORM session state issues.
     """
     from sqlalchemy import text
+    print(f"🔍 NOISE PATCH v2 called: normalized='{normalized}'")  # canary
+
 
     # Fetch all orders with unclear items (raw query, no ORM)
     rows = db.execute(
@@ -177,7 +179,7 @@ def _retroactive_remove_noise(normalized: str, db: Session) -> int:
               AND is_cancelled = false
         """)
     ).fetchall()
-
+    print(f"🔍 Found {len(rows)} orders to check")  # canary
     patched_ids = []
     new_values  = {}
 
@@ -859,6 +861,8 @@ def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
 
 def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
     from sqlalchemy import text
+    print(f"🔍 ALIAS PATCH v2 called: raw='{raw}' canonical='{canonical}'")  # canary
+
 
     rows = db.execute(
         text("""
@@ -869,6 +873,8 @@ def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
         """)
     ).fetchall()
 
+
+    print(f"🔍 Found {len(rows)} orders to check")  # canary
     patched_ids = []
 
     unit = "kg"
