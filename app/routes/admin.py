@@ -810,27 +810,10 @@ def get_product_names(username: str = Depends(require_auth)):
 # ── Helper: extract product name part from a raw unclear line ─────────────────
 
 LINE_RE = re.compile(
-    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pc|pis|psc|pieces|piece|k)?\s*$",
+    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pis|psc|pc|pieces?|piece|k)?\s*$",
     re.IGNORECASE,
 )
 
-def _extract_product_name(raw_line: str) -> tuple[str, float]:
-    """
-    Given a raw unclear line like "Raan -5" or "kaleji 2kg",
-    returns (product_name_lower, quantity).
-    Falls back to (full_line_lower, 1.0) if no quantity found.
-    """
-    line_clean = re.sub(r'__+', '', raw_line).strip()
-    line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
-    m = LINE_RE.match(line_clean)
-    if m:
-        name = m.group(1).strip().lower()
-        try:
-            qty = float(m.group(2))
-        except (TypeError, ValueError):
-            qty = 1.0
-        return name, qty
-    return line_clean.lower(), 1.0
 
 
 def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
@@ -926,17 +909,42 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -> int:
     return 1
 
 
-def _extract_product_name_from_line(line: str) -> str:
-    """Strip quantity/unit to get the lowercase product name."""
-    clean = line.replace("__", "").strip()
-    # Strip trailing quantity + any unit-like suffix (including unrecognized ones like "30pis")
-    m = re.match(
-        r"^(.+?)\s*[-:]?\s*[\d\.]+\s*(?:kg|kgs|nos|pcs|pis|pc|pieces?|k)?\s*$",
-        clean, re.I
-    )
+def _extract_product_name(raw_line: str) -> tuple[str, float]:
+    """
+    Given a raw unclear line like "Raan -5", "kaleji 2kg", "tandoori chicken 30pis",
+    returns (product_name_lower, quantity).
+    Falls back to stripping any trailing <digits><letters> glob if regex doesn't match.
+    """
+    line_clean = re.sub(r'__+', '', raw_line).strip()
+    line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
+    m = LINE_RE.match(line_clean)
     if m:
-        return m.group(1).strip().lower()
-    return clean.lower()
+        name = m.group(1).strip().lower()
+        try:
+            qty = float(m.group(2))
+        except (TypeError, ValueError):
+            qty = 1.0
+        return name, qty
+    # Fallback: strip any trailing <number><optional-letters> e.g. "30pis", "5kg", "10nos"
+    fallback = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', line_clean).strip()
+    return (fallback.lower() if fallback else line_clean.lower()), 1.0
+
+
+def _extract_product_name_from_line(line: str) -> str:
+    """Strip quantity/unit to get the lowercase product name. Delegates to _extract_product_name."""
+    name, _ = _extract_product_name(line)
+    return name
+
+
+def _extract_qty_from_line(line: str) -> float:
+    """Extract numeric quantity from a raw line, defaulting to 1."""
+    m = re.search(r"([\d]+(?:[./][\d]+)?)", line)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+    return 1.0
 
 
 def _extract_qty_from_line(line: str) -> float:
