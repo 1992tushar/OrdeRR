@@ -22,7 +22,7 @@ v3 changes:
 import re
 import os
 from app.models.customer_product_alias import CustomerProductAlias
-
+from app.models.unclear_item_alias import UnclearItemAlias
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 
 # ── Product Catalog ───────────────────────────────────────────────────────────
