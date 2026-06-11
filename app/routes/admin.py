@@ -150,37 +150,7 @@ def create_noise_phrase(
         db.refresh(phrase)
 
     # ── Retroactively remove this noise phrase from existing unclear_items ──
-    # Runs whether phrase is new OR already existed — ensures stale unclear items are cleared
-    patched_count = 0
-    orders_to_patch = (
-        db.query(Order)
-        .filter(
-            Order.unclear_items.isnot(None),
-            Order.unclear_items != "[]",
-            Order.unclear_items != "null",
-            Order.is_cancelled == False,
-        )
-        .all()
-    )
-    for order in orders_to_patch:
-        try:
-            unclear = json.loads(order.unclear_items or "[]")
-            remaining = []
-            changed = False
-            for raw_line in unclear:
-                product_name, _ = _extract_product_name(raw_line)
-                if product_name == normalized:
-                    changed = True
-                else:
-                    remaining.append(raw_line)
-            if changed:
-                order.unclear_items = json.dumps(remaining) if remaining else None
-                patched_count += 1
-        except Exception as e:
-            print(f"⚠️ Noise-phrase retroactive patch failed for order {order.id}: {e}")
-            continue
-    if patched_count:
-        db.commit()
+    patched_count = _retroactive_remove_noise(normalized, db)
 
     return {
         "id": phrase.id,
@@ -188,6 +158,67 @@ def create_noise_phrase(
         "already_existed": already_existed,
         "orders_patched": patched_count,
     }
+
+
+def _retroactive_remove_noise(normalized: str, db: Session) -> int:
+    """
+    Remove noise phrase from all orders' unclear_items using raw SQL
+    to avoid ORM session state issues.
+    """
+    from sqlalchemy import text
+
+    # Fetch all orders with unclear items (raw query, no ORM)
+    rows = db.execute(
+        text("""
+            SELECT id, unclear_items
+            FROM orders
+            WHERE unclear_items IS NOT NULL
+              AND unclear_items NOT IN ('[]', 'null')
+              AND is_cancelled = false
+        """)
+    ).fetchall()
+
+    patched_ids = []
+    new_values  = {}
+
+    for row in rows:
+        order_id     = row[0]
+        unclear_json = row[1]
+        try:
+            unclear = json.loads(unclear_json)
+            if not isinstance(unclear, list):
+                continue
+            remaining = []
+            changed   = False
+            for raw_line in unclear:
+                product_name, _ = _extract_product_name(raw_line)
+                if product_name == normalized:
+                    changed = True
+                else:
+                    remaining.append(raw_line)
+            if changed:
+                patched_ids.append(order_id)
+                new_values[order_id] = json.dumps(remaining) if remaining else None
+        except Exception as e:
+            print(f"⚠️ Noise patch failed for order {order_id}: {e}")
+            continue
+
+    for order_id, new_val in new_values.items():
+        db.execute(
+            text("""
+                UPDATE orders
+                SET unclear_items = :val,
+                    is_unclear = CASE WHEN :val IS NULL THEN false ELSE is_unclear END
+                WHERE id = :id
+            """),
+            {"val": new_val, "id": order_id}
+        )
+
+    if patched_ids:
+        db.commit()
+        print(f"✅ Noise patch committed for orders: {patched_ids}")
+
+    return len(patched_ids)
 
 
 @router.delete("/noise-phrases/{phrase_id}")
@@ -827,16 +858,76 @@ def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
 # ── Retroactive patch helpers ─────────────────────────────────────────────────
 
 def _retroactive_patch_global(raw: str, canonical: str, db) -> int:
-    """Patch all past orders containing raw in unclear_items (global)."""
-    orders_to_patch = (
-        db.query(Order)
-        .filter(Order.unclear_items.isnot(None))
-        .all()
-    )
-    patched = 0
-    for order in orders_to_patch:
-        patched += _patch_order_unclear(order, raw, canonical, db)
-    return patched
+    from sqlalchemy import text
+
+    rows = db.execute(
+        text("""
+            SELECT id, unclear_items, parsed_items
+            FROM orders
+            WHERE unclear_items IS NOT NULL
+              AND unclear_items NOT IN ('[]', 'null')
+        """)
+    ).fetchall()
+
+    patched_ids = []
+
+    unit = "kg"
+    for display_name, u, _ in PRODUCT_DEFINITIONS:
+        if display_name.lower() == canonical.lower():
+            unit = u
+            break
+
+    for row in rows:
+        order_id     = row[0]
+        unclear_json = row[1]
+        parsed_json  = row[2]
+        try:
+            unclear = json.loads(unclear_json or "[]")
+            parsed  = json.loads(parsed_json  or "[]")
+            if not isinstance(unclear, list): unclear = []
+            if not isinstance(parsed,  list): parsed  = []
+
+            remaining     = []
+            matched_lines = []
+            for line in unclear:
+                product_part = _extract_product_name_from_line(line)
+                if product_part == raw or product_part.startswith(raw) or raw in product_part:
+                    matched_lines.append(line)
+                else:
+                    remaining.append(line)
+
+            if not matched_lines:
+                continue
+
+            for line in matched_lines:
+                qty = _extract_qty_from_line(line)
+                parsed.append({"product": canonical, "quantity": qty, "unit": unit})
+
+            new_unclear = json.dumps(remaining) if remaining else None
+            new_parsed  = json.dumps(parsed)
+            new_is_unclear = False if not remaining else None  # None = don't change
+
+            db.execute(
+                text("""
+                    UPDATE orders
+                    SET unclear_items = :unclear,
+                        parsed_items  = :parsed,
+                        is_unclear    = CASE WHEN :unclear IS NULL THEN false ELSE is_unclear END
+                    WHERE id = :id
+                """),
+                {"unclear": new_unclear, "parsed": new_parsed, "id": order_id}
+            )
+            patched_ids.append(order_id)
+
+        except Exception as e:
+            print(f"⚠️ Alias patch failed for order {order_id}: {e}")
+            continue
+
+    if patched_ids:
+        db.commit()
+        print(f"✅ Alias patch committed for orders: {patched_ids}")
+
+    return len(patched_ids)
 
 
 def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db) -> int:
