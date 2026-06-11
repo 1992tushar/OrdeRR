@@ -140,7 +140,7 @@ def _safe_list(val) -> list:
 
 
 LINE_RE = re.compile(
-    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pis|psc|pc|pieces?|piece|k)?\s*$",
+    r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pis|psc|pc|pieces?|piece|pies|k)?\s*$",
     re.IGNORECASE,
 )
 
