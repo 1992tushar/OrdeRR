@@ -46,7 +46,7 @@ PRODUCT_DEFINITIONS = [
         "skin remove tandoor","तंदूर", "तंदूरी", "तंदूर चिकन", "तंदूरी चिकन", "तंदूर साइज", "तंदूर बर्ड",
     ]),
 
-    ("W/O Skin Regular Chicken", "nos", [
+    ("W/O Skin Regular Chicken", "kg", [
         "without skin regular", "without skin whole chicken regular",
         "wo skin regular", "w/o skin regular",
         "whole chicken without skin", "whole chicken no skin",
@@ -58,21 +58,8 @@ PRODUCT_DEFINITIONS = [
         "sl regular", "wos regular",
     ]),
 
-    # ── Whole Chicken: With Skin ──────────────────────────────────────────────
-
-    ("WS Tandoor Chicken", "nos", [
-        "with skin whole chicken tandoor", "ws whole chicken tandoor",
-        "with skin tandoor", "whole chicken tandoor",
-        "ws tandoor chicken", "ws tandoor", "tandoor chicken",
-        "skin tandoor", "chicken tandoori",
-        "tandoor", "tandoori", "td", "tdr",
-        "small chicken", "small chik", "1kg chicken", "1kg chik",
-        "chota chicken", "chota chik",
-        "tandor", "tanduri", "tandoor cut", "tandoor size", "tandoor bird",
-        "tandur",
-    ]),
-
-    ("WS Regular Chicken", "nos", [
+   
+    ("WS Regular Chicken", "kg", [
         "with skin whole chicken regular", "ws whole chicken regular",
         "with skin regular", "whole chicken regular",
         "ws regular chicken", "ws regular", "regular chicken",
@@ -85,7 +72,6 @@ PRODUCT_DEFINITIONS = [
         "broiler", "boiler", "full bird", "wbc",
         "murgi", "murg", "kombdi", "kombadi",
         "reguler", "reglar", "big bird", "large bird",
-        "chiken",
     ]),
 
     # ── Boneless ──────────────────────────────────────────────────────────────
@@ -114,16 +100,17 @@ PRODUCT_DEFINITIONS = [
 
     ("Wings", "kg", [
         "wings", "wing", "chicken wings", "wing piece", "hot wings",
-        "wngs", "wingz",
+        "wngs", "wingz", "lollipop", "ready lollipop", "lollypop", "lolipop",
+        "chicken lollipop", "ready lollypop",
+        "lp", "lpop",
+        "loli", "lolypop",
     ]),
 
     # ── Ready Lollipop ────────────────────────────────────────────────────────
 
     ("Ready Lollipop", "kg", [
-        "lollipop", "ready lollipop", "lollypop", "lolipop",
-        "chicken lollipop", "ready lollypop",
-        "lp", "lpop",
-        "loli", "lolypop",
+        "ready lollipop", 
+        "ready lollypop",
     ]),
 
     # ── Bone Products ─────────────────────────────────────────────────────────
