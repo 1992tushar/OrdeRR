@@ -19,7 +19,17 @@ IST           = timezone(timedelta(hours=5, minutes=30))
 # ── Approved template name ────────────────────────────────────────────────────
 TEMPLATE_DAILY_REPORT = "manager_daily_report"
 
-
+# Add this helper after the TEMPLATE_DAILY_REPORT line:
+def _safe_list(value) -> list:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, str):      # double-encoded
+            parsed = json.loads(parsed)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
 def normalize_product(product: str) -> str:
     if "chicken" not in product.lower():
         return f"Chicken {product}"
@@ -95,7 +105,8 @@ def generate_daily_report(db: Session) -> dict:
     # Aggregate product totals
     product_totals: dict = {}
     for order in clear_orders:
-        items = json.loads(order.parsed_items) if order.parsed_items else []
+        items = _safe_list(order.parsed_items)
+
         for item in items:
             product  = normalize_product(item.get("product", "Unknown").strip())
             quantity = item.get("quantity", 0)
@@ -121,10 +132,8 @@ def generate_daily_report(db: Session) -> dict:
         product_summary = " | ".join(lines)
 
     # Total items count
-    total_items = sum(
-        len(json.loads(o.parsed_items)) if o.parsed_items else 0
-        for o in clear_orders
-    )
+    total_items = sum(len(_safe_list(o.parsed_items)) for o in clear_orders)
+
 
     return {
         "date_str":        today.strftime("%d %B %Y"),

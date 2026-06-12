@@ -62,14 +62,67 @@ Procfile
 pytest.ini
 render.yaml
 requirements.txt
-runtime.txt</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path="app/__init__.py"></file><file path="app/models/__init__.py"></file><file path="app/routes/__init__.py"></file><file path="app/services/__init__.py"></file><file path=".python-version">3.11.0</file><file path="app/auth.py">security = HTTPBasic()
+runtime.txt</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path=".python-version">3.11.0</file><file path="app/__init__.py"></file><file path="app/auth.py">security = HTTPBasic()
 ⋮----
 username = os.getenv(&quot;DASHBOARD_USERNAME&quot;, &quot;&quot;)
 password = os.getenv(&quot;DASHBOARD_PASSWORD&quot;, &quot;&quot;)
 ⋮----
 username_ok = secrets.compare_digest(
 ⋮----
-password_ok = secrets.compare_digest(</file><file path="app/models/customer_product_alias.py">IST = timezone(timedelta(hours=5, minutes=30))
+password_ok = secrets.compare_digest(</file><file path="app/models/__init__.py"></file><file path="app/routes/__init__.py"></file><file path="app/services/__init__.py"></file><file path="Procfile">web: uvicorn app.main:app --host 0.0.0.0 --port $PORT</file><file path="requirements.txt">annotated-doc==0.0.4
+annotated-types==0.7.0
+anthropic==0.100.0
+anyio==4.13.0
+APScheduler==3.11.2
+certifi==2026.4.22
+cffi==2.0.0
+charset-normalizer==3.4.7
+click==8.3.3
+colorama==0.4.6
+cryptography==48.0.0
+distro==1.9.0
+docstring_parser==0.18.0
+fastapi==0.136.1
+greenlet==3.5.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.13
+Jinja2==3.1.6
+jiter==0.14.0
+MarkupSafe==3.0.3
+psycopg2-binary==2.9.12
+pyasn1==0.6.3
+pyasn1_modules==0.4.2
+pycparser==3.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+python-dotenv==1.2.2
+python-multipart==0.0.28
+requests==2.33.1
+sniffio==1.3.1
+SQLAlchemy==2.0.49
+starlette==1.0.0
+tenacity==9.1.4
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2026.2
+tzlocal==5.3.1
+urllib3==2.7.0
+uvicorn==0.46.0
+websockets==16.0</file><file path="runtime.txt">python-3.11.0</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
+⋮----
+DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
+⋮----
+engine = create_engine(
+⋮----
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+⋮----
+class Base(DeclarativeBase)
+⋮----
+def get_db()
+⋮----
+db = SessionLocal()</file><file path="app/models/customer_product_alias.py">IST = timezone(timedelta(hours=5, minutes=30))
 ⋮----
 class CustomerProductAlias(Base)
 ⋮----
@@ -152,21 +205,39 @@ db = SessionLocal()
 ⋮----
 due_messages = get_messages_pending_retry(db)
 ⋮----
-result = process_incoming_order(</file><file path="Procfile">web: uvicorn app.main:app --host 0.0.0.0 --port $PORT</file><file path="pytest.ini">[pytest]
+result = process_incoming_order(</file><file path="pytest.ini">[pytest]
 pythonpath = .
-testpaths = tests</file><file path="runtime.txt">python-3.11.0</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
+testpaths = tests</file><file path="app/models/customer.py">class Customer(Base)
 ⋮----
-DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
+__tablename__ = &quot;customers&quot;
 ⋮----
-engine = create_engine(
+id = Column(
 ⋮----
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+restaurant_name = Column(
 ⋮----
-class Base(DeclarativeBase)
+owner_name = Column(
 ⋮----
-def get_db()
+phone_number = Column(
 ⋮----
-db = SessionLocal()</file><file path="app/routes/ledger.py">router = APIRouter()
+address = Column(
+⋮----
+city = Column(
+⋮----
+onboarding_status = Column(
+⋮----
+is_active = Column(
+⋮----
+created_at = Column(
+⋮----
+area = Column(
+⋮----
+salesperson_id = Column(
+⋮----
+is_daily_order_customer = Column(
+⋮----
+ledger_token = Column(
+⋮----
+salesperson = relationship(&quot;Salesperson&quot;, back_populates=&quot;customers&quot;)</file><file path="app/routes/ledger.py">router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 templates = Jinja2Templates(directory=&quot;app/templates&quot;)
@@ -301,7 +372,22 @@ def _send_salesperson_adhoc_report(sp_phone: str, sp: Salesperson, db: Session)
 grouped    = get_pending_customers(db, delivery_date)
 sp_pending = grouped.get(sp.id, [])
 ⋮----
-customer_list = &quot;, &quot;.join(</file><file path="app/services/intent_classifier.py">class Intent(Enum)
+customer_list = &quot;, &quot;.join(</file><file path="app/services/customer_service.py">def normalize_phone(phone: str) -&gt; str
+⋮----
+phone = (
+⋮----
+# Only add 91 prefix if the number is exactly 10 digits (raw Indian mobile)
+# This avoids the bug where 911234567890 would incorrectly get prefixed again
+⋮----
+phone = f&quot;91{phone}&quot;
+⋮----
+normalized_phone = normalize_phone(phone)
+⋮----
+customer = Customer(
+⋮----
+normalized = normalize_phone(phone)
+⋮----
+existing = db.query(Customer).filter(Customer.phone_number == normalized).first()</file><file path="app/services/intent_classifier.py">class Intent(Enum)
 ⋮----
 ADHOC_REPORT     = &quot;adhoc_report&quot;
 ONBOARDING       = &quot;onboarding&quot;
@@ -635,37 +721,7 @@ alert = (</file><file path="app/templates/ledger.html">&lt;!DOCTYPE html&gt;
   Showing confirmed orders only · Cancelled orders not shown
 &lt;/div&gt;
 &lt;/body&gt;
-&lt;/html&gt;</file><file path="app/models/customer.py">class Customer(Base)
-⋮----
-__tablename__ = &quot;customers&quot;
-⋮----
-id = Column(
-⋮----
-restaurant_name = Column(
-⋮----
-owner_name = Column(
-⋮----
-phone_number = Column(
-⋮----
-address = Column(
-⋮----
-city = Column(
-⋮----
-onboarding_status = Column(
-⋮----
-is_active = Column(
-⋮----
-created_at = Column(
-⋮----
-area = Column(
-⋮----
-salesperson_id = Column(
-⋮----
-is_daily_order_customer = Column(
-⋮----
-ledger_token = Column(
-⋮----
-salesperson = relationship(&quot;Salesperson&quot;, back_populates=&quot;customers&quot;)</file><file path="app/services/message_journal.py">logger = logging.getLogger(__name__)
+&lt;/html&gt;</file><file path="app/services/message_journal.py">logger = logging.getLogger(__name__)
 ⋮----
 IST = timezone(timedelta(hours=5, minutes=30))
 ⋮----
@@ -736,28 +792,7 @@ alert = (
 ⋮----
 def _alert_processing_failure(msg: InboundMessage, reason: str)
 ⋮----
-def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path=".gitignore">venv/
-.env
-__pycache__/
-*.pyc
-orderr.db
-repomix-output.xml
-check_db.py</file><file path="app/services/customer_service.py">def normalize_phone(phone: str) -&gt; str
-⋮----
-phone = (
-⋮----
-# Only add 91 prefix if the number is exactly 10 digits (raw Indian mobile)
-# This avoids the bug where 911234567890 would incorrectly get prefixed again
-⋮----
-phone = f&quot;91{phone}&quot;
-⋮----
-normalized_phone = normalize_phone(phone)
-⋮----
-customer = Customer(
-⋮----
-normalized = normalize_phone(phone)
-⋮----
-existing = db.query(Customer).filter(Customer.phone_number == normalized).first()</file><file path="render.yaml">services:
+def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path="render.yaml">services:
   - type: web
     name: orderr
     env: python
@@ -785,70 +820,13 @@ existing = db.query(Customer).filter(Customer.phone_number == normalized).first(
       - key: DASHBOARD_USERNAME
         sync: false
       - key: DASHBOARD_PASSWORD
-        sync: false</file><file path="requirements.txt">annotated-doc==0.0.4
-annotated-types==0.7.0
-anthropic==0.100.0
-anyio==4.13.0
-APScheduler==3.11.2
-certifi==2026.4.22
-cffi==2.0.0
-charset-normalizer==3.4.7
-click==8.3.3
-colorama==0.4.6
-cryptography==48.0.0
-distro==1.9.0
-docstring_parser==0.18.0
-fastapi==0.136.1
-greenlet==3.5.0
-h11==0.16.0
-httpcore==1.0.9
-httpx==0.28.1
-idna==3.13
-Jinja2==3.1.6
-jiter==0.14.0
-MarkupSafe==3.0.3
-psycopg2-binary==2.9.12
-pyasn1==0.6.3
-pyasn1_modules==0.4.2
-pycparser==3.0
-pydantic==2.13.4
-pydantic_core==2.46.4
-python-dotenv==1.2.2
-python-multipart==0.0.28
-requests==2.33.1
-sniffio==1.3.1
-SQLAlchemy==2.0.49
-starlette==1.0.0
-tenacity==9.1.4
-typing-inspection==0.4.2
-typing_extensions==4.15.0
-tzdata==2026.2
-tzlocal==5.3.1
-urllib3==2.7.0
-uvicorn==0.46.0
-websockets==16.0</file><file path="app/services/pending_orders.py">IST = timezone(timedelta(hours=5, minutes=30))
-RESET_HOUR = 20
-⋮----
-def get_delivery_date_for_now() -&gt; date
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-def get_pending_customers(db: Session, delivery_date: date) -&gt; dict
-⋮----
-active_customers = (
-⋮----
-delivery_date_str = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-ordered_phones = (
-ordered_set = {row[0] for row in ordered_phones}
-⋮----
-pending = [c for c in active_customers if c.phone_number not in ordered_set]
-⋮----
-grouped: dict = defaultdict(list)
-⋮----
-delivery_date = get_delivery_date_for_now()
-⋮----
-grouped = get_pending_customers(db, delivery_date)</file><file path="app/services/product_catalog.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+        sync: false</file><file path=".gitignore">venv/
+.env
+__pycache__/
+*.pyc
+orderr.db
+repomix-output.xml
+check_db.py</file><file path="app/services/product_catalog.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 ⋮----
 PRODUCT_CATALOG = [
 ⋮----
@@ -898,7 +876,87 @@ forwarded_to_manager = Column(Boolean, default=False)
 created_at = Column(DateTime(timezone=True), server_default=func.now())
 updated_at = Column(
 ⋮----
-def __repr__(self)</file><file path="app/services/reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+def __repr__(self)</file><file path="app/services/pending_orders.py">IST = timezone(timedelta(hours=5, minutes=30))
+RESET_HOUR = 20
+⋮----
+def get_delivery_date_for_now() -&gt; date
+⋮----
+now_ist = datetime.now(IST)
+⋮----
+def get_pending_customers(db: Session, delivery_date: date) -&gt; dict
+⋮----
+active_customers = (
+⋮----
+delivery_date_str = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+ordered_phones = (
+ordered_set = {row[0] for row in ordered_phones}
+⋮----
+pending = [c for c in active_customers if c.phone_number not in ordered_set]
+⋮----
+grouped: dict = defaultdict(list)
+⋮----
+delivery_date = get_delivery_date_for_now()
+⋮----
+grouped = get_pending_customers(db, delivery_date)</file><file path="app/services/notifier.py">META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;)
+META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;)
+MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;)
+PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+⋮----
+TEMPLATE_MANAGER_NEW_ORDER = &quot;manager_new_order&quot;
+⋮----
+def send_whatsapp_message(phone: str, message: str) -&gt; dict
+⋮----
+clean_phone = normalize_phone(phone)
+url = f&quot;https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}/messages&quot;
+headers = {
+payload = {
+response = requests.post(url, json=payload, headers=headers, timeout=15)
+⋮----
+def send_whatsapp_template(phone: str, template_name: str, parameters: list) -&gt; dict
+⋮----
+def _format_items_freeform(items: list) -&gt; str
+⋮----
+lines = &quot;&quot;
+⋮----
+qty     = item[&quot;quantity&quot;]
+qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+⋮----
+def _format_items_template(items: list) -&gt; str
+⋮----
+parts = []
+⋮----
+&quot;&quot;&quot;Free-form confirmation to customer — always within 24hr window.&quot;&quot;&quot;
+items         = parsed.get(&quot;items&quot;, [])
+delivery_time = parsed.get(&quot;delivery_time&quot;, &quot;&quot;)
+⋮----
+items_text = &quot;&quot;
+⋮----
+delivery_text = (
+name_line = f&quot;🏪 {restaurant_name}\n\n&quot; if restaurant_name else &quot;&quot;
+⋮----
+message = (
+⋮----
+delivery_time = parsed.get(&quot;delivery_time&quot;, &quot;As per usual schedule&quot;)
+⋮----
+items_text    = _format_items_template(items)
+delivery_text = f&quot;Delivery: {delivery_time}&quot; if delivery_time else &quot;Delivery: As per usual schedule&quot;
+⋮----
+restaurant_line      = f&quot;{restaurant_name or &apos;Unknown&apos;} - {customer_phone}&quot;
+items_with_delivery  = f&quot;{items_text} | {delivery_text}&quot;
+⋮----
+&quot;&quot;&quot;Free-form alert — manager always within window via daily interactions.&quot;&quot;&quot;
+⋮----
+def fmt(items)
+⋮----
+def send_manager_menu(phone: str) -&gt; dict
+⋮----
+&quot;&quot;&quot;
+    Send an interactive Quick Reply menu to the manager.
+    Buttons: Summary | Daily Report | Add Customer
+    &quot;&quot;&quot;
+⋮----
+def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/services/reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 IST           = timezone(timedelta(hours=5, minutes=30))
 ⋮----
@@ -1074,191 +1132,7 @@ is_before_cutoff = now_ist.hour &lt; 20
 failed_messages   = []
 reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
 ⋮----
-reliability_stats = get_reliability_stats(db)</file><file path="app/services/notifier.py">META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;)
-META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;)
-MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;)
-PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-⋮----
-TEMPLATE_MANAGER_NEW_ORDER = &quot;manager_new_order&quot;
-⋮----
-def send_whatsapp_message(phone: str, message: str) -&gt; dict
-⋮----
-clean_phone = normalize_phone(phone)
-url = f&quot;https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}/messages&quot;
-headers = {
-payload = {
-response = requests.post(url, json=payload, headers=headers, timeout=15)
-⋮----
-def send_whatsapp_template(phone: str, template_name: str, parameters: list) -&gt; dict
-⋮----
-def _format_items_freeform(items: list) -&gt; str
-⋮----
-lines = &quot;&quot;
-⋮----
-qty     = item[&quot;quantity&quot;]
-qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-⋮----
-def _format_items_template(items: list) -&gt; str
-⋮----
-parts = []
-⋮----
-&quot;&quot;&quot;Free-form confirmation to customer — always within 24hr window.&quot;&quot;&quot;
-items         = parsed.get(&quot;items&quot;, [])
-delivery_time = parsed.get(&quot;delivery_time&quot;, &quot;&quot;)
-⋮----
-items_text = &quot;&quot;
-⋮----
-delivery_text = (
-name_line = f&quot;🏪 {restaurant_name}\n\n&quot; if restaurant_name else &quot;&quot;
-⋮----
-message = (
-⋮----
-delivery_time = parsed.get(&quot;delivery_time&quot;, &quot;As per usual schedule&quot;)
-⋮----
-items_text    = _format_items_template(items)
-delivery_text = f&quot;Delivery: {delivery_time}&quot; if delivery_time else &quot;Delivery: As per usual schedule&quot;
-⋮----
-restaurant_line      = f&quot;{restaurant_name or &apos;Unknown&apos;} - {customer_phone}&quot;
-items_with_delivery  = f&quot;{items_text} | {delivery_text}&quot;
-⋮----
-&quot;&quot;&quot;Free-form alert — manager always within window via daily interactions.&quot;&quot;&quot;
-⋮----
-def fmt(items)
-⋮----
-def send_manager_menu(phone: str) -&gt; dict
-⋮----
-&quot;&quot;&quot;
-    Send an interactive Quick Reply menu to the manager.
-    Buttons: Summary | Daily Report | Add Customer
-    &quot;&quot;&quot;
-⋮----
-def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/services/template_parser.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-⋮----
-PRODUCT_DEFINITIONS = [
-⋮----
-VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
-⋮----
-def _normalize(text: str) -&gt; str
-⋮----
-def _squish(text: str) -&gt; str
-⋮----
-def _tokenize(text: str) -&gt; set
-⋮----
-def _match_product(raw_name: str)
-⋮----
-&quot;&quot;&quot;
-    Returns (display_name, unit) or None.
-    Priority: exact → partial/startswith → token subset
-    &quot;&quot;&quot;
-n = _normalize(raw_name)
-s = _squish(raw_name)
-⋮----
-# 1. Exact
-⋮----
-# 2. Partial / startswith
-⋮----
-a  = _normalize(alias)
-aq = _squish(alias)
-⋮----
-# 3. Token subset
-raw_tokens = _tokenize(raw_name)
-⋮----
-alias_tokens = _tokenize(alias)
-⋮----
-def _lookup_alias(raw_name: str, db) -&gt; tuple | None
-⋮----
-&quot;&quot;&quot;
-    Check unclear_item_aliases table for a manager-confirmed mapping.
-    Returns (canonical_product_name, unit) or None.
-    db can be None (caller doesn&apos;t always have a session).
-    &quot;&quot;&quot;
-⋮----
-normalized = raw_name.strip().lower()
-row = db.query(UnclearItemAlias).filter(
-⋮----
-# Find the unit for this canonical product
-⋮----
-def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -&gt; tuple | None
-⋮----
-&quot;&quot;&quot;
-    Check customer_product_aliases for a phone + raw_text match.
-    Returns (canonical_product_name, unit) or None.
-    db can be None (caller doesn&apos;t always have a session).
-    &quot;&quot;&quot;
-⋮----
-row = db.query(CustomerProductAlias).filter(
-⋮----
-# Find the unit for this canonical product (same logic as _lookup_alias)
-⋮----
-# Fallback: return with default unit kg
-⋮----
-def _is_noise_phrase(raw_name: str, db) -&gt; bool
-⋮----
-row = db.query(NoisePhrase).filter(
-⋮----
-UNIT_ALIASES = {
-⋮----
-def _normalize_unit(raw: str) -&gt; str | None
-⋮----
-def _parse_quantity(raw: str)
-⋮----
-qty = float(raw.strip())
-⋮----
-_DATE_LINE_RE = re.compile(
-⋮----
-# Matches lines where quantity comes FIRST: &quot;3 तंदूर&quot;, &quot;4 Leg piece&quot;, &quot;2 lollipop&quot;
-_QTY_FIRST_RE = re.compile(
-⋮----
-# Common header/footer filler phrases customers add
-_FILLER_RE = re.compile(
-⋮----
-# Lines starting with a unit word are size annotations, not order lines
-# e.g. &quot;kg( 900 gm size)&quot;  /  &quot;pcs (big)&quot;
-_UNIT_ANNOTATION_RE = re.compile(
-⋮----
-def _strip_emojis(text: str) -&gt; str
-⋮----
-def _is_noise_line(line: str, restaurant_name_norm: str | None) -&gt; bool
-⋮----
-&quot;&quot;&quot;
-    Return True if this line is a header/footer/annotation and should be
-    skipped entirely — not treated as an unclear item.
-    Handles:
-      • Restaurant name used as header/footer  e.g. &quot;Test hotel 10&quot;, &quot;Amrai hotel Order 🏨&quot;
-      • Date-only lines                         e.g. &quot;10/06/2026&quot;, &quot;10/06&quot;
-      • Filler phrases                          e.g. &quot;ORDER FOR THE DAY&quot;, &quot;Good morning&quot;
-      • Unit-annotation lines                   e.g. &quot;kg( 900 gm size)&quot;
-      • Emoji/symbol-only lines                 e.g. &quot;🏨🌟&quot;
-      • Numbered-list header lines              e.g. &quot;1.&quot; alone with no product text
-    &quot;&quot;&quot;
-stripped = line.strip()
-⋮----
-# Strip emojis for text-based checks
-text_only = _strip_emojis(stripped)
-⋮----
-# 1. Nothing left after removing emojis → purely decorative line
-⋮----
-# 2. No alphanumeric content at all
-⋮----
-norm = _normalize(text_only)
-⋮----
-# 3. Date-only line
-⋮----
-# 4. Filler header/footer phrase
-⋮----
-# 5. Unit-annotation line (e.g. &quot;kg( 900 gm size)&quot;)
-⋮----
-# 6. Restaurant name appears anywhere in the line
-#    Covers: &quot;Test hotel 10&quot;  /  &quot;Amrai hotel Order 🏨&quot;  /  footer variants
-⋮----
-# ── Main parser ───────────────────────────────────────────────────────────────
-⋮----
-def parse_template_order(customer_phone: str, message: str, db=None) -&gt; dict
-⋮----
-customer_phone: sender&apos;s phone number
-message:        raw WhatsApp message text
-⋮----
-Returns:</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
+reliability_stats = get_reliability_stats(db)</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
 router = APIRouter()
 MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 ADD_CUSTOMER_CMD = &quot;add customer&quot;
@@ -1309,7 +1183,76 @@ tokens = parts.split(None, 1)
 ⋮----
 customer = create_customer_manually(
 ⋮----
-def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/services/template_parser.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+⋮----
+PRODUCT_DEFINITIONS = [
+⋮----
+VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
+⋮----
+def _normalize(text: str) -&gt; str
+⋮----
+def _squish(text: str) -&gt; str
+⋮----
+def _tokenize(text: str) -&gt; set
+⋮----
+def _match_product(raw_name: str)
+⋮----
+&quot;&quot;&quot;
+    Returns (display_name, unit) or None.
+    Priority: exact → partial/startswith → token subset
+    &quot;&quot;&quot;
+n = _normalize(raw_name)
+s = _squish(raw_name)
+⋮----
+# 1. Exact
+⋮----
+# 2. Partial / startswith
+⋮----
+a  = _normalize(alias)
+aq = _squish(alias)
+⋮----
+# 3. Token subset
+raw_tokens = _tokenize(raw_name)
+⋮----
+alias_tokens = _tokenize(alias)
+⋮----
+def _lookup_alias(raw_name: str, db) -&gt; tuple | None
+⋮----
+# Try exact match first
+normalized = raw_name.strip().lower()
+row = db.query(UnclearItemAlias).filter(
+⋮----
+unit = _get_unit_for_canonical(row.canonical_product_name)
+⋮----
+# Strip quantity/unit suffix and try again
+# Handles &quot;tandoori chicken 30pis&quot; → &quot;tandoori chicken&quot;
+stripped = re.sub(r&apos;\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$&apos;, &apos;&apos;, normalized).strip()
+⋮----
+def _get_unit_for_canonical(canonical_name: str) -&gt; str
+⋮----
+&quot;&quot;&quot;Find the unit for a canonical product name from PRODUCT_DEFINITIONS.&quot;&quot;&quot;
+⋮----
+return &quot;kg&quot;  # default fallback
+⋮----
+def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -&gt; tuple | None
+⋮----
+&quot;&quot;&quot;
+    Check customer_product_aliases for a phone + raw_text match.
+    Returns (canonical_product_name, unit) or None.
+    db can be None (caller doesn&apos;t always have a session).
+Remove emoji characters, returning plain text.&quot;&quot;&quot;
+⋮----
+r&apos;[\U00010000-\U0010ffff&apos;   # supplementary multilingual plane
+r&apos;\U0001F300-\U0001F9FF&apos;    # misc symbols &amp; pictographs
+r&apos;\u2600-\u26FF&apos;            # misc symbols
+r&apos;\u2700-\u27BF&apos;            # dingbats
+⋮----
+def _is_noise_line(line: str, restaurant_name_norm: str | None) -&gt; bool
+⋮----
+customer_phone: sender&apos;s phone number
+message:        raw WhatsApp message text
+⋮----
+Returns:</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 BASE_URL             = os.getenv(&quot;BASE_URL&quot;, &quot;&quot;)   # e.g. https://orderr.onrender.com
 IST                  = timezone(timedelta(hours=5, minutes=30))
@@ -2463,9 +2406,10 @@ async function loadUnclearOrders() {
 }
 function _extractProductName(rawLine) {
     const clean = rawLine.replace(/__+/g, &apos;&apos;).trim();
-    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|psc|pc|pieces?)?\s*$/i);
+    const m = clean.match(/^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|nos|pcs|pis|psc|pc|pieces?|k)?\s*$/i);
     if (m) return m[1].trim().toLowerCase();
-    return clean.toLowerCase();
+    // Fallback: strip any trailing number+word combo that looks like a quantity
+    return clean.replace(/\s*[-:]?\s*[\d\.]+\s*\w*\s*$/, &apos;&apos;).trim().toLowerCase() || clean.toLowerCase();
 }
 // CHANGE 4: Updated resolveItem with customer_phone + scopeSelectId
 async function resolveItem(rawText, selectId, btn, customerPhone, scopeSelectId) {
@@ -2784,7 +2728,48 @@ setInterval(() =&gt; {
 }, 60000);
 &lt;/script&gt;
 &lt;/body&gt;
-&lt;/html&gt;</file><file path="app/routes/admin.py">logger = logging.getLogger(__name__)
+&lt;/html&gt;</file><file path="app/main.py">IST = timezone(timedelta(hours=5, minutes=30))
+⋮----
+_last_report_time: str = &quot;Never&quot;
+⋮----
+def daily_report_job()
+⋮----
+db = SessionLocal()
+⋮----
+_last_report_time = datetime.now(IST).strftime(&quot;%d %b %Y %I:%M %p IST&quot;)
+⋮----
+def customer_reminders_job()
+⋮----
+def salesperson_notification_job()
+⋮----
+def management_summary_job()
+⋮----
+def retry_failed_messages_job()
+⋮----
+def webhook_health_job()
+⋮----
+@asynccontextmanager
+async def lifespan(app: FastAPI)
+⋮----
+report_time  = os.getenv(&quot;REPORT_TIME&quot;, &quot;22:00&quot;)
+⋮----
+scheduler    = BackgroundScheduler()
+⋮----
+app = FastAPI(
+⋮----
+@app.get(&quot;/&quot;)
+def root()
+⋮----
+@app.get(&quot;/health&quot;)
+def health_check()
+⋮----
+db_status = &quot;ok&quot;
+⋮----
+db_status = f&quot;error: {str(e)}&quot;
+⋮----
+scheduler    = app.state.scheduler if hasattr(app.state, &quot;scheduler&quot;) else None
+job_count    = len(scheduler.get_jobs()) if scheduler else 0
+sched_status = &quot;running&quot; if (scheduler and scheduler.running) else &quot;stopped&quot;</file><file path="app/routes/admin.py">logger = logging.getLogger(__name__)
 ⋮----
 router     = APIRouter()
 PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
@@ -2829,7 +2814,7 @@ message: str
 ⋮----
 class CancelOrderPayload(BaseModel)
 ⋮----
-reason: Optional[str] = None  # shown to customer + manager
+reason: Optional[str] = None
 ⋮----
 class NoisePhraseCreate(BaseModel)
 ⋮----
@@ -2838,192 +2823,37 @@ raw_text: str
 class ResolveUnclearItem(BaseModel)
 ⋮----
 canonical_product_name: str
-customer_phone: Optional[str] = None   # None = global
+customer_phone: Optional[str] = None
 scope: str = &quot;customer&quot;
 ⋮----
 class CustomerAliasCreate(BaseModel)
 ⋮----
 customer_phone: str
 ⋮----
-@router.get(&quot;/noise-phrases&quot;)
-def get_noise_phrases(db: Session = Depends(get_db), username: str = Depends(require_auth))
+def _safe_list(val) -&gt; list
 ⋮----
-phrases = db.query(NoisePhrase).order_by(NoisePhrase.raw_text).all()
-⋮----
-normalized = payload.raw_text.strip().lower()
-⋮----
-already_existed = False
-existing = db.query(NoisePhrase).filter(NoisePhrase.raw_text == normalized).first()
-⋮----
-already_existed = True
-phrase = existing
-⋮----
-phrase = NoisePhrase(raw_text=normalized)
-⋮----
-patched_count = 0
-orders_to_patch = (
-⋮----
-unclear = json.loads(order.unclear_items or &quot;[]&quot;)
-remaining = []
-changed = False
-⋮----
-changed = True
-⋮----
-phrase = db.query(NoisePhrase).filter(NoisePhrase.id == phrase_id).first()
-⋮----
-@router.get(&quot;/salespersons&quot;)
-def list_salespersons(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-sps = db.query(Salesperson).order_by(Salesperson.name).all()
-result = []
-⋮----
-count = db.query(Customer).filter(Customer.salesperson_id == sp.id).count()
-⋮----
-@router.post(&quot;/salespersons&quot;)
-def create_salesperson(payload: SalespersonCreate, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-normalized = normalize_phone(payload.phone)
-⋮----
-sp = Salesperson(name=payload.name.strip(), phone=normalized, active=True)
-⋮----
-@router.put(&quot;/salespersons/{salesperson_id}&quot;)
-def update_salesperson(salesperson_id: int, payload: SalespersonUpdate, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == salesperson_id).first()
-⋮----
-@router.delete(&quot;/salespersons/{salesperson_id}&quot;)
-def deactivate_salesperson(salesperson_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-affected = db.query(Customer).filter(Customer.salesperson_id == salesperson_id).count()
-⋮----
-@router.delete(&quot;/salespersons/{salesperson_id}/purge&quot;)
-def hard_delete_salesperson(salesperson_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-def _customer_row(c: Customer, db: Session) -&gt; dict
-⋮----
-sp_name = None
-⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == c.salesperson_id).first()
-sp_name = sp.name if sp else None
-⋮----
-@router.get(&quot;/customers&quot;)
-def list_customers(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-today_str = get_current_business_date_str()
-customers = (
-⋮----
-ordered_today = {
-⋮----
-row = _customer_row(c, db)
-⋮----
-@router.get(&quot;/customers/unassigned&quot;)
-def list_unassigned_customers(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-customer = create_customer_manually(
-⋮----
-sp_name = &quot;&quot;
-⋮----
-sp = db.query(Salesperson).filter(
-sp_name = f&quot;\n🧑 Salesperson: {sp.name}&quot; if sp else &quot;&quot;
-alert = (
-⋮----
-# ── Welcome message to customer ───────────────────────────────────
-⋮----
-welcome = (
-⋮----
-@router.get(&quot;/customers/{customer_id}/orders&quot;)
-def get_customer_orders(customer_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-customer = db.query(Customer).filter(Customer.id == customer_id).first()
-⋮----
-orders = (
-⋮----
-def safe_json(val)
-⋮----
-result = json.loads(val) if isinstance(val, str) else val
+result = json.loads(val)
 if isinstance(result, str):          # double-encoded
 result = json.loads(result)
 ⋮----
-@router.post(&quot;/customers/{customer_id}/assign&quot;)
-def assign_customer(customer_id: int, payload: CustomerAssign, db: Session = Depends(get_db), username: str = Depends(require_auth))
+LINE_RE = re.compile(
 ⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == payload.salesperson_id).first()
+def _extract_product_name(raw_line: str) -&gt; tuple[str, float]
 ⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == customer.salesperson_id).first()
-⋮----
-@router.put(&quot;/customers/{customer_id}/status&quot;)
-def update_customer_status(customer_id: int, payload: CustomerStatus, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-existing_orders = (
-⋮----
-result = process_incoming_order(
-⋮----
-status = result.get(&quot;status&quot;, &quot;&quot;)
-⋮----
-order = db.query(Order).filter(Order.id == order_id).first()
-⋮----
-reason_text = payload.reason or &quot;We are unable to fulfil this order today.&quot;
-⋮----
-# Notify manager
-⋮----
-@router.get(&quot;/pending&quot;)
-def get_pending_now(delivery_date: Optional[str] = None, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-target_date = date.fromisoformat(delivery_date)
-⋮----
-target_date = get_delivery_date_for_now()
-⋮----
-grouped = get_pending_customers(db, target_date)
-result  = []
-total   = 0
-⋮----
-sp_name = &quot;Unassigned&quot;; sp_phone = None
-⋮----
-sp = db.query(Salesperson).filter(Salesperson.id == sp_id).first()
-sp_name = sp.name if sp else f&quot;Unknown (id={sp_id})&quot;
-sp_phone = sp.phone if sp else None
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-order_ist = order.created_at.astimezone(IST)
-cutoff = order_ist.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
-⋮----
-next_day = (order_ist.date() + timedelta(days=1)).strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-def _window_status(last_inbound: datetime | None, now: datetime) -&gt; dict
-⋮----
-last_inbound = last_inbound.replace(tzinfo=timezone.utc)
-⋮----
-window_expires = last_inbound + timedelta(hours=24)
-remaining = window_expires - now
-⋮----
-total_minutes = int(remaining.total_seconds() // 60)
-hours = total_minutes // 60
-minutes = total_minutes % 60
-status = &quot;OPEN&quot; if hours &gt;= 4 else &quot;AT_RISK&quot;
-⋮----
-@router.get(&quot;/window-status&quot;)
-def get_window_status(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-now = datetime.now(timezone.utc)
-stakeholders = []
-⋮----
-all_phones = [s[&quot;phone&quot;] for s in stakeholders]
-last_seen_map = {}
-⋮----
-rows = (
-last_seen_map = {row.customer_phone: row.last_seen for row in rows}
-⋮----
-closed_count = at_risk_count = 0
-⋮----
-window = _window_status(last_seen_map.get(s[&quot;phone&quot;]), now)
-⋮----
-@router.get(&quot;/unclear-items&quot;)
-def get_unclear_items(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-def _safe_list(val)
-⋮----
-result = json.loads(val)
+&quot;&quot;&quot;
+    Given a raw unclear line like &quot;Raan -5&quot;, &quot;kaleji 2kg&quot;, &quot;tandoori chicken 30pis&quot;,
+    returns (product_name_lower, quantity).
+    Remove all unclear_items matching `normalized` from every existing order.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    Move unclear items matching `raw` into parsed_items for ALL orders.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    Move unclear items matching `raw` into parsed_items for ONE customer&apos;s orders.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    Single-order patch used by _retroactive_patch_customer.
+    NO db.commit() here — caller commits after all orders are patched.
+Orders that have unresolved unclear items.&quot;&quot;&quot;
+orders = (
+result = []
 ⋮----
 unclear = _safe_list(o.unclear_items)
 ⋮----
@@ -3035,71 +2865,44 @@ aliases = db.query(UnclearItemAlias).order_by(UnclearItemAlias.raw_text).all()
 @router.get(&quot;/product-names&quot;)
 def get_product_names(username: str = Depends(require_auth))
 ⋮----
-LINE_RE = re.compile(
+raw       = payload.raw_text.strip().lower()
+canonical = payload.canonical_product_name.strip()
 ⋮----
-def _extract_product_name(raw_line: str) -&gt; tuple[str, float]
+valid_names = {display for display, _, _ in PRODUCT_DEFINITIONS}
 ⋮----
-&quot;&quot;&quot;
-    Given a raw unclear line like &quot;Raan -5&quot; or &quot;kaleji 2kg&quot;,
-    returns (product_name_lower, quantity).
-    Falls back to (full_line_lower, 1.0) if no quantity found.
-Look up a global alias by raw_text. Returns canonical product name or None.&quot;&quot;&quot;
-alias_match = db.query(UnclearItemAlias).filter(
+existing = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw).first()
 ⋮----
-# ── Retroactive patch helpers ─────────────────────────────────────────────────
+patched = _retroactive_patch_global(raw, canonical, db)
 ⋮----
-def _retroactive_patch_global(raw: str, canonical: str, db) -&gt; int
+phone = payload.customer_phone.strip()
+existing = db.query(CustomerProductAlias).filter(
 ⋮----
-&quot;&quot;&quot;Patch all past orders containing raw in unclear_items (global).&quot;&quot;&quot;
+patched = _retroactive_patch_customer(raw, canonical, phone, db)
 ⋮----
-patched = 0
+@router.delete(&quot;/unclear-items/aliases/{alias_id}&quot;)
+def delete_alias(alias_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
-def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db) -&gt; int
-⋮----
-&quot;&quot;&quot;Patch past orders for ONE customer containing raw in unclear_items.&quot;&quot;&quot;
-⋮----
-def _patch_order_unclear(order: Order, raw: str, canonical: str, db) -&gt; int
-⋮----
-&quot;&quot;&quot;
-    Remove `raw` from order.unclear_items and add it to order.parsed_items.
-    Returns 1 if the order was modified, 0 otherwise.
-Strip quantity/unit to get the lowercase product name.&quot;&quot;&quot;
-clean = line.replace(&quot;__&quot;, &quot;&quot;).strip()
-m = re.match(r&quot;^(.+?)\s*[-:]?\s*[\d\.]+\s*(?:kg|kgs|nos|pcs|pc|pieces?)?\s*$&quot;, clean, re.I)
-⋮----
-def _extract_qty_from_line(line: str) -&gt; float
-⋮----
-&quot;&quot;&quot;Extract numeric quantity from a raw line, defaulting to 1.&quot;&quot;&quot;
-m = re.search(r&quot;([\d]+(?:[./][\d]+)?)&quot;, line)
-⋮----
-&quot;&quot;&quot;
-    Save raw_text → canonical_product_name alias and retroactively
-    patch past orders that have that raw_text in their unclear_items.
-    scope=&quot;global&quot; (or no customer_phone): saves a global UnclearItemAlias
-    and patches ALL customers&apos; past orders.
-    scope=&quot;customer&quot; (with customer_phone): saves a CustomerProductAlias
-    for that phone only and patches only that customer&apos;s past orders.
-    raw_text is the PRODUCT NAME PART ONLY (e.g. &quot;raan&quot;), not the full
-    raw line with quantity (e.g. &quot;raan -5&quot;). The dashboard strips the
-    quantity before sending.
-Delete a saved global alias.&quot;&quot;&quot;
 alias = db.query(UnclearItemAlias).filter(UnclearItemAlias.id == alias_id).first()
 ⋮----
-# ── Customer-scoped aliases ───────────────────────────────────────────────────
+@router.get(&quot;/customer-aliases&quot;)
+def list_customer_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
-&quot;&quot;&quot;List all customer-specific aliases.&quot;&quot;&quot;
 aliases = (
 ⋮----
-&quot;&quot;&quot;List all aliases for a specific customer phone number.&quot;&quot;&quot;
+@router.get(&quot;/customer-aliases/{phone}&quot;)
+def list_customer_aliases_by_phone(phone: str, db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
-&quot;&quot;&quot;Create or update a customer-specific alias.&quot;&quot;&quot;
+@router.post(&quot;/customer-aliases&quot;)
+def create_customer_alias(payload: CustomerAliasCreate, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
 raw = payload.raw_text.strip().lower()
-existing = db.query(CustomerProductAlias).filter(
 ⋮----
 alias = CustomerProductAlias(
 ⋮----
-&quot;&quot;&quot;Delete a customer-specific alias by ID.&quot;&quot;&quot;
-alias = db.query(CustomerProductAlias).filter(
+@router.delete(&quot;/customer-aliases/{alias_id}&quot;)
+def delete_customer_alias(alias_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+alias = db.query(CustomerProductAlias).filter(CustomerProductAlias.id == alias_id).first()
 ⋮----
 @router.post(&quot;/test-notifications/customer-reminders&quot;)
 def test_customer_reminders(db: Session = Depends(get_db), username: str = Depends(require_auth))
@@ -3111,45 +2914,4 @@ def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depe
 def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
 ⋮----
 @router.post(&quot;/test-notifications/daily-report&quot;)
-def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/main.py">IST = timezone(timedelta(hours=5, minutes=30))
-⋮----
-_last_report_time: str = &quot;Never&quot;
-⋮----
-def daily_report_job()
-⋮----
-db = SessionLocal()
-⋮----
-_last_report_time = datetime.now(IST).strftime(&quot;%d %b %Y %I:%M %p IST&quot;)
-⋮----
-def customer_reminders_job()
-⋮----
-def salesperson_notification_job()
-⋮----
-def management_summary_job()
-⋮----
-def retry_failed_messages_job()
-⋮----
-def webhook_health_job()
-⋮----
-@asynccontextmanager
-async def lifespan(app: FastAPI)
-⋮----
-report_time  = os.getenv(&quot;REPORT_TIME&quot;, &quot;22:00&quot;)
-⋮----
-scheduler    = BackgroundScheduler()
-⋮----
-app = FastAPI(
-⋮----
-@app.get(&quot;/&quot;)
-def root()
-⋮----
-@app.get(&quot;/health&quot;)
-def health_check()
-⋮----
-db_status = &quot;ok&quot;
-⋮----
-db_status = f&quot;error: {str(e)}&quot;
-⋮----
-scheduler    = app.state.scheduler if hasattr(app.state, &quot;scheduler&quot;) else None
-job_count    = len(scheduler.get_jobs()) if scheduler else 0
-sched_status = &quot;running&quot; if (scheduler and scheduler.running) else &quot;stopped&quot;</file></files></repomix>
+def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file></files></repomix>
