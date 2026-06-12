@@ -29,6 +29,8 @@ from app.models.salesperson import Salesperson
 from app.models.customer import Customer
 from app.models.order import Order
 from app.models.inbound_message import InboundMessage  # ← reliability layer
+from app.models.customer_product_alias import CustomerProductAlias  # noqa: F401
+
 
 Base.metadata.create_all(bind=engine)
 

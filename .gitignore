@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 orderr.db
 repomix-output.xml
+check_db.py

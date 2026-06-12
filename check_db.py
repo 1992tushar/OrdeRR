@@ -35,10 +35,19 @@ def run_write(title, query, params=None):
         print(f"  ❌ ERROR: {e}")
         conn.rollback()
 
-
-run_write("BACKFILL business_date from delivery_date", """
-    ALTER TABLE customers ADD COLUMN ledger_token VARCHAR UNIQUE;
+run_write("Delete all tables", """
+    TRUNCATE inbound_messages,orders, unclear_item_aliases, noise_phrases,customer_product_aliases   RESTART IDENTITY CASCADE;
 """)
+
+run("inbound_messages", "SELECT * FROM inbound_messages ORDER BY id DESC LIMIT 20;")
+run("orders", "SELECT * FROM orders ORDER BY id DESC LIMIT 20;")
+run("customers", "SELECT * FROM customers ORDER BY id DESC LIMIT 20;")
+run("salespersons", "SELECT * FROM salespersons ORDER BY id DESC LIMIT 20;")
+run("unclear_item_aliases", "SELECT * FROM unclear_item_aliases ORDER BY id DESC LIMIT 20;")
+run("noise_phrases", "SELECT * FROM noise_phrases ORDER BY id DESC LIMIT 20;")
+run("customer_product_aliases", "SELECT * FROM customer_product_aliases ORDER BY id DESC LIMIT 20;")
+
+
 cur.close()
 conn.close()
 print("\n✅ Done.")

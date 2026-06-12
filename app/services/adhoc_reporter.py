@@ -256,7 +256,17 @@ def _send_manager_summary(manager_phone: str, db: Session):
     )
     print(f"   ✅ Summary sent → {total_received}/{total_active} received")
 
-
+# Add this helper after the TEMPLATE_DAILY_REPORT line:
+def _safe_list(value) -> list:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, str):      # double-encoded
+            parsed = json.loads(parsed)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
 def _send_manager_daily_report_only(manager_phone: str, db: Session):
     """Sends the manager daily report template (product totals). Skips if no orders."""
     import json
@@ -286,12 +296,11 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
 
     product_totals: dict = {}
     for order in orders:
-        try:
-            items = json.loads(order.parsed_items) if order.parsed_items else []
-        except Exception:
-            items = []
+        items = _safe_list(order.parsed_items)
         for item in items:
-            key = item["product"]
+            if not isinstance(item, dict):
+                continue
+            key = item.get("product", "Unknown")
             product_totals[key] = product_totals.get(key, 0) + item["quantity"]
 
     total_items_count = sum(product_totals.values())
