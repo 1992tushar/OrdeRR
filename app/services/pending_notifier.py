@@ -25,28 +25,30 @@ MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
 
 # ── Approved template names ───────────────────────────────────────────────────
-# NOTE: customer_daily_reminder is MARKETING category — cannot deliver without opt-in.
-#       Customer reminders now use free-form messages instead (customers always
-#       message during the day to order, keeping the 24hr window open at 10 PM).
 TEMPLATE_SALESPERSON_PENDING = "salesperson_pending_orders"
 TEMPLATE_MANAGER_SUMMARY     = "manager_daily_summary"
+# Change 3: new customer reminder template (submit to Meta first — see plan)
+TEMPLATE_CUSTOMER_REMINDER   = "customer_order_reminder"
 
 
 # ── 22:00 — Customer reminders ───────────────────────────────────────────────
 
 def send_customer_reminders(db: Session, delivery_date: date | None = None):
     """
-    Free-form reminder to pending customers at 22:00 IST.
+    Reminder to pending customers at 22:00 IST.
 
-    Uses send_whatsapp_message() (not a template) because the customer_daily_reminder
-    template was approved as MARKETING category by Meta, which requires explicit opt-in
-    and silently fails delivery to customers who haven't messaged first.
+    Currently uses send_whatsapp_message() (free-form) because the customer
+    is always within the 24hr window at 10 PM — active daily customers message
+    during the day to place orders.
 
-    This works reliably because active daily customers always message during the day
-    to place orders, keeping the 24hr free-form window open at 10 PM.
+    Change 3 (swap to template) is implemented below but commented out.
+    Uncomment it once the 'customer_order_reminder' template is approved in
+    Meta Business Manager. The free-form block above can then be removed.
 
-    Edge case: brand-new customers onboarded today with no order yet will NOT receive
-    this reminder on their first day — acceptable behaviour.
+    Template body:
+        Hi {{1}}, you haven't placed your order with {{2}} yet today.
+        Reply with your order anytime.
+    Variables: {{1}} = restaurant_name, {{2}} = PLANT_NAME
     """
     if delivery_date is None:
         delivery_date = get_delivery_date_for_now()
@@ -59,14 +61,28 @@ def send_customer_reminders(db: Session, delivery_date: date | None = None):
     sent = 0
 
     for customer in all_pending_customers:
+
+        # ── Change 1: fixed reminder text (removed stale "Type *order*" instruction) ──
         message = (
             f"⏰ Reminder - {PLANT_NAME} Orders\n\n"
             f"Hi {customer.restaurant_name},\n\n"
             f"You haven't placed your order yet today.\n\n"
-            f"Type *order* to place your order now.\n\n"
+            f"Just send your order anytime.\n\n"
             f"— {PLANT_NAME} Team"
         )
         result = send_whatsapp_message(customer.phone_number, message)
+
+        # ── Change 3: swap to template once approved ──────────────────────────
+        # To activate: comment out the free-form block above and uncomment below.
+        # DO NOT deploy until template status shows "Approved" in Meta Business Manager.
+        #
+        # result = send_whatsapp_template(
+        #     customer.phone_number,
+        #     TEMPLATE_CUSTOMER_REMINDER,
+        #     [customer.restaurant_name, PLANT_NAME],
+        # )
+        # ─────────────────────────────────────────────────────────────────────
+
         if result:
             sent += 1
             print(f"   ✅ Reminder sent → {customer.restaurant_name} ({customer.phone_number})")

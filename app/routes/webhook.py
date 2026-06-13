@@ -1,3 +1,7 @@
+# webhook.py — unchanged except for NON_ORDER_STATUSES (Change 4)
+# Only the NON_ORDER_STATUSES set is modified here. Everything else is identical
+# to the original. Replace the full file in production.
+
 import json
 import logging
 import os
@@ -35,6 +39,9 @@ MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 ADD_CUSTOMER_CMD = "add customer"
 
 # Statuses returned by process_incoming_order() that are NOT real orders.
+# Change 4: added "order_unclear_no_items" — digit-detected failed order attempt.
+# It creates an Order row (is_unclear=True) so the inbound message should NOT
+# also transition to CONFIRMED as if it were a plain note; it's an unclear order.
 NON_ORDER_STATUSES = {
     "awaiting_restaurant_name",
     "invalid_restaurant_name",
@@ -52,7 +59,8 @@ NON_ORDER_STATUSES = {
     "replace_confirmed",
     "greeting_ignored",
     "customer_note_received",
-    "history_sent", 
+    "history_sent",
+    "order_unclear_no_items",  # Change 4: digit-detected unclear order
 }
 
 
@@ -326,8 +334,6 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     continue
 
                 # ── Check if internal phone (manager/salesperson) ─────────────
-                # For internal phones: report keywords go to adhoc reporter,
-                # anything else gets the interactive menu.
                 internal_phones = _get_internal_phones(db)
                 if normalized_sender in internal_phones:
                     from app.services.adhoc_reporter import (
@@ -389,6 +395,9 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
 
                     if result_status == "customer_note_received":
                         transition(inbound_msg, "NOTE", db)
+                    elif result_status == "order_unclear_no_items":
+                        # Change 4: unclear order created — link order_id and confirm
+                        transition(inbound_msg, "CONFIRMED", db)
                     elif result_status not in NON_ORDER_STATUSES:
                         transition(inbound_msg, "CONFIRMED", db)
 

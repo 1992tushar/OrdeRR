@@ -1,7 +1,10 @@
+import logging
 import os
 import requests
 
 from app.services.customer_service import normalize_phone
+
+logger = logging.getLogger(__name__)
 
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN")
 META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
@@ -10,6 +13,33 @@ PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
 
 # ── Approved template names ───────────────────────────────────────────────────
 TEMPLATE_MANAGER_NEW_ORDER = "manager_new_order"
+
+
+# ── Change 6: send-and-log helper ────────────────────────────────────────────
+
+def _send_and_log(send_fn, recipient: str, label: str, *args, **kwargs) -> bool:
+    """
+    Call send_fn(recipient, *args, **kwargs), log any failure, and return
+    True on success or False on failure.
+
+    Used by _save_and_notify() to set order.confirmation_sent accurately.
+    """
+    try:
+        result = send_fn(recipient, *args, **kwargs)
+        # send_whatsapp_message returns None on exception; dict otherwise
+        if result is None:
+            logger.error(f"WA FAIL [{label}] to {recipient}: send returned None")
+            return False
+        if isinstance(result, dict) and result.get("error"):
+            logger.error(f"WA FAIL [{label}] to {recipient}: {result['error']}")
+            return False
+        # send_order_confirmation returns bool directly
+        if isinstance(result, bool):
+            return result
+        return True
+    except Exception as e:
+        logger.error(f"WA EXCEPTION [{label}] to {recipient}: {e}")
+        return False
 
 
 def send_whatsapp_message(phone: str, message: str) -> dict:
@@ -118,7 +148,12 @@ def send_order_confirmation(
     parsed: dict,
     restaurant_name: str = None,
 ) -> bool:
-    """Free-form confirmation to customer — always within 24hr window."""
+    """
+    Free-form confirmation to customer — always within 24hr window.
+    Returns True if the WhatsApp API call succeeded, False otherwise.
+    Change 6: return value is now meaningful (used by _save_and_notify to set
+    order.confirmation_sent accurately).
+    """
     items         = parsed.get("items", [])
     delivery_time = parsed.get("delivery_time", "")
 
@@ -143,7 +178,8 @@ def send_order_confirmation(
         f"📞 Contact us if you need to make any changes.\n\n"
         f"— {PLANT_NAME} Team"
     )
-    return send_whatsapp_message(customer_phone, message) is not None
+    result = send_whatsapp_message(customer_phone, message)
+    return result is not None
 
 
 def send_manager_alert(
@@ -295,8 +331,8 @@ def send_manager_menu(phone: str) -> dict:
     else:
         print(f"\n📤 SIMULATION — Manager menu → {phone}")
         return {"status": "simulated"}
- 
- 
+
+
 def send_salesperson_menu(phone: str, name: str = "there") -> dict:
     """
     Send an interactive Quick Reply menu to a salesperson.

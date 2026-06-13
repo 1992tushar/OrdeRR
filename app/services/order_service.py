@@ -15,6 +15,7 @@ from app.services.notifier import (
     send_whatsapp_message,
     send_replace_confirmation_request,
     send_repeat_order_confirmation_request,
+    _send_and_log,
 )
 from app.services.template_parser import parse_template_order
 from app.services.customer_service import get_customer_by_phone, create_new_customer
@@ -37,6 +38,9 @@ BASE_URL             = os.getenv("BASE_URL", "")   # e.g. https://orderr.onrende
 IST                  = timezone(timedelta(hours=5, minutes=30))
 RESET_HOUR           = 20  # 8 PM IST
 DISPATCH_CUTOFF_HOUR = int(os.getenv("DISPATCH_CUTOFF_HOUR", "9"))
+
+# Change 5: stale pending order timeout
+PENDING_CONFIRMATION_TIMEOUT_MINUTES = 30
 
 
 # ── Date helpers ──────────────────────────────────────────────────────────────
@@ -104,8 +108,21 @@ def get_last_order(db: Session, customer_phone: str) -> Order | None:
     )
 
 
+# Change 5: stale-order helper ────────────────────────────────────────────────
+
+def _is_stale(order: Order) -> bool:
+    """Return True if a pending_repeat/pending_replace order is older than the timeout."""
+    if not order.created_at:
+        return False
+    created = order.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - created
+    return age > timedelta(minutes=PENDING_CONFIRMATION_TIMEOUT_MINUTES)
+
+
 def _get_pending_repeat(db: Session, customer_phone: str) -> Order | None:
-    return (
+    pending = (
         db.query(Order)
         .filter(
             Order.customer_phone == customer_phone,
@@ -115,10 +132,18 @@ def _get_pending_repeat(db: Session, customer_phone: str) -> Order | None:
         .order_by(Order.created_at.desc())
         .first()
     )
+    # Change 5: silently cancel stale pending orders
+    if pending and _is_stale(pending):
+        pending.status       = "cancelled"
+        pending.is_cancelled = True
+        pending.cancelled_at = datetime.now(IST)
+        db.commit()
+        return None
+    return pending
 
 
 def _get_pending_replace(db: Session, customer_phone: str) -> Order | None:
-    return (
+    pending = (
         db.query(Order)
         .filter(
             Order.customer_phone == customer_phone,
@@ -128,6 +153,14 @@ def _get_pending_replace(db: Session, customer_phone: str) -> Order | None:
         .order_by(Order.created_at.desc())
         .first()
     )
+    # Change 5: silently cancel stale pending orders
+    if pending and _is_stale(pending):
+        pending.status       = "cancelled"
+        pending.is_cancelled = True
+        pending.cancelled_at = datetime.now(IST)
+        db.commit()
+        return None
+    return pending
 
 
 # ── Notification helpers ──────────────────────────────────────────────────────
@@ -208,12 +241,19 @@ def _save_and_notify(
             )
         except Exception:
             pass
+        # For edits, consider sent if the customer message went through (already sent above)
+        order.confirmation_sent    = True
+        order.forwarded_to_manager = True
     else:
-        send_order_confirmation(
-            customer_phone  = customer_phone,
-            parsed          = parsed,
-            restaurant_name = restaurant_name,
+        # Change 6: set confirmation_sent based on actual WhatsApp send result
+        order.confirmation_sent = _send_and_log(
+            send_order_confirmation,
+            customer_phone,
+            "order_confirmation",
+            parsed,
+            restaurant_name,
         )
+
         if not unclear_items:
             send_manager_alert(
                 manager_phone   = MANAGER_PHONE,
@@ -230,8 +270,8 @@ def _save_and_notify(
             except Exception as e:
                 print(f"⚠️ Unclear items manager alert failed: {e}")
 
-    order.confirmation_sent    = True
-    order.forwarded_to_manager = True
+        order.forwarded_to_manager = True
+
     db.commit()
 
     return {
@@ -242,6 +282,19 @@ def _save_and_notify(
         "is_edit"       : is_edit,
         "saved"         : True,
     }
+
+
+# ── Message helpers ───────────────────────────────────────────────────────────
+
+def _has_digits(text: str) -> bool:
+    """Return True if text contains any digit — signals a quantity/order attempt."""
+    return bool(re.search(r'\d', text))
+
+
+def _is_greeting_or_filler(message: str) -> bool:
+    """Check if the message matches known greeting/filler phrases."""
+    lower = message.strip().lower()
+    return lower in GREETINGS or lower in FILLER_PHRASES
 
 
 # ── Intent handlers ───────────────────────────────────────────────────────────
@@ -367,6 +420,7 @@ def _handle_history(db: Session, customer: Customer) -> dict:
 def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
     """Customer confirmed a pending repeat or replace."""
     customer_phone    = customer.phone_number
+    # Change 5: _get_pending_repeat/_get_pending_replace now auto-cancel stale orders
     pending_repeat    = _get_pending_repeat(db, customer_phone)
     pending_replace   = _get_pending_replace(db, customer_phone)
 
@@ -428,6 +482,7 @@ def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
 def _handle_confirm_no(db: Session, customer: Customer) -> dict:
     """Customer declined a pending repeat or replace."""
     customer_phone  = customer.phone_number
+    # Change 5: _get_pending_repeat/_get_pending_replace now auto-cancel stale orders
     pending_repeat  = _get_pending_repeat(db, customer_phone)
     pending_replace = _get_pending_replace(db, customer_phone)
 
@@ -456,7 +511,44 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
     customer_phone = customer.phone_number
     parsed = parse_template_order(customer_phone, message, db=db)
 
-    # Nothing parseable at all
+    # Change 4: digit-detection branch — catches typo'd orders that parse to zero items
+    if not parsed.get("items") and not parsed.get("unclear_items"):
+        # Zero items AND zero unclear items — parser found nothing at all.
+        if _has_digits(message):
+            # Message has numbers but no items matched — likely a failed order attempt.
+            # Save as unclear so it surfaces immediately in the dashboard Unclear tab.
+            order = Order(
+                plant_name     = PLANT_NAME,
+                customer_name  = customer.restaurant_name,
+                customer_phone = customer_phone,
+                raw_message    = message,
+                is_unclear     = True,
+                unclear_reason = "Contains numbers but no items could be matched",
+                business_date  = get_current_business_date_str(),
+                delivery_date  = get_delivery_date_str(),
+                status         = "received",
+            )
+            db.add(order)
+            db.commit()
+
+            send_whatsapp_message(
+                customer_phone,
+                "We received your message but couldn't read the items clearly. "
+                "Our team will check and confirm shortly. 🙏",
+            )
+            return {"order_id": order.id, "status": "order_unclear_no_items", "parsed": None}
+
+        elif _is_greeting_or_filler(message):
+            send_whatsapp_message(customer_phone, "😊 Anytime!")
+            return {"order_id": None, "status": "greeting_ignored", "parsed": None}
+
+        else:
+            # NOTE path — unchanged behaviour
+            send_whatsapp_message(customer_phone, "Noted! We'll pass it on. 😊")
+            # existing NOTE transition logic handled in webhook via status value
+            return {"order_id": None, "status": "customer_note_received", "parsed": None}
+
+    # Original unclear-message guard (parser returned is_unclear with no unclear_items)
     if parsed["is_unclear"] and not parsed.get("unclear_items"):
         send_whatsapp_message(
             customer_phone,
@@ -556,6 +648,7 @@ def process_incoming_order(
         return {"order_id": None, "status": "awaiting_restaurant_name", "parsed": None}
 
     # ── 2. Classify intent ────────────────────────────────────────────────────
+    # Change 5: _get_pending_* now auto-cancel stale entries before returning
     pending_repeat  = _get_pending_repeat(db, customer_phone)
     pending_replace = _get_pending_replace(db, customer_phone)
 

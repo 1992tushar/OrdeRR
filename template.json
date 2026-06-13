@@ -1,0 +1,14 @@
+{
+  "name": "customer_order_reminder",
+  "category": "UTILITY",
+  "language": "en_US",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hi {{1}}, you haven't placed your order with {{2}} yet today. Reply with your order anytime.",
+      "example": {
+        "body_text": [["Fluffy", "Hotel Delicious"]]
+      }
+    }
+  ]
+}
