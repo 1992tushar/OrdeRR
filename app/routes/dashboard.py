@@ -8,6 +8,7 @@ from app.models.order import Order
 from app.auth import require_auth
 from datetime import datetime, date, timezone, timedelta
 from app.services.order_service import get_current_business_date
+from app.config.flags import is_enabled
 import json
 import os
 
@@ -136,5 +137,6 @@ def dashboard(
             "tomorrow"           : tomorrow,
             "failed_messages"    : failed_messages,
             "reliability_stats"  : reliability_stats,
+            "billing_enabled"    : is_enabled("FLAG_BILLING_ENABLED"),
         },
     )

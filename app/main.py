@@ -31,6 +31,8 @@ from app.models.order import Order
 from app.models.inbound_message import InboundMessage  # ← reliability layer
 from app.models.customer_product_alias import CustomerProductAlias  # noqa: F401
 
+from app.config.flags import is_enabled
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -93,6 +95,11 @@ def webhook_health_job():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    if is_enabled("FLAG_BILLING_ENABLED"):
+        os.makedirs(os.getenv("INVOICE_DIR", "./invoices"), exist_ok=True)
+        from app.services.billing_service import ensure_billing_schema
+        ensure_billing_schema(engine)
 
     report_time  = os.getenv("REPORT_TIME", "22:00")
     hour, minute = map(int, report_time.split(":"))
@@ -178,6 +185,10 @@ app.include_router(webhook.router,   prefix="/webhook",   tags=["Webhook"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 app.include_router(admin_router,     prefix="/admin",     tags=["Admin"])
 app.include_router(ledger_router,    prefix="/ledger",    tags=["Ledger"])   # ← ADD
+
+if is_enabled("FLAG_BILLING_ENABLED"):
+    from app.routes import billing
+    app.include_router(billing.router, prefix="/admin/billing", tags=["billing"])
 
 
 @app.get("/")

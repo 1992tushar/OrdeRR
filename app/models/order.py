@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text
@@ -46,6 +46,7 @@ class Order(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
+    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
 
     def __repr__(self):
         return (

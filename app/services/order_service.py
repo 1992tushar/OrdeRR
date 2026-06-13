@@ -30,6 +30,7 @@ from app.services.intent_classifier import (
     GREETINGS,
     FILLER_PHRASES,
 )
+from app.config.flags import is_enabled
 
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
@@ -233,6 +234,10 @@ def _save_and_notify(
     order.confirmation_sent    = True
     order.forwarded_to_manager = True
     db.commit()
+
+    if is_enabled("FLAG_BILLING_ENABLED") and is_enabled("FLAG_BILLING_AUTO_INVOICE"):
+        from app.services.billing_service import try_auto_invoice
+        try_auto_invoice(db, order)
 
     return {
         "order_id"      : order.id,

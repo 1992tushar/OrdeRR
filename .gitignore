@@ -5,3 +5,6 @@ __pycache__/
 orderr.db
 repomix-output.xml
 check_db.py
+invoices/
+scripts/local/
+test_invoice.pdf

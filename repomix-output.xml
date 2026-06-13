@@ -62,55 +62,20 @@ Procfile
 pytest.ini
 render.yaml
 requirements.txt
-runtime.txt</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path=".python-version">3.11.0</file><file path="app/__init__.py"></file><file path="app/auth.py">security = HTTPBasic()
+runtime.txt</directory_structure><files>This section contains the contents of the repository&apos;s files.<file path=".gitignore">venv/
+.env
+__pycache__/
+*.pyc
+orderr.db
+repomix-output.xml
+check_db.py</file><file path=".python-version">3.11.0</file><file path="app/__init__.py"></file><file path="app/auth.py">security = HTTPBasic()
 ⋮----
 username = os.getenv(&quot;DASHBOARD_USERNAME&quot;, &quot;&quot;)
 password = os.getenv(&quot;DASHBOARD_PASSWORD&quot;, &quot;&quot;)
 ⋮----
 username_ok = secrets.compare_digest(
 ⋮----
-password_ok = secrets.compare_digest(</file><file path="app/models/__init__.py"></file><file path="app/routes/__init__.py"></file><file path="app/services/__init__.py"></file><file path="Procfile">web: uvicorn app.main:app --host 0.0.0.0 --port $PORT</file><file path="requirements.txt">annotated-doc==0.0.4
-annotated-types==0.7.0
-anthropic==0.100.0
-anyio==4.13.0
-APScheduler==3.11.2
-certifi==2026.4.22
-cffi==2.0.0
-charset-normalizer==3.4.7
-click==8.3.3
-colorama==0.4.6
-cryptography==48.0.0
-distro==1.9.0
-docstring_parser==0.18.0
-fastapi==0.136.1
-greenlet==3.5.0
-h11==0.16.0
-httpcore==1.0.9
-httpx==0.28.1
-idna==3.13
-Jinja2==3.1.6
-jiter==0.14.0
-MarkupSafe==3.0.3
-psycopg2-binary==2.9.12
-pyasn1==0.6.3
-pyasn1_modules==0.4.2
-pycparser==3.0
-pydantic==2.13.4
-pydantic_core==2.46.4
-python-dotenv==1.2.2
-python-multipart==0.0.28
-requests==2.33.1
-sniffio==1.3.1
-SQLAlchemy==2.0.49
-starlette==1.0.0
-tenacity==9.1.4
-typing-inspection==0.4.2
-typing_extensions==4.15.0
-tzdata==2026.2
-tzlocal==5.3.1
-urllib3==2.7.0
-uvicorn==0.46.0
-websockets==16.0</file><file path="runtime.txt">python-3.11.0</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
+password_ok = secrets.compare_digest(</file><file path="app/database.py">DATABASE_URL = os.getenv(&quot;DATABASE_URL&quot;, &quot;sqlite:///orderr.db&quot;)
 ⋮----
 DATABASE_URL = DATABASE_URL.replace(&quot;postgres://&quot;, &quot;postgresql://&quot;, 1)
 ⋮----
@@ -122,7 +87,48 @@ class Base(DeclarativeBase)
 ⋮----
 def get_db()
 ⋮----
-db = SessionLocal()</file><file path="app/models/customer_product_alias.py">IST = timezone(timedelta(hours=5, minutes=30))
+db = SessionLocal()</file><file path="app/main.py">IST = timezone(timedelta(hours=5, minutes=30))
+⋮----
+_last_report_time: str = &quot;Never&quot;
+⋮----
+def daily_report_job()
+⋮----
+db = SessionLocal()
+⋮----
+_last_report_time = datetime.now(IST).strftime(&quot;%d %b %Y %I:%M %p IST&quot;)
+⋮----
+def customer_reminders_job()
+⋮----
+def salesperson_notification_job()
+⋮----
+def management_summary_job()
+⋮----
+def retry_failed_messages_job()
+⋮----
+def webhook_health_job()
+⋮----
+@asynccontextmanager
+async def lifespan(app: FastAPI)
+⋮----
+report_time  = os.getenv(&quot;REPORT_TIME&quot;, &quot;22:00&quot;)
+⋮----
+scheduler    = BackgroundScheduler()
+⋮----
+app = FastAPI(
+⋮----
+@app.get(&quot;/&quot;)
+def root()
+⋮----
+@app.get(&quot;/health&quot;)
+def health_check()
+⋮----
+db_status = &quot;ok&quot;
+⋮----
+db_status = f&quot;error: {str(e)}&quot;
+⋮----
+scheduler    = app.state.scheduler if hasattr(app.state, &quot;scheduler&quot;) else None
+job_count    = len(scheduler.get_jobs()) if scheduler else 0
+sched_status = &quot;running&quot; if (scheduler and scheduler.running) else &quot;stopped&quot;</file><file path="app/models/__init__.py"></file><file path="app/models/customer_product_alias.py">IST = timezone(timedelta(hours=5, minutes=30))
 ⋮----
 class CustomerProductAlias(Base)
 ⋮----
@@ -137,7 +143,37 @@ updated_at             = Column(DateTime, default=lambda: datetime.now(IST),
 ⋮----
 __table_args__ = (
 ⋮----
-def __repr__(self)</file><file path="app/models/inbound_message.py">class InboundMessage(Base)
+def __repr__(self)</file><file path="app/models/customer.py">class Customer(Base)
+⋮----
+__tablename__ = &quot;customers&quot;
+⋮----
+id = Column(
+⋮----
+restaurant_name = Column(
+⋮----
+owner_name = Column(
+⋮----
+phone_number = Column(
+⋮----
+address = Column(
+⋮----
+city = Column(
+⋮----
+onboarding_status = Column(
+⋮----
+is_active = Column(
+⋮----
+created_at = Column(
+⋮----
+area = Column(
+⋮----
+salesperson_id = Column(
+⋮----
+is_daily_order_customer = Column(
+⋮----
+ledger_token = Column(
+⋮----
+salesperson = relationship(&quot;Salesperson&quot;, back_populates=&quot;customers&quot;)</file><file path="app/models/inbound_message.py">class InboundMessage(Base)
 ⋮----
 __tablename__ = &quot;inbound_messages&quot;
 ⋮----
@@ -171,6 +207,42 @@ id         = Column(Integer, primary_key=True, index=True)
 raw_text   = Column(String, unique=True, nullable=False, index=True)
 created_at = Column(DateTime, default=lambda: datetime.now(IST))
 ⋮----
+def __repr__(self)</file><file path="app/models/order.py">class Order(Base)
+⋮----
+__tablename__ = &quot;orders&quot;
+⋮----
+id = Column(Integer, primary_key=True, index=True)
+⋮----
+plant_name     = Column(String, default=&quot;Fluffy&quot;)
+customer_phone = Column(String, index=True)
+customer_name  = Column(String, nullable=True)
+⋮----
+raw_message    = Column(Text)
+is_photo_order = Column(Boolean, default=False)
+⋮----
+parsed_items  = Column(JSONB, nullable=True)
+unclear_items = Column(JSONB, nullable=True)
+⋮----
+delivery_date = Column(String, nullable=True, index=True)
+delivery_time = Column(String, nullable=True)
+⋮----
+status = Column(String, default=&quot;received&quot;)
+⋮----
+is_cancelled = Column(Boolean, default=False)
+cancelled_at = Column(DateTime(timezone=True), nullable=True)
+⋮----
+is_unclear     = Column(Boolean, default=False)
+unclear_reason = Column(String, nullable=True)
+⋮----
+business_date        = Column(String, nullable=True, index=True)
+is_next_day_override = Column(Boolean, default=False)
+⋮----
+confirmation_sent    = Column(Boolean, default=False)
+forwarded_to_manager = Column(Boolean, default=False)
+⋮----
+created_at = Column(DateTime(timezone=True), server_default=func.now())
+updated_at = Column(
+⋮----
 def __repr__(self)</file><file path="app/models/salesperson.py">class Salesperson(Base)
 ⋮----
 __tablename__ = &quot;salespersons&quot;
@@ -197,47 +269,193 @@ id                   = Column(Integer, primary_key=True, index=True)
 raw_text             = Column(String, unique=True, nullable=False, index=True)
 canonical_product_name = Column(String, nullable=False)
 created_at           = Column(DateTime, default=lambda: datetime.now(IST))
-updated_at           = Column(DateTime, default=lambda: datetime.now(IST),</file><file path="app/routes/unclear_items_routes.py">UNCLEAR_ROUTES = &apos;&apos;&apos;</file><file path="app/services/retry_scheduler.py">logger = logging.getLogger(__name__)
+updated_at           = Column(DateTime, default=lambda: datetime.now(IST),</file><file path="app/routes/__init__.py"></file><file path="app/routes/admin.py">logger = logging.getLogger(__name__)
 ⋮----
-def retry_failed_messages()
+router     = APIRouter()
+PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+IST        = timezone(timedelta(hours=5, minutes=30))
 ⋮----
-db = SessionLocal()
+# ── Schemas ───────────────────────────────────────────────────────────────────
 ⋮----
-due_messages = get_messages_pending_retry(db)
+class SalespersonCreate(BaseModel)
 ⋮----
-result = process_incoming_order(</file><file path="pytest.ini">[pytest]
-pythonpath = .
-testpaths = tests</file><file path="app/models/customer.py">class Customer(Base)
+name: str
+phone: str
 ⋮----
-__tablename__ = &quot;customers&quot;
+class SalespersonUpdate(BaseModel)
 ⋮----
-id = Column(
+name:   Optional[str]  = None
+phone:  Optional[str]  = None
+active: Optional[bool] = None
 ⋮----
-restaurant_name = Column(
+class CustomerAssign(BaseModel)
 ⋮----
-owner_name = Column(
+area:           Optional[str] = None
+salesperson_id: Optional[int] = None
 ⋮----
-phone_number = Column(
+class CustomerStatus(BaseModel)
 ⋮----
-address = Column(
+is_active: bool
 ⋮----
-city = Column(
+class CustomerCreate(BaseModel)
 ⋮----
-onboarding_status = Column(
+restaurant_name: str
+area: Optional[str] = None
 ⋮----
-is_active = Column(
+class NextDayOverride(BaseModel)
 ⋮----
-created_at = Column(
+is_next_day: bool
 ⋮----
-area = Column(
+class PostOrderPayload(BaseModel)
 ⋮----
-salesperson_id = Column(
+&quot;&quot;&quot;Payload for admin posting an order on behalf of a customer.&quot;&quot;&quot;
+message: str
 ⋮----
-is_daily_order_customer = Column(
+class CancelOrderPayload(BaseModel)
 ⋮----
-ledger_token = Column(
+reason: Optional[str] = None
 ⋮----
-salesperson = relationship(&quot;Salesperson&quot;, back_populates=&quot;customers&quot;)</file><file path="app/routes/ledger.py">router = APIRouter()
+class NoisePhraseCreate(BaseModel)
+⋮----
+raw_text: str
+⋮----
+class ResolveUnclearItem(BaseModel)
+⋮----
+canonical_product_name: str
+customer_phone: Optional[str] = None
+scope: str = &quot;customer&quot;
+⋮----
+class CustomerAliasCreate(BaseModel)
+⋮----
+customer_phone: str
+⋮----
+def _safe_list(val) -&gt; list
+⋮----
+result = json.loads(val)
+if isinstance(result, str):          # double-encoded
+result = json.loads(result)
+⋮----
+LINE_RE = re.compile(
+⋮----
+def _extract_product_name(raw_line: str) -&gt; tuple[str, float]
+⋮----
+&quot;&quot;&quot;
+    Given a raw unclear line like &quot;Raan -5&quot;, &quot;kaleji 2kg&quot;, &quot;tandoori chicken 30pis&quot;,
+    returns (product_name_lower, quantity).
+    Remove all unclear_items matching `normalized` from every existing order.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    Move unclear items matching `raw` into parsed_items for ALL orders.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    Move unclear items matching `raw` into parsed_items for ONE customer&apos;s orders.
+    Uses ORM — assigns native Python lists directly to JSONB columns.
+    Single-order patch used by _retroactive_patch_customer.
+    NO db.commit() here — caller commits after all orders are patched.
+Orders that have unresolved unclear items.&quot;&quot;&quot;
+orders = (
+result = []
+⋮----
+unclear = _safe_list(o.unclear_items)
+⋮----
+@router.get(&quot;/unclear-items/aliases&quot;)
+def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+aliases = db.query(UnclearItemAlias).order_by(UnclearItemAlias.raw_text).all()
+⋮----
+@router.get(&quot;/product-names&quot;)
+def get_product_names(username: str = Depends(require_auth))
+⋮----
+raw       = payload.raw_text.strip().lower()
+canonical = payload.canonical_product_name.strip()
+⋮----
+valid_names = {display for display, _, _ in PRODUCT_DEFINITIONS}
+⋮----
+existing = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw).first()
+⋮----
+patched = _retroactive_patch_global(raw, canonical, db)
+⋮----
+phone = payload.customer_phone.strip()
+existing = db.query(CustomerProductAlias).filter(
+⋮----
+patched = _retroactive_patch_customer(raw, canonical, phone, db)
+⋮----
+@router.delete(&quot;/unclear-items/aliases/{alias_id}&quot;)
+def delete_alias(alias_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+alias = db.query(UnclearItemAlias).filter(UnclearItemAlias.id == alias_id).first()
+⋮----
+@router.get(&quot;/customer-aliases&quot;)
+def list_customer_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+aliases = (
+⋮----
+@router.get(&quot;/customer-aliases/{phone}&quot;)
+def list_customer_aliases_by_phone(phone: str, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+@router.post(&quot;/customer-aliases&quot;)
+def create_customer_alias(payload: CustomerAliasCreate, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+raw = payload.raw_text.strip().lower()
+⋮----
+alias = CustomerProductAlias(
+⋮----
+@router.delete(&quot;/customer-aliases/{alias_id}&quot;)
+def delete_customer_alias(alias_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+alias = db.query(CustomerProductAlias).filter(CustomerProductAlias.id == alias_id).first()
+⋮----
+@router.post(&quot;/test-notifications/customer-reminders&quot;)
+def test_customer_reminders(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+@router.post(&quot;/test-notifications/salesperson-pending&quot;)
+def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+@router.post(&quot;/test-notifications/management-summary&quot;)
+def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
+⋮----
+@router.post(&quot;/test-notifications/daily-report&quot;)
+def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file><file path="app/routes/dashboard.py">router = APIRouter()
+IST = timezone(timedelta(hours=5, minutes=30))
+templates = Jinja2Templates(directory=&quot;app/templates&quot;)
+⋮----
+def _safe_list(value) -&gt; list
+⋮----
+parsed = json.loads(value)
+⋮----
+# double-encoded: parsed is still a string
+⋮----
+inner = json.loads(parsed)
+⋮----
+today = get_current_business_date()
+⋮----
+target_date = date.fromisoformat(view_date)
+⋮----
+target_date = today
+⋮----
+orders = db.query(Order).filter(
+⋮----
+unclear_list = _safe_list(order.unclear_items)
+⋮----
+clear_orders   = [o for o in orders if not o.is_unclear]
+unclear_orders = [o for o in orders if o.is_unclear]
+⋮----
+product_summary = {}
+⋮----
+product  = item.get(&quot;product&quot;, &quot;Unknown&quot;)
+quantity = item.get(&quot;quantity&quot;, 0)
+unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
+key      = f&quot;{product}__{unit}&quot;
+⋮----
+yesterday = (target_date - timedelta(days=1)).isoformat()
+tomorrow  = (target_date + timedelta(days=1)).isoformat()
+is_today  = (target_date == today)
+now_ist = datetime.now(IST)
+is_before_cutoff = now_ist.hour &lt; 20
+⋮----
+failed_messages   = []
+reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
+⋮----
+reliability_stats = get_reliability_stats(db)</file><file path="app/routes/ledger.py">router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 templates = Jinja2Templates(directory=&quot;app/templates&quot;)
@@ -281,7 +499,58 @@ label = bd.strftime(&quot;%A, %d %b&quot;)
 ⋮----
 label = bd_str
 ⋮----
-def _not_found_html() -&gt; str</file><file path="app/services/adhoc_reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+def _not_found_html() -&gt; str</file><file path="app/routes/unclear_items_routes.py">UNCLEAR_ROUTES = &apos;&apos;&apos;</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
+router = APIRouter()
+MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+ADD_CUSTOMER_CMD = &quot;add customer&quot;
+⋮----
+NON_ORDER_STATUSES = {
+⋮----
+_rate_limit: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX = 10
+RATE_LIMIT_WINDOW = 60
+⋮----
+def _is_rate_limited(phone: str) -&gt; bool
+⋮----
+now = time.time()
+timestamps = _rate_limit[phone]
+⋮----
+def verify_meta_signature(body: bytes, signature_header: str) -&gt; bool
+⋮----
+app_secret = os.getenv(&quot;META_APP_SECRET&quot;, &quot;&quot;)
+⋮----
+expected = hmac.new(app_secret.encode(&quot;utf-8&quot;), body, hashlib.sha256).hexdigest()
+received = signature_header[len(&quot;sha256=&quot;):]
+⋮----
+@router.get(&quot;/health&quot;)
+def health_check()
+⋮----
+payload        = await request.json()
+customer_phone = payload.get(&quot;phone&quot;, &quot;919999999999&quot;)
+message_text   = payload.get(&quot;message&quot;, &quot;&quot;)
+⋮----
+normalized_sender  = normalize_phone(customer_phone)
+normalized_manager = normalize_phone(MANAGER_PHONE) if MANAGER_PHONE else &quot;&quot;
+⋮----
+reply = handle_manager_add_customer(db, message_text)
+⋮----
+result = process_incoming_order(db=db, customer_phone=customer_phone, message=message_text)
+⋮----
+@router.get(&quot;/meta&quot;)
+async def meta_webhook_verify(request: Request)
+⋮----
+mode      = request.query_params.get(&quot;hub.mode&quot;)
+token     = request.query_params.get(&quot;hub.verify_token&quot;)
+challenge = request.query_params.get(&quot;hub.challenge&quot;)
+⋮----
+def handle_manager_add_customer(db: Session, message_text: str) -&gt; str
+⋮----
+parts = message_text.strip()[len(ADD_CUSTOMER_CMD):].strip()
+tokens = parts.split(None, 1)
+⋮----
+customer = create_customer_manually(
+⋮----
+def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/services/__init__.py"></file><file path="app/services/adhoc_reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 IST           = timezone(timedelta(hours=5, minutes=30))
 ⋮----
@@ -349,6 +618,12 @@ area_breakdown = &quot;None — all orders received&quot;
 ⋮----
 unassigned_pending = len(grouped.get(None, []))
 ⋮----
+def _safe_list(value) -&gt; list
+⋮----
+parsed = json.loads(value)
+⋮----
+parsed = json.loads(parsed)
+⋮----
 def _send_manager_daily_report_only(manager_phone: str, db: Session)
 ⋮----
 today_str     = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
@@ -357,11 +632,9 @@ orders = (
 ⋮----
 product_totals: dict = {}
 ⋮----
-items = json.loads(order.parsed_items) if order.parsed_items else []
+items = _safe_list(order.parsed_items)
 ⋮----
-items = []
-⋮----
-key = item[&quot;product&quot;]
+key = item.get(&quot;product&quot;, &quot;Unknown&quot;)
 ⋮----
 total_items_count = sum(product_totals.values())
 items_text        = &quot;, &quot;.join(f&quot;{p} x{int(q) if q == int(q) else q}&quot; for p, q in product_totals.items())
@@ -411,317 +684,7 @@ GREETINGS = {
 ⋮----
 FILLER_PHRASES = {
 ⋮----
-lower = message.strip().lower()</file><file path="app/services/webhook_health.py">logger = logging.getLogger(__name__)
-⋮----
-IST                  = timezone(timedelta(hours=5, minutes=30))
-MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;OrdeRR&quot;)
-META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;, &quot;&quot;)
-META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;, &quot;&quot;)
-⋮----
-META_API_URL = f&quot;https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}&quot;
-⋮----
-def check_webhook_health()
-⋮----
-&quot;&quot;&quot;
-    Called by scheduler every 30 minutes.
-    Pings Meta Graph API to verify the access token and phone number are valid.
-    Alerts manager only if the API call actually fails — meaning something is
-    genuinely broken (token expired, number suspended, Meta-side issue).
-    Silence (no inbound messages) is NOT treated as a failure.
-    &quot;&quot;&quot;
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-response = requests.get(
-⋮----
-error_data = response.json() if response.content else {}
-error_msg  = error_data.get(&quot;error&quot;, {}).get(&quot;message&quot;, f&quot;HTTP {response.status_code}&quot;)
-error_code = error_data.get(&quot;error&quot;, {}).get(&quot;code&quot;, &quot;unknown&quot;)
-⋮----
-def _send_failure_alert(now_ist: datetime, error_code, error_msg: str)
-⋮----
-alert = (</file><file path="app/templates/ledger.html">&lt;!DOCTYPE html&gt;
-&lt;html lang=&quot;en&quot;&gt;
-&lt;head&gt;
-  &lt;meta charset=&quot;UTF-8&quot;&gt;
-  &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0, maximum-scale=1.0&quot;&gt;
-  &lt;title&gt;Order History — {{ plant_name }}&lt;/title&gt;
-  &lt;style&gt;
-    /* ── Reset ── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    /* ── Tokens ── */
-    :root {
-      --brand:       #075e54;
-      --brand-light: #e8f5e9;
-      --brand-mid:   #128c7e;
-      --ink:         #1a1a1a;
-      --ink-mid:     #555;
-      --ink-muted:   #999;
-      --surface:     #ffffff;
-      --bg:          #f0f4f2;
-      --border:      #e5ece9;
-      --radius-card: 14px;
-      --radius-pill: 99px;
-    }
-    /* ── Base ── */
-    html { -webkit-text-size-adjust: 100%; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, &apos;Segoe UI&apos;, sans-serif;
-      background: var(--bg);
-      color: var(--ink);
-      min-height: 100vh;
-    }
-    /* ── Header ── */
-    .header {
-      background: var(--brand);
-      padding: 20px 20px 28px;
-      position: relative;
-    }
-    .header-plant {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,.6);
-      margin-bottom: 4px;
-    }
-    .header-name {
-      font-size: 22px;
-      font-weight: 700;
-      color: #fff;
-      line-height: 1.2;
-    }
-    .header-sub {
-      font-size: 13px;
-      color: rgba(255,255,255,.65);
-      margin-top: 4px;
-    }
-    /* Wave divider */
-    .header-wave {
-      position: absolute;
-      bottom: -1px; left: 0; right: 0;
-      height: 20px;
-      background: var(--bg);
-      clip-path: ellipse(55% 100% at 50% 100%);
-    }
-    /* ── Summary strip ── */
-    .summary {
-      display: flex;
-      gap: 10px;
-      padding: 20px 16px 8px;
-    }
-    .stat {
-      flex: 1;
-      background: var(--surface);
-      border-radius: var(--radius-card);
-      padding: 14px 12px;
-      text-align: center;
-      box-shadow: 0 1px 4px rgba(0,0,0,.06);
-    }
-    .stat-number {
-      font-size: 26px;
-      font-weight: 800;
-      color: var(--brand);
-      line-height: 1;
-    }
-    .stat-label {
-      font-size: 11px;
-      color: var(--ink-muted);
-      margin-top: 4px;
-      font-weight: 500;
-    }
-    /* ── Section ── */
-    .section { padding: 8px 16px 24px; }
-    .day-label {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .09em;
-      text-transform: uppercase;
-      color: var(--brand);
-      padding: 16px 4px 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .day-label::after {
-      content: &apos;&apos;;
-      flex: 1;
-      height: 1px;
-      background: var(--border);
-    }
-    /* ── Order card ── */
-    .order-card {
-      background: var(--surface);
-      border-radius: var(--radius-card);
-      box-shadow: 0 1px 4px rgba(0,0,0,.07);
-      margin-bottom: 10px;
-      overflow: hidden;
-      border-left: 3px solid var(--brand);
-    }
-    .order-card-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 16px 10px;
-      border-bottom: 1px solid var(--border);
-    }
-    .order-time {
-      font-size: 12px;
-      color: var(--ink-muted);
-    }
-    .delivery-badge {
-      font-size: 11px;
-      background: var(--brand-light);
-      color: var(--brand);
-      border-radius: var(--radius-pill);
-      padding: 3px 9px;
-      font-weight: 600;
-    }
-    .order-items {
-      padding: 12px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .item-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 8px;
-    }
-    .item-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--ink);
-      flex: 1;
-    }
-    .item-qty {
-      font-size: 13px;
-      color: var(--brand-mid);
-      font-weight: 700;
-      white-space: nowrap;
-      background: var(--brand-light);
-      border-radius: var(--radius-pill);
-      padding: 2px 10px;
-      font-variant-numeric: tabular-nums;
-    }
-    .item-divider {
-      height: 1px;
-      background: var(--border);
-      margin: 2px 0;
-    }
-    /* unclear items */
-    .unclear-section {
-      padding: 0 16px 12px;
-      border-top: 1px dashed #fcd5d5;
-      margin-top: 2px;
-      background: #fffafa;
-    }
-    .unclear-label {
-      font-size: 11px;
-      color: #e53e3e;
-      font-weight: 700;
-      padding: 8px 0 6px;
-    }
-    .unclear-item {
-      font-size: 12px;
-      font-family: &apos;SF Mono&apos;, &apos;Fira Code&apos;, monospace;
-      color: #c53030;
-      padding: 2px 0;
-    }
-    /* ── Empty state ── */
-    .empty {
-      text-align: center;
-      padding: 48px 24px;
-      color: var(--ink-muted);
-    }
-    .empty-icon { font-size: 40px; margin-bottom: 12px; }
-    .empty-text { font-size: 15px; font-weight: 600; color: var(--ink-mid); margin-bottom: 6px; }
-    .empty-sub  { font-size: 13px; line-height: 1.6; }
-    /* ── Footer ── */
-    .footer {
-      text-align: center;
-      padding: 16px 24px 32px;
-      font-size: 11px;
-      color: var(--ink-muted);
-      line-height: 1.7;
-    }
-  &lt;/style&gt;
-&lt;/head&gt;
-&lt;body&gt;
-&lt;div class=&quot;header&quot;&gt;
-  &lt;div class=&quot;header-plant&quot;&gt;{{ plant_name }}&lt;/div&gt;
-  &lt;div class=&quot;header-name&quot;&gt;{{ customer_name }}&lt;/div&gt;
-  &lt;div class=&quot;header-sub&quot;&gt;Order history · last {{ ledger_days }} days&lt;/div&gt;
-  &lt;div class=&quot;header-wave&quot;&gt;&lt;/div&gt;
-&lt;/div&gt;
-&lt;div class=&quot;summary&quot;&gt;
-  &lt;div class=&quot;stat&quot;&gt;
-    &lt;div class=&quot;stat-number&quot;&gt;{{ total_orders }}&lt;/div&gt;
-    &lt;div class=&quot;stat-label&quot;&gt;Orders&lt;/div&gt;
-  &lt;/div&gt;
-  &lt;div class=&quot;stat&quot;&gt;
-    &lt;div class=&quot;stat-number&quot;&gt;{{ days|length }}&lt;/div&gt;
-    &lt;div class=&quot;stat-label&quot;&gt;Days active&lt;/div&gt;
-  &lt;/div&gt;
-  &lt;div class=&quot;stat&quot;&gt;
-    &lt;div class=&quot;stat-number&quot;&gt;{{ ledger_days }}&lt;/div&gt;
-    &lt;div class=&quot;stat-label&quot;&gt;Day window&lt;/div&gt;
-  &lt;/div&gt;
-&lt;/div&gt;
-&lt;div class=&quot;section&quot;&gt;
-  {% if days %}
-    {% for day in days %}
-      &lt;div class=&quot;day-label&quot;&gt;{{ day.label }}&lt;/div&gt;
-      {% for order in day.orders %}
-        &lt;div class=&quot;order-card&quot;&gt;
-          &lt;div class=&quot;order-card-head&quot;&gt;
-            &lt;span class=&quot;order-time&quot;&gt;Placed at {{ order.created_at }}&lt;/span&gt;
-            {% if order.delivery_time %}
-              &lt;span class=&quot;delivery-badge&quot;&gt;🕒 {{ order.delivery_time }}&lt;/span&gt;
-            {% endif %}
-          &lt;/div&gt;
-          {% if order.order_lines %}
-            &lt;div class=&quot;order-items&quot;&gt;
-              {% for item in order.order_lines %}
-                &lt;div class=&quot;item-row&quot;&gt;
-                  &lt;span class=&quot;item-name&quot;&gt;{{ item.product }}&lt;/span&gt;
-                  &lt;span class=&quot;item-qty&quot;&gt;
-                    {% set qty = item.quantity %}
-                    {% if qty == qty | int %}{{ qty | int }}{% else %}{{ qty }}{% endif %}
-                    {{ item.unit }}
-                  &lt;/span&gt;
-                &lt;/div&gt;
-                {% if not loop.last %}&lt;div class=&quot;item-divider&quot;&gt;&lt;/div&gt;{% endif %}
-              {% endfor %}
-            &lt;/div&gt;
-          {% endif %}
-          {% if order.unclear_items %}
-            &lt;div class=&quot;unclear-section&quot;&gt;
-              &lt;div class=&quot;unclear-label&quot;&gt;⚠️ Couldn&apos;t recognise&lt;/div&gt;
-              {% for raw in order.unclear_items %}
-                &lt;div class=&quot;unclear-item&quot;&gt;• {{ raw }}&lt;/div&gt;
-              {% endfor %}
-            &lt;/div&gt;
-          {% endif %}
-        &lt;/div&gt;
-      {% endfor %}
-    {% endfor %}
-  {% else %}
-    &lt;div class=&quot;empty&quot;&gt;
-      &lt;div class=&quot;empty-icon&quot;&gt;📋&lt;/div&gt;
-      &lt;div class=&quot;empty-text&quot;&gt;No orders in the last {{ ledger_days }} days&lt;/div&gt;
-      &lt;div class=&quot;empty-sub&quot;&gt;Your orders will appear here&lt;br&gt;as soon as you place one.&lt;/div&gt;
-    &lt;/div&gt;
-  {% endif %}
-&lt;/div&gt;
-&lt;div class=&quot;footer&quot;&gt;
-  Generated {{ generated_at }} IST&lt;br&gt;
-  Showing confirmed orders only · Cancelled orders not shown
-&lt;/div&gt;
-&lt;/body&gt;
-&lt;/html&gt;</file><file path="app/services/message_journal.py">logger = logging.getLogger(__name__)
+lower = message.strip().lower()</file><file path="app/services/message_journal.py">logger = logging.getLogger(__name__)
 ⋮----
 IST = timezone(timedelta(hours=5, minutes=30))
 ⋮----
@@ -792,113 +755,7 @@ alert = (
 ⋮----
 def _alert_processing_failure(msg: InboundMessage, reason: str)
 ⋮----
-def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path="render.yaml">services:
-  - type: web
-    name: orderr
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: PLANT_NAME
-        value: Fluffy
-      - key: REPORT_TIME
-        value: &quot;22:00&quot;
-      - key: MANAGER_PHONE
-        sync: false
-      - key: META_ACCESS_TOKEN
-        sync: false
-      - key: META_PHONE_NUMBER_ID
-        sync: false
-      - key: META_VERIFY_TOKEN
-        sync: false
-      - key: META_APP_SECRET
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: DASHBOARD_USERNAME
-        sync: false
-      - key: DASHBOARD_PASSWORD
-        sync: false</file><file path=".gitignore">venv/
-.env
-__pycache__/
-*.pyc
-orderr.db
-repomix-output.xml
-check_db.py</file><file path="app/services/product_catalog.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-⋮----
-PRODUCT_CATALOG = [
-⋮----
-def generate_order_template() -&gt; str
-⋮----
-def generate_menu_template() -&gt; str
-⋮----
-def get_interactive_list_items() -&gt; list
-⋮----
-def get_product_by_id(product_id: str) -&gt; dict | None
-⋮----
-def get_quantity_buttons(product_name: str) -&gt; list
-⋮----
-nos_products = {</file><file path="app/models/order.py">class Order(Base)
-⋮----
-__tablename__ = &quot;orders&quot;
-⋮----
-id = Column(Integer, primary_key=True, index=True)
-⋮----
-plant_name     = Column(String, default=&quot;Fluffy&quot;)
-customer_phone = Column(String, index=True)
-customer_name  = Column(String, nullable=True)
-⋮----
-raw_message    = Column(Text)
-is_photo_order = Column(Boolean, default=False)
-⋮----
-parsed_items  = Column(JSONB, nullable=True)
-unclear_items = Column(JSONB, nullable=True)
-⋮----
-delivery_date = Column(String, nullable=True, index=True)
-delivery_time = Column(String, nullable=True)
-⋮----
-status = Column(String, default=&quot;received&quot;)
-⋮----
-is_cancelled = Column(Boolean, default=False)
-cancelled_at = Column(DateTime(timezone=True), nullable=True)
-⋮----
-is_unclear     = Column(Boolean, default=False)
-unclear_reason = Column(String, nullable=True)
-⋮----
-business_date        = Column(String, nullable=True, index=True)
-is_next_day_override = Column(Boolean, default=False)
-⋮----
-confirmation_sent    = Column(Boolean, default=False)
-forwarded_to_manager = Column(Boolean, default=False)
-⋮----
-created_at = Column(DateTime(timezone=True), server_default=func.now())
-updated_at = Column(
-⋮----
-def __repr__(self)</file><file path="app/services/pending_orders.py">IST = timezone(timedelta(hours=5, minutes=30))
-RESET_HOUR = 20
-⋮----
-def get_delivery_date_for_now() -&gt; date
-⋮----
-now_ist = datetime.now(IST)
-⋮----
-def get_pending_customers(db: Session, delivery_date: date) -&gt; dict
-⋮----
-active_customers = (
-⋮----
-delivery_date_str = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-ordered_phones = (
-ordered_set = {row[0] for row in ordered_phones}
-⋮----
-pending = [c for c in active_customers if c.phone_number not in ordered_set]
-⋮----
-grouped: dict = defaultdict(list)
-⋮----
-delivery_date = get_delivery_date_for_now()
-⋮----
-grouped = get_pending_customers(db, delivery_date)</file><file path="app/services/notifier.py">META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;)
+def _alert_manual_review(msg: InboundMessage, reason: str)</file><file path="app/services/notifier.py">META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;)
 META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;)
 MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;)
 PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
@@ -956,303 +813,7 @@ def send_manager_menu(phone: str) -&gt; dict
     Buttons: Summary | Daily Report | Add Customer
     &quot;&quot;&quot;
 ⋮----
-def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/services/reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-IST           = timezone(timedelta(hours=5, minutes=30))
-⋮----
-TEMPLATE_DAILY_REPORT = &quot;manager_daily_report&quot;
-⋮----
-def normalize_product(product: str) -&gt; str
-⋮----
-def merge_items(items: list) -&gt; list
-⋮----
-merged = {}
-⋮----
-product  = normalize_product(item.get(&quot;product&quot;, &quot;Unknown&quot;).strip())
-quantity = item.get(&quot;quantity&quot;, 0)
-unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
-key      = f&quot;{product.lower()}||{unit}&quot;
-⋮----
-def get_todays_customer_notes(db: Session) -&gt; list[dict]
-⋮----
-today = datetime.now(IST).date()
-⋮----
-note_messages = (
-⋮----
-phones = list({m.customer_phone for m in note_messages})
-customers = db.query(Customer).filter(Customer.phone_number.in_(phones)).all()
-phone_to_name = {c.phone_number: c.restaurant_name or c.phone_number for c in customers}
-⋮----
-notes = []
-⋮----
-def generate_daily_report(db: Session) -&gt; dict
-⋮----
-&quot;&quot;&quot;
-    Generate consolidated daily order report.
-    Always returns a dict — sends &apos;no orders&apos; message when count is zero.
-    &quot;&quot;&quot;
-today = get_current_business_date()
-today_str = today.strftime(&quot;%Y-%m-%d&quot;)
-⋮----
-orders = db.query(Order).filter(
-⋮----
-clear_orders   = [o for o in orders if not o.is_unclear]
-unclear_orders = [o for o in orders if o.is_unclear]
-⋮----
-product_totals: dict = {}
-⋮----
-items = json.loads(order.parsed_items) if order.parsed_items else []
-⋮----
-product_summary = &quot;No orders received today&quot;
-⋮----
-lines = []
-⋮----
-qty     = data[&quot;total_quantity&quot;]
-qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-⋮----
-product_summary = &quot; | &quot;.join(lines)
-⋮----
-# Total items count
-total_items = sum(
-⋮----
-def send_daily_report(db: Session)
-⋮----
-data = generate_daily_report(db)
-⋮----
-result = send_whatsapp_template(
-⋮----
-notes = get_todays_customer_notes(db)
-⋮----
-lines = [f&quot;📝 *Customer Notes — {PLANT_NAME}*&quot;, f&quot;{data[&apos;date_str&apos;]}&quot;, &quot;&quot;]
-⋮----
-time_str = f&quot; ({n[&apos;time&apos;]})&quot; if n[&apos;time&apos;] else &quot;&quot;
-⋮----
-notes_msg = &quot;\n&quot;.join(lines)</file><file path="app/services/pending_notifier.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-⋮----
-TEMPLATE_SALESPERSON_PENDING = &quot;salesperson_pending_orders&quot;
-TEMPLATE_MANAGER_SUMMARY     = &quot;manager_daily_summary&quot;
-⋮----
-def send_customer_reminders(db: Session, delivery_date: date | None = None)
-⋮----
-delivery_date = get_delivery_date_for_now()
-⋮----
-grouped = get_pending_customers(db, delivery_date)
-all_pending_customers = [c for customers in grouped.values() for c in customers]
-⋮----
-sent = 0
-⋮----
-message = (
-result = send_whatsapp_message(customer.phone_number, message)
-⋮----
-def notify_salespersons_pending(db: Session, delivery_date: date | None = None)
-⋮----
-assigned = {
-⋮----
-salesperson = db.query(Salesperson).filter(
-⋮----
-customer_list = &quot;, &quot;.join(
-⋮----
-result = send_whatsapp_template(
-⋮----
-# ── 23:10 — Management summary ───────────────────────────────────────────────
-⋮----
-def send_management_summary(db: Session, delivery_date: date | None = None)
-⋮----
-&quot;&quot;&quot;
-    Sends the operations manager a daily completion summary
-    via approved template.
-    Template: manager_daily_summary
-    {{1}} = PLANT_NAME
-    {{2}} = date string
-    {{3}} = total customers
-    {{4}} = orders received
-    {{5}} = pending count
-    {{6}} = area breakdown (single line, pipe-separated — Meta rejects newlines)
-    &quot;&quot;&quot;
-⋮----
-total_active = (
-⋮----
-all_pending    = [c for customers in grouped.values() for c in customers]
-total_pending  = len(all_pending)
-total_received = total_active - total_pending
-⋮----
-area_customers: dict = {}
-⋮----
-area = c.area or &quot;Unassigned&quot;
-⋮----
-parts = []
-⋮----
-names_str = &quot;, &quot;.join(names)
-⋮----
-area_breakdown = &quot; | &quot;.join(parts)
-⋮----
-area_breakdown = &quot;None — all orders received&quot;
-⋮----
-unassigned_pending = len(grouped.get(None, []))
-⋮----
-date_str = delivery_date.strftime(&quot;%d %B %Y&quot;)</file><file path="app/routes/dashboard.py">router = APIRouter()
-IST = timezone(timedelta(hours=5, minutes=30))
-templates = Jinja2Templates(directory=&quot;app/templates&quot;)
-⋮----
-def _safe_list(value) -&gt; list
-⋮----
-parsed = json.loads(value)
-⋮----
-# double-encoded: parsed is still a string
-⋮----
-inner = json.loads(parsed)
-⋮----
-today = get_current_business_date()
-⋮----
-target_date = date.fromisoformat(view_date)
-⋮----
-target_date = today
-⋮----
-orders = db.query(Order).filter(
-⋮----
-unclear_list = _safe_list(order.unclear_items)
-⋮----
-clear_orders   = [o for o in orders if not o.is_unclear]
-unclear_orders = [o for o in orders if o.is_unclear]
-⋮----
-product_summary = {}
-⋮----
-product  = item.get(&quot;product&quot;, &quot;Unknown&quot;)
-quantity = item.get(&quot;quantity&quot;, 0)
-unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
-key      = f&quot;{product}__{unit}&quot;
-⋮----
-yesterday = (target_date - timedelta(days=1)).isoformat()
-tomorrow  = (target_date + timedelta(days=1)).isoformat()
-is_today  = (target_date == today)
-now_ist = datetime.now(IST)
-is_before_cutoff = now_ist.hour &lt; 20
-⋮----
-failed_messages   = []
-reliability_stats = {&quot;has_issues&quot;: False, &quot;total_today&quot;: 0, &quot;confirmed_today&quot;: 0, &quot;failed_today&quot;: 0, &quot;manual_review_total&quot;: 0}
-⋮----
-reliability_stats = get_reliability_stats(db)</file><file path="app/routes/webhook.py">logger = logging.getLogger(__name__)
-router = APIRouter()
-MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-ADD_CUSTOMER_CMD = &quot;add customer&quot;
-⋮----
-NON_ORDER_STATUSES = {
-⋮----
-_rate_limit: dict[str, list[float]] = defaultdict(list)
-RATE_LIMIT_MAX = 10
-RATE_LIMIT_WINDOW = 60
-⋮----
-def _is_rate_limited(phone: str) -&gt; bool
-⋮----
-now = time.time()
-timestamps = _rate_limit[phone]
-⋮----
-def verify_meta_signature(body: bytes, signature_header: str) -&gt; bool
-⋮----
-app_secret = os.getenv(&quot;META_APP_SECRET&quot;, &quot;&quot;)
-⋮----
-expected = hmac.new(app_secret.encode(&quot;utf-8&quot;), body, hashlib.sha256).hexdigest()
-received = signature_header[len(&quot;sha256=&quot;):]
-⋮----
-@router.get(&quot;/health&quot;)
-def health_check()
-⋮----
-payload        = await request.json()
-customer_phone = payload.get(&quot;phone&quot;, &quot;919999999999&quot;)
-message_text   = payload.get(&quot;message&quot;, &quot;&quot;)
-⋮----
-normalized_sender  = normalize_phone(customer_phone)
-normalized_manager = normalize_phone(MANAGER_PHONE) if MANAGER_PHONE else &quot;&quot;
-⋮----
-reply = handle_manager_add_customer(db, message_text)
-⋮----
-result = process_incoming_order(db=db, customer_phone=customer_phone, message=message_text)
-⋮----
-@router.get(&quot;/meta&quot;)
-async def meta_webhook_verify(request: Request)
-⋮----
-mode      = request.query_params.get(&quot;hub.mode&quot;)
-token     = request.query_params.get(&quot;hub.verify_token&quot;)
-challenge = request.query_params.get(&quot;hub.challenge&quot;)
-⋮----
-def handle_manager_add_customer(db: Session, message_text: str) -&gt; str
-⋮----
-parts = message_text.strip()[len(ADD_CUSTOMER_CMD):].strip()
-tokens = parts.split(None, 1)
-⋮----
-customer = create_customer_manually(
-⋮----
-def _get_internal_phones(db: Session) -&gt; dict[str, str]</file><file path="app/services/template_parser.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-⋮----
-PRODUCT_DEFINITIONS = [
-⋮----
-VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
-⋮----
-def _normalize(text: str) -&gt; str
-⋮----
-def _squish(text: str) -&gt; str
-⋮----
-def _tokenize(text: str) -&gt; set
-⋮----
-def _match_product(raw_name: str)
-⋮----
-&quot;&quot;&quot;
-    Returns (display_name, unit) or None.
-    Priority: exact → partial/startswith → token subset
-    &quot;&quot;&quot;
-n = _normalize(raw_name)
-s = _squish(raw_name)
-⋮----
-# 1. Exact
-⋮----
-# 2. Partial / startswith
-⋮----
-a  = _normalize(alias)
-aq = _squish(alias)
-⋮----
-# 3. Token subset
-raw_tokens = _tokenize(raw_name)
-⋮----
-alias_tokens = _tokenize(alias)
-⋮----
-def _lookup_alias(raw_name: str, db) -&gt; tuple | None
-⋮----
-# Try exact match first
-normalized = raw_name.strip().lower()
-row = db.query(UnclearItemAlias).filter(
-⋮----
-unit = _get_unit_for_canonical(row.canonical_product_name)
-⋮----
-# Strip quantity/unit suffix and try again
-# Handles &quot;tandoori chicken 30pis&quot; → &quot;tandoori chicken&quot;
-stripped = re.sub(r&apos;\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$&apos;, &apos;&apos;, normalized).strip()
-⋮----
-def _get_unit_for_canonical(canonical_name: str) -&gt; str
-⋮----
-&quot;&quot;&quot;Find the unit for a canonical product name from PRODUCT_DEFINITIONS.&quot;&quot;&quot;
-⋮----
-return &quot;kg&quot;  # default fallback
-⋮----
-def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -&gt; tuple | None
-⋮----
-&quot;&quot;&quot;
-    Check customer_product_aliases for a phone + raw_text match.
-    Returns (canonical_product_name, unit) or None.
-    db can be None (caller doesn&apos;t always have a session).
-Remove emoji characters, returning plain text.&quot;&quot;&quot;
-⋮----
-r&apos;[\U00010000-\U0010ffff&apos;   # supplementary multilingual plane
-r&apos;\U0001F300-\U0001F9FF&apos;    # misc symbols &amp; pictographs
-r&apos;\u2600-\u26FF&apos;            # misc symbols
-r&apos;\u2700-\u27BF&apos;            # dingbats
-⋮----
-def _is_noise_line(line: str, restaurant_name_norm: str | None) -&gt; bool
-⋮----
-customer_phone: sender&apos;s phone number
-message:        raw WhatsApp message text
-⋮----
-Returns:</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+def send_salesperson_menu(phone: str, name: str = &quot;there&quot;) -&gt; dict</file><file path="app/services/order_service.py">MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
 PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
 BASE_URL             = os.getenv(&quot;BASE_URL&quot;, &quot;&quot;)   # e.g. https://orderr.onrender.com
 IST                  = timezone(timedelta(hours=5, minutes=30))
@@ -1387,7 +948,291 @@ lower    = stripped.lower()
 letters_only = re.sub(r&apos;[^a-zA-Z]&apos;, &apos;&apos;, lower)
 ⋮----
 single_word_fillers = {
-words = lower.split()</file><file path="app/templates/dashboard.html">&lt;!DOCTYPE html&gt;
+words = lower.split()</file><file path="app/services/pending_notifier.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+⋮----
+TEMPLATE_SALESPERSON_PENDING = &quot;salesperson_pending_orders&quot;
+TEMPLATE_MANAGER_SUMMARY     = &quot;manager_daily_summary&quot;
+⋮----
+def send_customer_reminders(db: Session, delivery_date: date | None = None)
+⋮----
+delivery_date = get_delivery_date_for_now()
+⋮----
+grouped = get_pending_customers(db, delivery_date)
+all_pending_customers = [c for customers in grouped.values() for c in customers]
+⋮----
+sent = 0
+⋮----
+message = (
+result = send_whatsapp_message(customer.phone_number, message)
+⋮----
+def notify_salespersons_pending(db: Session, delivery_date: date | None = None)
+⋮----
+assigned = {
+⋮----
+salesperson = db.query(Salesperson).filter(
+⋮----
+customer_list = &quot;, &quot;.join(
+⋮----
+result = send_whatsapp_template(
+⋮----
+# ── 23:10 — Management summary ───────────────────────────────────────────────
+⋮----
+def send_management_summary(db: Session, delivery_date: date | None = None)
+⋮----
+&quot;&quot;&quot;
+    Sends the operations manager a daily completion summary
+    via approved template.
+    Template: manager_daily_summary
+    {{1}} = PLANT_NAME
+    {{2}} = date string
+    {{3}} = total customers
+    {{4}} = orders received
+    {{5}} = pending count
+    {{6}} = area breakdown (single line, pipe-separated — Meta rejects newlines)
+    &quot;&quot;&quot;
+⋮----
+total_active = (
+⋮----
+all_pending    = [c for customers in grouped.values() for c in customers]
+total_pending  = len(all_pending)
+total_received = total_active - total_pending
+⋮----
+area_customers: dict = {}
+⋮----
+area = c.area or &quot;Unassigned&quot;
+⋮----
+parts = []
+⋮----
+names_str = &quot;, &quot;.join(names)
+⋮----
+area_breakdown = &quot; | &quot;.join(parts)
+⋮----
+area_breakdown = &quot;None — all orders received&quot;
+⋮----
+unassigned_pending = len(grouped.get(None, []))
+⋮----
+date_str = delivery_date.strftime(&quot;%d %B %Y&quot;)</file><file path="app/services/pending_orders.py">IST = timezone(timedelta(hours=5, minutes=30))
+RESET_HOUR = 20
+⋮----
+def get_delivery_date_for_now() -&gt; date
+⋮----
+now_ist = datetime.now(IST)
+⋮----
+def get_pending_customers(db: Session, delivery_date: date) -&gt; dict
+⋮----
+active_customers = (
+⋮----
+delivery_date_str = delivery_date.strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+ordered_phones = (
+ordered_set = {row[0] for row in ordered_phones}
+⋮----
+pending = [c for c in active_customers if c.phone_number not in ordered_set]
+⋮----
+grouped: dict = defaultdict(list)
+⋮----
+delivery_date = get_delivery_date_for_now()
+⋮----
+grouped = get_pending_customers(db, delivery_date)</file><file path="app/services/product_catalog.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+⋮----
+PRODUCT_CATALOG = [
+⋮----
+def generate_order_template() -&gt; str
+⋮----
+def generate_menu_template() -&gt; str
+⋮----
+def get_interactive_list_items() -&gt; list
+⋮----
+def get_product_by_id(product_id: str) -&gt; dict | None
+⋮----
+def get_quantity_buttons(product_name: str) -&gt; list
+⋮----
+nos_products = {</file><file path="app/services/reporter.py">MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME    = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+IST           = timezone(timedelta(hours=5, minutes=30))
+⋮----
+TEMPLATE_DAILY_REPORT = &quot;manager_daily_report&quot;
+⋮----
+def _safe_list(value) -&gt; list
+⋮----
+parsed = json.loads(value)
+⋮----
+parsed = json.loads(parsed)
+⋮----
+def normalize_product(product: str) -&gt; str
+⋮----
+def merge_items(items: list) -&gt; list
+⋮----
+merged = {}
+⋮----
+product  = normalize_product(item.get(&quot;product&quot;, &quot;Unknown&quot;).strip())
+quantity = item.get(&quot;quantity&quot;, 0)
+unit     = item.get(&quot;unit&quot;, &quot;kg&quot;).lower()
+key      = f&quot;{product.lower()}||{unit}&quot;
+⋮----
+def get_todays_customer_notes(db: Session) -&gt; list[dict]
+⋮----
+today = datetime.now(IST).date()
+⋮----
+note_messages = (
+⋮----
+phones = list({m.customer_phone for m in note_messages})
+customers = db.query(Customer).filter(Customer.phone_number.in_(phones)).all()
+phone_to_name = {c.phone_number: c.restaurant_name or c.phone_number for c in customers}
+⋮----
+notes = []
+⋮----
+def generate_daily_report(db: Session) -&gt; dict
+⋮----
+&quot;&quot;&quot;
+    Generate consolidated daily order report.
+    Always returns a dict — sends &apos;no orders&apos; message when count is zero.
+    &quot;&quot;&quot;
+today = get_current_business_date()
+today_str = today.strftime(&quot;%Y-%m-%d&quot;)
+⋮----
+orders = db.query(Order).filter(
+⋮----
+clear_orders   = [o for o in orders if not o.is_unclear]
+unclear_orders = [o for o in orders if o.is_unclear]
+⋮----
+product_totals: dict = {}
+⋮----
+items = _safe_list(order.parsed_items)
+⋮----
+product_summary = &quot;No orders received today&quot;
+⋮----
+lines = []
+⋮----
+qty     = data[&quot;total_quantity&quot;]
+qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+⋮----
+product_summary = &quot; | &quot;.join(lines)
+⋮----
+# Total items count
+total_items = sum(len(_safe_list(o.parsed_items)) for o in clear_orders)
+⋮----
+def send_daily_report(db: Session)
+⋮----
+data = generate_daily_report(db)
+⋮----
+result = send_whatsapp_template(
+⋮----
+notes = get_todays_customer_notes(db)
+⋮----
+lines = [f&quot;📝 *Customer Notes — {PLANT_NAME}*&quot;, f&quot;{data[&apos;date_str&apos;]}&quot;, &quot;&quot;]
+⋮----
+time_str = f&quot; ({n[&apos;time&apos;]})&quot; if n[&apos;time&apos;] else &quot;&quot;
+⋮----
+notes_msg = &quot;\n&quot;.join(lines)</file><file path="app/services/retry_scheduler.py">logger = logging.getLogger(__name__)
+⋮----
+def retry_failed_messages()
+⋮----
+db = SessionLocal()
+⋮----
+due_messages = get_messages_pending_retry(db)
+⋮----
+result = process_incoming_order(</file><file path="app/services/template_parser.py">PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
+⋮----
+PRODUCT_DEFINITIONS = [
+⋮----
+VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
+⋮----
+def _normalize(text: str) -&gt; str
+⋮----
+def _squish(text: str) -&gt; str
+⋮----
+def _tokenize(text: str) -&gt; set
+⋮----
+def _match_product(raw_name: str)
+⋮----
+&quot;&quot;&quot;
+    Returns (display_name, unit) or None.
+    Priority: exact → partial/startswith → token subset
+    &quot;&quot;&quot;
+n = _normalize(raw_name)
+s = _squish(raw_name)
+⋮----
+# 1. Exact
+⋮----
+# 2. Partial / startswith
+⋮----
+a  = _normalize(alias)
+aq = _squish(alias)
+⋮----
+# 3. Token subset
+raw_tokens = _tokenize(raw_name)
+⋮----
+alias_tokens = _tokenize(alias)
+⋮----
+def _lookup_alias(raw_name: str, db) -&gt; tuple | None
+⋮----
+# Try exact match first
+normalized = raw_name.strip().lower()
+row = db.query(UnclearItemAlias).filter(
+⋮----
+unit = _get_unit_for_canonical(row.canonical_product_name)
+⋮----
+# Strip quantity/unit suffix and try again
+# Handles &quot;tandoori chicken 30pis&quot; → &quot;tandoori chicken&quot;
+stripped = re.sub(r&apos;\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$&apos;, &apos;&apos;, normalized).strip()
+⋮----
+def _get_unit_for_canonical(canonical_name: str) -&gt; str
+⋮----
+&quot;&quot;&quot;Find the unit for a canonical product name from PRODUCT_DEFINITIONS.&quot;&quot;&quot;
+⋮----
+return &quot;kg&quot;  # default fallback
+⋮----
+def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -&gt; tuple | None
+⋮----
+&quot;&quot;&quot;
+    Check customer_product_aliases for a phone + raw_text match.
+    Returns (canonical_product_name, unit) or None.
+    db can be None (caller doesn&apos;t always have a session).
+Remove emoji characters, returning plain text.&quot;&quot;&quot;
+⋮----
+r&apos;[\U00010000-\U0010ffff&apos;   # supplementary multilingual plane
+r&apos;\U0001F300-\U0001F9FF&apos;    # misc symbols &amp; pictographs
+r&apos;\u2600-\u26FF&apos;            # misc symbols
+r&apos;\u2700-\u27BF&apos;            # dingbats
+⋮----
+def _is_noise_line(line: str, restaurant_name_norm: str | None) -&gt; bool
+⋮----
+customer_phone: sender&apos;s phone number
+message:        raw WhatsApp message text
+⋮----
+Returns:</file><file path="app/services/webhook_health.py">logger = logging.getLogger(__name__)
+⋮----
+IST                  = timezone(timedelta(hours=5, minutes=30))
+MANAGER_PHONE        = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
+PLANT_NAME           = os.getenv(&quot;PLANT_NAME&quot;, &quot;OrdeRR&quot;)
+META_ACCESS_TOKEN    = os.getenv(&quot;META_ACCESS_TOKEN&quot;, &quot;&quot;)
+META_PHONE_NUMBER_ID = os.getenv(&quot;META_PHONE_NUMBER_ID&quot;, &quot;&quot;)
+⋮----
+META_API_URL = f&quot;https://graph.facebook.com/v21.0/{META_PHONE_NUMBER_ID}&quot;
+⋮----
+def check_webhook_health()
+⋮----
+&quot;&quot;&quot;
+    Called by scheduler every 30 minutes.
+    Pings Meta Graph API to verify the access token and phone number are valid.
+    Alerts manager only if the API call actually fails — meaning something is
+    genuinely broken (token expired, number suspended, Meta-side issue).
+    Silence (no inbound messages) is NOT treated as a failure.
+    &quot;&quot;&quot;
+⋮----
+now_ist = datetime.now(IST)
+⋮----
+response = requests.get(
+⋮----
+error_data = response.json() if response.content else {}
+error_msg  = error_data.get(&quot;error&quot;, {}).get(&quot;message&quot;, f&quot;HTTP {response.status_code}&quot;)
+error_code = error_data.get(&quot;error&quot;, {}).get(&quot;code&quot;, &quot;unknown&quot;)
+⋮----
+def _send_failure_alert(now_ist: datetime, error_code, error_msg: str)
+⋮----
+alert = (</file><file path="app/templates/dashboard.html">&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
     &lt;meta charset=&quot;UTF-8&quot;&gt;
@@ -2728,190 +2573,355 @@ setInterval(() =&gt; {
 }, 60000);
 &lt;/script&gt;
 &lt;/body&gt;
-&lt;/html&gt;</file><file path="app/main.py">IST = timezone(timedelta(hours=5, minutes=30))
-⋮----
-_last_report_time: str = &quot;Never&quot;
-⋮----
-def daily_report_job()
-⋮----
-db = SessionLocal()
-⋮----
-_last_report_time = datetime.now(IST).strftime(&quot;%d %b %Y %I:%M %p IST&quot;)
-⋮----
-def customer_reminders_job()
-⋮----
-def salesperson_notification_job()
-⋮----
-def management_summary_job()
-⋮----
-def retry_failed_messages_job()
-⋮----
-def webhook_health_job()
-⋮----
-@asynccontextmanager
-async def lifespan(app: FastAPI)
-⋮----
-report_time  = os.getenv(&quot;REPORT_TIME&quot;, &quot;22:00&quot;)
-⋮----
-scheduler    = BackgroundScheduler()
-⋮----
-app = FastAPI(
-⋮----
-@app.get(&quot;/&quot;)
-def root()
-⋮----
-@app.get(&quot;/health&quot;)
-def health_check()
-⋮----
-db_status = &quot;ok&quot;
-⋮----
-db_status = f&quot;error: {str(e)}&quot;
-⋮----
-scheduler    = app.state.scheduler if hasattr(app.state, &quot;scheduler&quot;) else None
-job_count    = len(scheduler.get_jobs()) if scheduler else 0
-sched_status = &quot;running&quot; if (scheduler and scheduler.running) else &quot;stopped&quot;</file><file path="app/routes/admin.py">logger = logging.getLogger(__name__)
-⋮----
-router     = APIRouter()
-PLANT_NAME = os.getenv(&quot;PLANT_NAME&quot;, &quot;Fluffy&quot;)
-MANAGER_PHONE = os.getenv(&quot;MANAGER_PHONE&quot;, &quot;&quot;)
-IST        = timezone(timedelta(hours=5, minutes=30))
-⋮----
-# ── Schemas ───────────────────────────────────────────────────────────────────
-⋮----
-class SalespersonCreate(BaseModel)
-⋮----
-name: str
-phone: str
-⋮----
-class SalespersonUpdate(BaseModel)
-⋮----
-name:   Optional[str]  = None
-phone:  Optional[str]  = None
-active: Optional[bool] = None
-⋮----
-class CustomerAssign(BaseModel)
-⋮----
-area:           Optional[str] = None
-salesperson_id: Optional[int] = None
-⋮----
-class CustomerStatus(BaseModel)
-⋮----
-is_active: bool
-⋮----
-class CustomerCreate(BaseModel)
-⋮----
-restaurant_name: str
-area: Optional[str] = None
-⋮----
-class NextDayOverride(BaseModel)
-⋮----
-is_next_day: bool
-⋮----
-class PostOrderPayload(BaseModel)
-⋮----
-&quot;&quot;&quot;Payload for admin posting an order on behalf of a customer.&quot;&quot;&quot;
-message: str
-⋮----
-class CancelOrderPayload(BaseModel)
-⋮----
-reason: Optional[str] = None
-⋮----
-class NoisePhraseCreate(BaseModel)
-⋮----
-raw_text: str
-⋮----
-class ResolveUnclearItem(BaseModel)
-⋮----
-canonical_product_name: str
-customer_phone: Optional[str] = None
-scope: str = &quot;customer&quot;
-⋮----
-class CustomerAliasCreate(BaseModel)
-⋮----
-customer_phone: str
-⋮----
-def _safe_list(val) -&gt; list
-⋮----
-result = json.loads(val)
-if isinstance(result, str):          # double-encoded
-result = json.loads(result)
-⋮----
-LINE_RE = re.compile(
-⋮----
-def _extract_product_name(raw_line: str) -&gt; tuple[str, float]
-⋮----
-&quot;&quot;&quot;
-    Given a raw unclear line like &quot;Raan -5&quot;, &quot;kaleji 2kg&quot;, &quot;tandoori chicken 30pis&quot;,
-    returns (product_name_lower, quantity).
-    Remove all unclear_items matching `normalized` from every existing order.
-    Uses ORM — assigns native Python lists directly to JSONB columns.
-    Move unclear items matching `raw` into parsed_items for ALL orders.
-    Uses ORM — assigns native Python lists directly to JSONB columns.
-    Move unclear items matching `raw` into parsed_items for ONE customer&apos;s orders.
-    Uses ORM — assigns native Python lists directly to JSONB columns.
-    Single-order patch used by _retroactive_patch_customer.
-    NO db.commit() here — caller commits after all orders are patched.
-Orders that have unresolved unclear items.&quot;&quot;&quot;
-orders = (
-result = []
-⋮----
-unclear = _safe_list(o.unclear_items)
-⋮----
-@router.get(&quot;/unclear-items/aliases&quot;)
-def get_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-aliases = db.query(UnclearItemAlias).order_by(UnclearItemAlias.raw_text).all()
-⋮----
-@router.get(&quot;/product-names&quot;)
-def get_product_names(username: str = Depends(require_auth))
-⋮----
-raw       = payload.raw_text.strip().lower()
-canonical = payload.canonical_product_name.strip()
-⋮----
-valid_names = {display for display, _, _ in PRODUCT_DEFINITIONS}
-⋮----
-existing = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw).first()
-⋮----
-patched = _retroactive_patch_global(raw, canonical, db)
-⋮----
-phone = payload.customer_phone.strip()
-existing = db.query(CustomerProductAlias).filter(
-⋮----
-patched = _retroactive_patch_customer(raw, canonical, phone, db)
-⋮----
-@router.delete(&quot;/unclear-items/aliases/{alias_id}&quot;)
-def delete_alias(alias_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-alias = db.query(UnclearItemAlias).filter(UnclearItemAlias.id == alias_id).first()
-⋮----
-@router.get(&quot;/customer-aliases&quot;)
-def list_customer_aliases(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-aliases = (
-⋮----
-@router.get(&quot;/customer-aliases/{phone}&quot;)
-def list_customer_aliases_by_phone(phone: str, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-@router.post(&quot;/customer-aliases&quot;)
-def create_customer_alias(payload: CustomerAliasCreate, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-raw = payload.raw_text.strip().lower()
-⋮----
-alias = CustomerProductAlias(
-⋮----
-@router.delete(&quot;/customer-aliases/{alias_id}&quot;)
-def delete_customer_alias(alias_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-alias = db.query(CustomerProductAlias).filter(CustomerProductAlias.id == alias_id).first()
-⋮----
-@router.post(&quot;/test-notifications/customer-reminders&quot;)
-def test_customer_reminders(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-@router.post(&quot;/test-notifications/salesperson-pending&quot;)
-def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-@router.post(&quot;/test-notifications/management-summary&quot;)
-def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth))
-⋮----
-@router.post(&quot;/test-notifications/daily-report&quot;)
-def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth))</file></files></repomix>
+&lt;/html&gt;</file><file path="app/templates/ledger.html">&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+  &lt;meta charset=&quot;UTF-8&quot;&gt;
+  &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0, maximum-scale=1.0&quot;&gt;
+  &lt;title&gt;Order History — {{ plant_name }}&lt;/title&gt;
+  &lt;style&gt;
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* ── Tokens ── */
+    :root {
+      --brand:       #075e54;
+      --brand-light: #e8f5e9;
+      --brand-mid:   #128c7e;
+      --ink:         #1a1a1a;
+      --ink-mid:     #555;
+      --ink-muted:   #999;
+      --surface:     #ffffff;
+      --bg:          #f0f4f2;
+      --border:      #e5ece9;
+      --radius-card: 14px;
+      --radius-pill: 99px;
+    }
+    /* ── Base ── */
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, &apos;Segoe UI&apos;, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    /* ── Header ── */
+    .header {
+      background: var(--brand);
+      padding: 20px 20px 28px;
+      position: relative;
+    }
+    .header-plant {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,.6);
+      margin-bottom: 4px;
+    }
+    .header-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.2;
+    }
+    .header-sub {
+      font-size: 13px;
+      color: rgba(255,255,255,.65);
+      margin-top: 4px;
+    }
+    /* Wave divider */
+    .header-wave {
+      position: absolute;
+      bottom: -1px; left: 0; right: 0;
+      height: 20px;
+      background: var(--bg);
+      clip-path: ellipse(55% 100% at 50% 100%);
+    }
+    /* ── Summary strip ── */
+    .summary {
+      display: flex;
+      gap: 10px;
+      padding: 20px 16px 8px;
+    }
+    .stat {
+      flex: 1;
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      padding: 14px 12px;
+      text-align: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .stat-number {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--brand);
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+    /* ── Section ── */
+    .section { padding: 8px 16px 24px; }
+    .day-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: var(--brand);
+      padding: 16px 4px 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .day-label::after {
+      content: &apos;&apos;;
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    /* ── Order card ── */
+    .order-card {
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+      margin-bottom: 10px;
+      overflow: hidden;
+      border-left: 3px solid var(--brand);
+    }
+    .order-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .order-time {
+      font-size: 12px;
+      color: var(--ink-muted);
+    }
+    .delivery-badge {
+      font-size: 11px;
+      background: var(--brand-light);
+      color: var(--brand);
+      border-radius: var(--radius-pill);
+      padding: 3px 9px;
+      font-weight: 600;
+    }
+    .order-items {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .item-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .item-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+      flex: 1;
+    }
+    .item-qty {
+      font-size: 13px;
+      color: var(--brand-mid);
+      font-weight: 700;
+      white-space: nowrap;
+      background: var(--brand-light);
+      border-radius: var(--radius-pill);
+      padding: 2px 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .item-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 2px 0;
+    }
+    /* unclear items */
+    .unclear-section {
+      padding: 0 16px 12px;
+      border-top: 1px dashed #fcd5d5;
+      margin-top: 2px;
+      background: #fffafa;
+    }
+    .unclear-label {
+      font-size: 11px;
+      color: #e53e3e;
+      font-weight: 700;
+      padding: 8px 0 6px;
+    }
+    .unclear-item {
+      font-size: 12px;
+      font-family: &apos;SF Mono&apos;, &apos;Fira Code&apos;, monospace;
+      color: #c53030;
+      padding: 2px 0;
+    }
+    /* ── Empty state ── */
+    .empty {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--ink-muted);
+    }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-text { font-size: 15px; font-weight: 600; color: var(--ink-mid); margin-bottom: 6px; }
+    .empty-sub  { font-size: 13px; line-height: 1.6; }
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      padding: 16px 24px 32px;
+      font-size: 11px;
+      color: var(--ink-muted);
+      line-height: 1.7;
+    }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;header&quot;&gt;
+  &lt;div class=&quot;header-plant&quot;&gt;{{ plant_name }}&lt;/div&gt;
+  &lt;div class=&quot;header-name&quot;&gt;{{ customer_name }}&lt;/div&gt;
+  &lt;div class=&quot;header-sub&quot;&gt;Order history · last {{ ledger_days }} days&lt;/div&gt;
+  &lt;div class=&quot;header-wave&quot;&gt;&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;summary&quot;&gt;
+  &lt;div class=&quot;stat&quot;&gt;
+    &lt;div class=&quot;stat-number&quot;&gt;{{ total_orders }}&lt;/div&gt;
+    &lt;div class=&quot;stat-label&quot;&gt;Orders&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;stat&quot;&gt;
+    &lt;div class=&quot;stat-number&quot;&gt;{{ days|length }}&lt;/div&gt;
+    &lt;div class=&quot;stat-label&quot;&gt;Days active&lt;/div&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;stat&quot;&gt;
+    &lt;div class=&quot;stat-number&quot;&gt;{{ ledger_days }}&lt;/div&gt;
+    &lt;div class=&quot;stat-label&quot;&gt;Day window&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;section&quot;&gt;
+  {% if days %}
+    {% for day in days %}
+      &lt;div class=&quot;day-label&quot;&gt;{{ day.label }}&lt;/div&gt;
+      {% for order in day.orders %}
+        &lt;div class=&quot;order-card&quot;&gt;
+          &lt;div class=&quot;order-card-head&quot;&gt;
+            &lt;span class=&quot;order-time&quot;&gt;Placed at {{ order.created_at }}&lt;/span&gt;
+            {% if order.delivery_time %}
+              &lt;span class=&quot;delivery-badge&quot;&gt;🕒 {{ order.delivery_time }}&lt;/span&gt;
+            {% endif %}
+          &lt;/div&gt;
+          {% if order.order_lines %}
+            &lt;div class=&quot;order-items&quot;&gt;
+              {% for item in order.order_lines %}
+                &lt;div class=&quot;item-row&quot;&gt;
+                  &lt;span class=&quot;item-name&quot;&gt;{{ item.product }}&lt;/span&gt;
+                  &lt;span class=&quot;item-qty&quot;&gt;
+                    {% set qty = item.quantity %}
+                    {% if qty == qty | int %}{{ qty | int }}{% else %}{{ qty }}{% endif %}
+                    {{ item.unit }}
+                  &lt;/span&gt;
+                &lt;/div&gt;
+                {% if not loop.last %}&lt;div class=&quot;item-divider&quot;&gt;&lt;/div&gt;{% endif %}
+              {% endfor %}
+            &lt;/div&gt;
+          {% endif %}
+          {% if order.unclear_items %}
+            &lt;div class=&quot;unclear-section&quot;&gt;
+              &lt;div class=&quot;unclear-label&quot;&gt;⚠️ Couldn&apos;t recognise&lt;/div&gt;
+              {% for raw in order.unclear_items %}
+                &lt;div class=&quot;unclear-item&quot;&gt;• {{ raw }}&lt;/div&gt;
+              {% endfor %}
+            &lt;/div&gt;
+          {% endif %}
+        &lt;/div&gt;
+      {% endfor %}
+    {% endfor %}
+  {% else %}
+    &lt;div class=&quot;empty&quot;&gt;
+      &lt;div class=&quot;empty-icon&quot;&gt;📋&lt;/div&gt;
+      &lt;div class=&quot;empty-text&quot;&gt;No orders in the last {{ ledger_days }} days&lt;/div&gt;
+      &lt;div class=&quot;empty-sub&quot;&gt;Your orders will appear here&lt;br&gt;as soon as you place one.&lt;/div&gt;
+    &lt;/div&gt;
+  {% endif %}
+&lt;/div&gt;
+&lt;div class=&quot;footer&quot;&gt;
+  Generated {{ generated_at }} IST&lt;br&gt;
+  Showing confirmed orders only · Cancelled orders not shown
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;</file><file path="Procfile">web: uvicorn app.main:app --host 0.0.0.0 --port $PORT</file><file path="pytest.ini">[pytest]
+pythonpath = .
+testpaths = tests</file><file path="render.yaml">services:
+  - type: web
+    name: orderr
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: PLANT_NAME
+        value: Fluffy
+      - key: REPORT_TIME
+        value: &quot;22:00&quot;
+      - key: MANAGER_PHONE
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_VERIFY_TOKEN
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DASHBOARD_USERNAME
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false</file><file path="requirements.txt">annotated-doc==0.0.4
+annotated-types==0.7.0
+anthropic==0.100.0
+anyio==4.13.0
+APScheduler==3.11.2
+certifi==2026.4.22
+cffi==2.0.0
+charset-normalizer==3.4.7
+click==8.3.3
+colorama==0.4.6
+cryptography==48.0.0
+distro==1.9.0
+docstring_parser==0.18.0
+fastapi==0.136.1
+greenlet==3.5.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.13
+Jinja2==3.1.6
+jiter==0.14.0
+MarkupSafe==3.0.3
+psycopg2-binary==2.9.12
+pyasn1==0.6.3
+pyasn1_modules==0.4.2
+pycparser==3.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+python-dotenv==1.2.2
+python-multipart==0.0.28
+requests==2.33.1
+sniffio==1.3.1
+SQLAlchemy==2.0.49
+starlette==1.0.0
+tenacity==9.1.4
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2026.2
+tzlocal==5.3.1
+urllib3==2.7.0
+uvicorn==0.46.0
+websockets==16.0</file><file path="runtime.txt">python-3.11.0</file></files></repomix>
