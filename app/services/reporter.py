@@ -23,7 +23,7 @@ IST           = timezone(timedelta(hours=5, minutes=30))
 TEMPLATE_DAILY_REPORT = "manager_daily_report"
 
 # ── Email config (all optional — WhatsApp still works if unset) ───────────────
-REPORT_EMAIL   = os.getenv("REPORT_EMAIL", "")        # comma-separated recipients
+REPORT_EMAIL   = os.getenv("REPORT_EMAIL", "")
 SMTP_HOST      = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT      = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER      = os.getenv("SMTP_USER", "")
@@ -36,7 +36,7 @@ def _safe_list(value) -> list:
         return []
     try:
         parsed = json.loads(value)
-        if isinstance(parsed, str):      # double-encoded
+        if isinstance(parsed, str):
             parsed = json.loads(parsed)
         return parsed if isinstance(parsed, list) else []
     except Exception:
@@ -63,12 +63,7 @@ def merge_items(items: list) -> list:
 
 
 def get_todays_customer_notes(db: Session) -> list[dict]:
-    """
-    Fetch all inbound messages marked as NOTE for today.
-    Returns list of dicts: {restaurant_name, phone, note, time}
-    """
     today = datetime.now(IST).date()
-
     note_messages = (
         db.query(InboundMessage)
         .filter(
@@ -79,14 +74,11 @@ def get_todays_customer_notes(db: Session) -> list[dict]:
         .order_by(InboundMessage.customer_phone, InboundMessage.received_at.asc())
         .all()
     )
-
     if not note_messages:
         return []
-
     phones = list({m.customer_phone for m in note_messages})
     customers = db.query(Customer).filter(Customer.phone_number.in_(phones)).all()
     phone_to_name = {c.phone_number: c.restaurant_name or c.phone_number for c in customers}
-
     notes = []
     for m in note_messages:
         notes.append({
@@ -99,26 +91,21 @@ def get_todays_customer_notes(db: Session) -> list[dict]:
 
 
 def generate_daily_report(db: Session) -> dict:
-    """
-    Generate consolidated daily order report.
-    Always returns a dict — sends 'no orders' message when count is zero.
-    """
-    today = get_current_business_date()
+    today     = get_current_business_date()
     today_str = today.strftime("%Y-%m-%d")
 
     orders = db.query(Order).filter(
         Order.business_date == today_str,
-        Order.is_cancelled == False,
+        Order.is_cancelled  == False,
     ).all()
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
 
-    # Aggregate product totals
+    # ── Product totals (summary section) ─────────────────────────────────────
     product_totals: dict = {}
     for order in clear_orders:
         items = _safe_list(order.parsed_items)
-
         for item in items:
             product  = normalize_product(item.get("product", "Unknown").strip())
             quantity = item.get("quantity", 0)
@@ -128,7 +115,7 @@ def generate_daily_report(db: Session) -> dict:
                 product_totals[key] = {"product": product, "unit": unit, "total_quantity": 0}
             product_totals[key]["total_quantity"] += quantity
 
-    # Product summary string — pipe-separated, no newlines (Meta template requirement)
+    # ── WhatsApp-friendly product summary string ──────────────────────────────
     if not orders:
         product_summary = "No orders received today"
     else:
@@ -137,13 +124,10 @@ def generate_daily_report(db: Session) -> dict:
             qty     = data["total_quantity"]
             qty_str = str(int(qty)) if qty == int(qty) else str(qty)
             lines.append(f"{data['product']} - {qty_str} {data['unit']}")
-
         if unclear_orders:
             lines.append(f"Unclear: {len(unclear_orders)} (need follow up)")
-
         product_summary = " | ".join(lines)
 
-    # Total items count
     total_items = sum(len(_safe_list(o.parsed_items)) for o in clear_orders)
 
     return {
@@ -151,175 +135,315 @@ def generate_daily_report(db: Session) -> dict:
         "total_orders":    str(len(clear_orders)),
         "total_items":     str(total_items),
         "product_summary": product_summary,
-        # extra fields used by email renderer (not sent to WhatsApp template)
         "_clear_orders":   clear_orders,
         "_unclear_orders": unclear_orders,
         "_product_totals": product_totals,
     }
 
 
-# ── Email helpers (new) ───────────────────────────────────────────────────────
+# ── Printable delivery sheet (HTML) ──────────────────────────────────────────
 
-def _build_email_html(data: dict, notes: list[dict]) -> str:
-    """Build a readable HTML email for the Daily Production Report."""
+def _build_print_html(data: dict, notes: list[dict]) -> str:
     date_str       = data["date_str"]
-    order_count    = data["total_orders"]
-    total_items    = data["total_items"]
     clear_orders   = data["_clear_orders"]
     unclear_orders = data["_unclear_orders"]
     product_totals = data["_product_totals"]
-    unclear_count  = len(unclear_orders)
+    generated_at   = datetime.now(IST).strftime("%d %b %Y %I:%M %p IST")
 
-    # ── Product totals rows ───────────────────────────────────────────────────
-    product_rows = ""
+    # ── Product summary rows ──────────────────────────────────────────────────
+    summary_rows = ""
     for entry in product_totals.values():
         qty = entry["total_quantity"]
         qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        product_rows += (
-            f'<tr>'
-            f'<td style="padding:10px 16px;border-bottom:1px solid #f0f0f0;font-size:14px;">{entry["product"]}</td>'
-            f'<td style="padding:10px 16px;border-bottom:1px solid #f0f0f0;font-size:14px;font-weight:700;'
-            f'color:#075e54;text-align:right;">{qty_str} {entry["unit"]}</td>'
-            f'</tr>'
-        )
-    if not product_rows:
-        product_rows = '<tr><td colspan="2" style="padding:20px;text-align:center;color:#999;">No orders today</td></tr>'
+        summary_rows += f"""
+                <tr>
+                    <td class="product-name">{entry['product']}</td>
+                    <td class="qty-ordered">{qty_str} {entry['unit']}</td>
+                    <td class="qty-delivered"><div class="write-box"></div></td>
+                </tr>"""
 
-    # ── Order detail rows ─────────────────────────────────────────────────────
-    order_rows = ""
-    for order in clear_orders:
+    if not summary_rows:
+        summary_rows = '<tr><td colspan="3" style="text-align:center;color:#999;padding:16px;">No orders today</td></tr>'
+
+    # ── Per-hotel order rows ──────────────────────────────────────────────────
+    hotel_sections = ""
+    for idx, order in enumerate(clear_orders, 1):
         items        = _safe_list(order.parsed_items)
         unclear_list = _safe_list(order.unclear_items)
         name         = order.customer_name or order.customer_phone
-        items_text   = "<br>".join(
-            f"{i.get('product')} — "
-            f"{int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']} "
-            f"{i.get('unit', 'kg')}"
-            for i in items
-        ) or "—"
-        unclear_extra = (
-            f'<br><span style="color:#e67e22;font-size:12px;">⚠️ Unclear: {", ".join(unclear_list)}</span>'
-            if unclear_list else ""
-        )
-        delivery = order.delivery_time or "—"
-        order_rows += (
-            f'<tr>'
-            f'<td style="padding:10px 16px;border-bottom:1px solid #f0f0f0;font-size:13px;font-weight:600;">{name}</td>'
-            f'<td style="padding:10px 16px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#444;">{items_text}{unclear_extra}</td>'
-            f'<td style="padding:10px 16px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#888;white-space:nowrap;">{delivery}</td>'
-            f'</tr>'
-        )
-    if not order_rows:
-        order_rows = '<tr><td colspan="3" style="padding:20px;text-align:center;color:#999;">No confirmed orders</td></tr>'
+        delivery     = f" &nbsp;·&nbsp; {order.delivery_time}" if order.delivery_time else ""
+
+        item_rows = ""
+        for item in items:
+            qty = item.get("quantity", 0)
+            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            item_rows += f"""
+                    <tr>
+                        <td class="product-name" style="padding-left:24px;">{item.get('product','—')}</td>
+                        <td class="qty-ordered">{qty_str} {item.get('unit','kg')}</td>
+                        <td class="qty-delivered"><div class="write-box"></div></td>
+                    </tr>"""
+
+        for raw in unclear_list:
+            item_rows += f"""
+                    <tr>
+                        <td class="product-name" style="padding-left:24px;color:#e67e22;">⚠️ {raw}</td>
+                        <td class="qty-ordered" style="color:#e67e22;">unclear</td>
+                        <td class="qty-delivered"><div class="write-box"></div></td>
+                    </tr>"""
+
+        hotel_sections += f"""
+            <div class="hotel-block">
+                <div class="hotel-name">{idx}.&nbsp; {name}{delivery}</div>
+                <table class="data-table">
+                    <tbody>{item_rows}</tbody>
+                </table>
+            </div>"""
+
+    if not hotel_sections:
+        hotel_sections = '<p style="text-align:center;color:#999;padding:24px 0;">No confirmed orders</p>'
 
     # ── Unclear section ───────────────────────────────────────────────────────
     unclear_section = ""
     if unclear_orders:
         u_rows = "".join(
-            f'<tr>'
-            f'<td style="padding:8px 16px;border-bottom:1px solid #fff3e0;font-size:13px;">{o.customer_name or o.customer_phone}</td>'
-            f'<td style="padding:8px 16px;border-bottom:1px solid #fff3e0;font-size:13px;color:#e67e22;font-style:italic;">&ldquo;{o.raw_message or ""}&rdquo;</td>'
-            f'<td style="padding:8px 16px;border-bottom:1px solid #fff3e0;font-size:12px;color:#999;">{o.unclear_reason or "—"}</td>'
-            f'</tr>'
+            f'<tr><td style="padding:6px 8px;">{o.customer_name or o.customer_phone}</td>'
+            f'<td style="padding:6px 8px;font-style:italic;color:#666;">&ldquo;{o.raw_message or ""}&rdquo;</td>'
+            f'<td style="padding:6px 8px;color:#999;font-size:11px;">{o.unclear_reason or "—"}</td></tr>'
             for o in unclear_orders
         )
-        unclear_section = (
-            f'<h2 style="font-size:15px;color:#e67e22;margin:32px 0 12px;font-weight:700;">⚠️ Unclear Orders ({unclear_count})</h2>'
-            f'<table width="100%" cellpadding="0" cellspacing="0" style="background:#fffbf5;border-radius:10px;border:1px solid #ffe0b2;border-collapse:collapse;">'
-            f'<thead><tr style="background:#fff3e0;">'
-            f'<th style="padding:10px 16px;text-align:left;font-size:12px;color:#e65100;border-bottom:1px solid #ffe0b2;">Customer</th>'
-            f'<th style="padding:10px 16px;text-align:left;font-size:12px;color:#e65100;border-bottom:1px solid #ffe0b2;">Raw Message</th>'
-            f'<th style="padding:10px 16px;text-align:left;font-size:12px;color:#e65100;border-bottom:1px solid #ffe0b2;">Reason</th>'
-            f'</tr></thead>'
-            f'<tbody>{u_rows}</tbody></table>'
-        )
+        unclear_section = f"""
+            <div class="section" style="margin-top:24px;">
+                <div class="section-title" style="color:#c0392b;">&#9888; Unclear Orders — Follow Up ({len(unclear_orders)})</div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Customer</th>
+                            <th>Message Received</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>{u_rows}</tbody>
+                </table>
+            </div>"""
 
     # ── Notes section ─────────────────────────────────────────────────────────
     notes_section = ""
     if notes:
         n_rows = "".join(
-            f'<tr>'
-            f'<td style="padding:8px 16px;border-bottom:1px solid #f0f0f0;font-size:13px;font-weight:600;">'
-            f'{n["restaurant_name"]}'
-            f'{"<span style=color:#aaa;font-size:11px;> (" + n["time"] + ")</span>" if n["time"] else ""}'
-            f'</td>'
-            f'<td style="padding:8px 16px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#555;font-style:italic;">&ldquo;{n["note"]}&rdquo;</td>'
-            f'</tr>'
+            f'<tr><td style="padding:6px 8px;font-weight:600;">{n["restaurant_name"]}'
+            f'{"<span style=color:#999;font-size:11px;> (" + n["time"] + ")</span>" if n["time"] else ""}</td>'
+            f'<td style="padding:6px 8px;font-style:italic;">&ldquo;{n["note"]}&rdquo;</td></tr>'
             for n in notes
         )
-        notes_section = (
-            f'<h2 style="font-size:15px;color:#555;margin:32px 0 12px;font-weight:700;">📝 Customer Notes ({len(notes)})</h2>'
-            f'<table width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:10px;border:1px solid #e0e0e0;border-collapse:collapse;">'
-            f'<thead><tr style="background:#f5f5f5;">'
-            f'<th style="padding:10px 16px;text-align:left;font-size:12px;color:#555;border-bottom:1px solid #e0e0e0;">Customer</th>'
-            f'<th style="padding:10px 16px;text-align:left;font-size:12px;color:#555;border-bottom:1px solid #e0e0e0;">Note</th>'
-            f'</tr></thead>'
-            f'<tbody>{n_rows}</tbody></table>'
-        )
+        notes_section = f"""
+            <div class="section" style="margin-top:24px;">
+                <div class="section-title">&#128221; Customer Notes</div>
+                <table class="data-table">
+                    <thead><tr><th>Customer</th><th>Note</th></tr></thead>
+                    <tbody>{n_rows}</tbody>
+                </table>
+            </div>"""
 
-    unclear_badge = (
-        f'<span style="background:#fff3e0;color:#e65100;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:700;margin-left:8px;">⚠️ {unclear_count} unclear</span>'
-        if unclear_count else ""
-    )
-    generated_at = datetime.now(IST).strftime("%d %b %Y %I:%M %p IST")
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Daily Production Report — {PLANT_NAME} — {date_str}</title>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
 
-    return (
-        "<!DOCTYPE html><html><head>"
-        '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-        "</head>"
-        '<body style="margin:0;padding:0;background:#f0f4f2;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;">'
-        '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f2;padding:24px 0;">'
-        '<tr><td align="center">'
-        '<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">'
+  body {{
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 13px;
+    color: #1a1a1a;
+    background: #fff;
+    padding: 24px 32px;
+  }}
 
-        # header
-        '<tr><td style="background:#075e54;border-radius:14px 14px 0 0;padding:28px 32px 24px;">'
-        f'<div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:6px;">{PLANT_NAME}</div>'
-        '<div style="font-size:22px;font-weight:800;color:#fff;line-height:1.2;">📋 Daily Production Report</div>'
-        f'<div style="font-size:14px;color:rgba(255,255,255,.7);margin-top:6px;">{date_str}</div>'
-        "</td></tr>"
+  /* ── Header ── */
+  .header {{
+    border-bottom: 3px solid #1a1a1a;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+  }}
+  .header-plant {{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: #666;
+  }}
+  .header-title {{
+    font-size: 20px;
+    font-weight: 700;
+    margin: 2px 0;
+  }}
+  .header-meta {{
+    font-size: 12px;
+    color: #555;
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+  }}
 
-        # summary cards
-        '<tr><td style="background:#fff;padding:20px 32px 0;">'
-        '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
-        f'<td width="33%" style="text-align:center;padding:16px 8px;"><div style="font-size:32px;font-weight:800;color:#075e54;">{order_count}</div><div style="font-size:12px;color:#999;margin-top:4px;">Confirmed Orders</div></td>'
-        f'<td width="33%" style="text-align:center;padding:16px 8px;border-left:1px solid #f0f0f0;border-right:1px solid #f0f0f0;"><div style="font-size:32px;font-weight:800;color:#075e54;">{total_items}</div><div style="font-size:12px;color:#999;margin-top:4px;">Line Items</div></td>'
-        f'<td width="33%" style="text-align:center;padding:16px 8px;"><div style="font-size:32px;font-weight:800;color:{"#e67e22" if unclear_count else "#27ae60"};">{unclear_count}</div><div style="font-size:12px;color:#999;margin-top:4px;">Unclear Orders</div></td>'
-        "</tr></table></td></tr>"
+  /* ── Sections ── */
+  .section {{ margin-bottom: 28px; }}
+  .section-title {{
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #333;
+    border-bottom: 1.5px solid #333;
+    padding-bottom: 5px;
+    margin-bottom: 10px;
+  }}
 
-        # body
-        '<tr><td style="background:#fff;border-radius:0 0 14px 14px;padding:24px 32px 32px;">'
+  /* ── Tables ── */
+  .data-table {{
+    width: 100%;
+    border-collapse: collapse;
+  }}
+  .data-table thead tr {{
+    background: #f0f0f0;
+  }}
+  .data-table th {{
+    padding: 7px 8px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    border-bottom: 1.5px solid #ccc;
+  }}
+  .data-table td {{
+    border-bottom: 1px solid #e8e8e8;
+    vertical-align: middle;
+  }}
+  .data-table tr:last-child td {{ border-bottom: none; }}
 
-        # product totals
-        f'<h2 style="font-size:15px;color:#075e54;margin:8px 0 12px;font-weight:700;">📊 Product Totals</h2>'
-        '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f8faf9;border-radius:10px;border:1px solid #e0ece8;border-collapse:collapse;">'
-        '<thead><tr style="background:#075e54;">'
-        '<th style="padding:10px 16px;text-align:left;font-size:12px;color:#fff;">Product</th>'
-        '<th style="padding:10px 16px;text-align:right;font-size:12px;color:#fff;">Total Qty</th>'
-        f"</tr></thead><tbody>{product_rows}</tbody></table>"
+  /* ── Column widths ── */
+  .product-name   {{ padding: 8px 8px; width: 55%; }}
+  .qty-ordered    {{ padding: 8px 8px; width: 20%; font-weight: 600; }}
+  .qty-delivered  {{ padding: 6px 8px; width: 25%; }}
 
-        # order details
-        f'<h2 style="font-size:15px;color:#075e54;margin:32px 0 12px;font-weight:700;">✅ Order Details {unclear_badge}</h2>'
-        '<table width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:10px;border:1px solid #e0e0e0;border-collapse:collapse;">'
-        '<thead><tr style="background:#f5f5f5;">'
-        '<th style="padding:10px 16px;text-align:left;font-size:12px;color:#555;border-bottom:1px solid #e0e0e0;">Customer</th>'
-        '<th style="padding:10px 16px;text-align:left;font-size:12px;color:#555;border-bottom:1px solid #e0e0e0;">Items</th>'
-        '<th style="padding:10px 16px;text-align:left;font-size:12px;color:#555;border-bottom:1px solid #e0e0e0;">Delivery</th>'
-        f"</tr></thead><tbody>{order_rows}</tbody></table>"
+  /* ── Write box (blank for pen) ── */
+  .write-box {{
+    border-bottom: 1.5px solid #333;
+    height: 22px;
+    width: 90%;
+  }}
 
-        f"{unclear_section}{notes_section}"
+  /* ── Hotel blocks ── */
+  .hotel-block {{ margin-bottom: 18px; }}
+  .hotel-name {{
+    font-size: 13px;
+    font-weight: 700;
+    background: #f5f5f5;
+    padding: 6px 8px;
+    border-left: 4px solid #1a1a1a;
+    margin-bottom: 4px;
+  }}
 
-        "</td></tr>"
+  /* ── Footer ── */
+  .footer {{
+    margin-top: 32px;
+    border-top: 1px solid #ccc;
+    padding-top: 8px;
+    font-size: 10px;
+    color: #999;
+    display: flex;
+    justify-content: space-between;
+  }}
 
-        # footer
-        f'<tr><td style="padding:16px 32px 8px;text-align:center;font-size:11px;color:#aaa;line-height:1.7;">Generated by OrdeRR &middot; {PLANT_NAME}<br>{generated_at}</td></tr>'
+  /* ── Signature row ── */
+  .sign-row {{
+    display: flex;
+    gap: 40px;
+    margin-top: 40px;
+  }}
+  .sign-box {{
+    flex: 1;
+    border-top: 1.5px solid #333;
+    padding-top: 6px;
+    font-size: 11px;
+    color: #555;
+    text-align: center;
+  }}
 
-        "</table></td></tr></table></body></html>"
-    )
+  /* ── Print styles ── */
+  @media print {{
+    body {{ padding: 12px 18px; }}
+    @page {{ margin: 12mm 14mm; }}
+    .no-print {{ display: none; }}
+  }}
+</style>
+</head>
+<body>
+
+<!-- Print button (hidden on print) -->
+<div class="no-print" style="text-align:right;margin-bottom:16px;">
+  <button onclick="window.print()"
+    style="padding:8px 20px;background:#1a1a1a;color:#fff;border:none;
+           border-radius:6px;font-size:13px;cursor:pointer;">
+    🖨️ Print
+  </button>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-plant">{PLANT_NAME}</div>
+  <div class="header-title">Daily Production Report</div>
+  <div class="header-meta">
+    <span>{date_str}</span>
+    <span>Total Hotels: {len(clear_orders)} &nbsp;|&nbsp; Generated: {generated_at}</span>
+  </div>
+</div>
+
+<!-- Section 1: Product Summary -->
+<div class="section">
+  <div class="section-title">Product Summary — Total Quantities</div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th class="product-name">Product</th>
+        <th class="qty-ordered">Ordered Qty</th>
+        <th class="qty-delivered">Delivered Qty ✏️</th>
+      </tr>
+    </thead>
+    <tbody>
+      {summary_rows}
+    </tbody>
+  </table>
+</div>
+
+<!-- Section 2: Hotel-wise Orders -->
+<div class="section">
+  <div class="section-title">Hotel-wise Orders</div>
+  {hotel_sections}
+</div>
+
+{unclear_section}
+{notes_section}
+
+<!-- Signature row -->
+<div class="sign-row">
+  <div class="sign-box">Prepared by</div>
+  <div class="sign-box">Checked by</div>
+  <div class="sign-box">Accountant</div>
+</div>
+
+<div class="footer">
+  <span>OrdeRR &middot; {PLANT_NAME}</span>
+  <span>{generated_at}</span>
+</div>
+
+</body>
+</html>"""
 
 
 def _send_email_report(data: dict, notes: list[dict]):
-    """Send the Daily Production Report as an HTML email. No-op if env vars not set."""
+    """Send the printable Daily Production Report as an HTML email. No-op if env vars not set."""
     if not REPORT_EMAIL:
         print("ℹ️  REPORT_EMAIL not set — skipping email delivery")
         return
@@ -332,7 +456,7 @@ def _send_email_report(data: dict, notes: list[dict]):
         return
 
     subject   = f"📋 Daily Production Report — {PLANT_NAME} · {data['date_str']}"
-    html_body = _build_email_html(data, notes)
+    html_body = _build_print_html(data, notes)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -354,9 +478,8 @@ def _send_email_report(data: dict, notes: list[dict]):
 # ── public entry point ────────────────────────────────────────────────────────
 
 def send_daily_report(db: Session):
-    """Send daily consolidated report to manager via approved template.
-    If any customer notes were received today, send a follow-up free-form message.
-    Also sends an HTML email to REPORT_EMAIL if configured."""
+    """Send daily consolidated report to manager via WhatsApp template.
+    Also sends a printable HTML delivery sheet to REPORT_EMAIL if configured."""
     print("\n⏰ Generating Daily Production Report...")
 
     data = generate_daily_report(db)
@@ -396,7 +519,7 @@ def send_daily_report(db: Session):
     except Exception as e:
         print(f"⚠️ Customer notes follow-up failed: {e}")
 
-    # ── 2. Email (new) ────────────────────────────────────────────────────────
+    # ── 2. Email — printable delivery sheet (new) ─────────────────────────────
     try:
         _send_email_report(data, notes)
     except Exception as e:
