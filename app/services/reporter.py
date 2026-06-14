@@ -96,17 +96,10 @@ def generate_daily_report(db: Session) -> dict:
     today_str = now_ist.strftime("%Y-%m-%d")
     date_str  = now_ist.strftime("%d %B %Y")
 
-    from sqlalchemy import text
-    raw = db.execute(text("SELECT id, delivery_date, is_cancelled FROM orders WHERE delivery_date = :d AND is_cancelled = false"), {"d": today_str}).fetchall()
-    print(f"DEBUG raw SQL: today_str={today_str}, rows={raw}")
-
     orders = db.query(Order).filter(
         Order.delivery_date == today_str,
         Order.is_cancelled  == False,
     ).all()
-
-    print(f"DEBUG ORM: orders found={len(orders)}")
-    print(f"DEBUG generate_daily_report: orders found={len(orders)}")
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
