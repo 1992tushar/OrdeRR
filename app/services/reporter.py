@@ -6,6 +6,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
