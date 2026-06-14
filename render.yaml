@@ -27,3 +27,16 @@ services:
         sync: false
       - key: DASHBOARD_PASSWORD
         sync: false
+      # ── Daily Production Report — email delivery ───────────────────────────
+      - key: REPORT_EMAIL       # comma-separated, e.g. "owner@co.in,ops@co.in"
+        sync: false
+      - key: SMTP_HOST          # default: smtp.gmail.com
+        value: "smtp.gmail.com"
+      - key: SMTP_PORT          # default: 587 (TLS)
+        value: "587"
+      - key: SMTP_USER          # Gmail address used to send
+        sync: false
+      - key: SMTP_PASSWORD      # Gmail App Password (not your login password)
+        sync: false
+      - key: SMTP_FROM_NAME     # Display name in From field
+        value: "Fluffy OrdeRR"
