@@ -4,6 +4,8 @@ import smtplib
 from datetime import datetime, date, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -381,11 +383,11 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
 </head>
 <body>
 
-<!-- Print button (hidden on print) -->
+<!-- Print button — works because this is opened directly in browser, not inside Gmail -->
 <div class="no-print" style="text-align:right;margin-bottom:16px;">
   <button onclick="window.print()"
     style="padding:8px 20px;background:#1a1a1a;color:#fff;border:none;
-           border-radius:6px;font-size:13px;cursor:pointer;">
+           border-radius:6px;font-size:13px;cursor:pointer;font-family:Arial,sans-serif;">
     🖨️ Print
   </button>
 </div>
@@ -458,11 +460,31 @@ def _send_email_report(data: dict, notes: list[dict]):
     subject   = f"📋 Daily Production Report — {PLANT_NAME} · {data['date_str']}"
     html_body = _build_print_html(data, notes)
 
-    msg = MIMEMultipart("alternative")
+    # ── Plain text email body ─────────────────────────────────────────────────
+    plain_body = (
+        f"Daily Production Report — {PLANT_NAME}\n"
+        f"{data['date_str']}\n\n"
+        f"Total Orders : {data['total_orders']}\n"
+        f"Product Summary : {data['product_summary']}\n\n"
+        f"Open the attached HTML file in your browser and press Ctrl+P to print the delivery sheet."
+    )
+
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"]    = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
     msg["To"]      = ", ".join(recipients)
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    # Plain text part
+    msg.attach(MIMEText(plain_body, "plain", "utf-8"))
+
+    # HTML delivery sheet as attachment
+    filename = f"production_report_{data['date_str'].replace(' ', '_')}.html"
+    attachment = MIMEBase("text", "html")
+    attachment.set_payload(html_body.encode("utf-8"))
+    encoders.encode_base64(attachment)
+    attachment.add_header("Content-Disposition", "attachment", filename=filename)
+    attachment.add_header("Content-Type", "text/html; charset=utf-8")
+    msg.attach(attachment)
 
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
