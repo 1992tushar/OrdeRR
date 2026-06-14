@@ -93,11 +93,13 @@ def get_todays_customer_notes(db: Session) -> list[dict]:
 
 
 def generate_daily_report(db: Session) -> dict:
-    today     = get_current_business_date()
-    today_str = today.strftime("%Y-%m-%d")
+    
+
+    delivery_date = get_delivery_date_for_now()
+    today_str     = delivery_date.strftime("%Y-%m-%d")
 
     orders = db.query(Order).filter(
-        Order.business_date == today_str,
+        Order.delivery_date == today_str,
         Order.is_cancelled  == False,
     ).all()
 
