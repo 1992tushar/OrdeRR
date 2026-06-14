@@ -6,7 +6,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -15,7 +14,6 @@ from app.models.order import Order
 from app.models.inbound_message import InboundMessage
 from app.models.customer import Customer
 from app.services.notifier import send_whatsapp_template, send_whatsapp_message
-from app.services.order_service import get_current_business_date
 
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
@@ -94,15 +92,21 @@ def get_todays_customer_notes(db: Session) -> list[dict]:
 
 
 def generate_daily_report(db: Session) -> dict:
-    
+    now_ist   = datetime.now(IST)
+    today_str = now_ist.strftime("%Y-%m-%d")
+    date_str  = now_ist.strftime("%d %B %Y")
 
-    delivery_date = get_delivery_date_for_now()
-    today_str     = delivery_date.strftime("%Y-%m-%d")
+    from sqlalchemy import text
+    raw = db.execute(text("SELECT id, delivery_date, is_cancelled FROM orders WHERE delivery_date = :d AND is_cancelled = false"), {"d": today_str}).fetchall()
+    print(f"DEBUG raw SQL: today_str={today_str}, rows={raw}")
 
     orders = db.query(Order).filter(
         Order.delivery_date == today_str,
         Order.is_cancelled  == False,
     ).all()
+
+    print(f"DEBUG ORM: orders found={len(orders)}")
+    print(f"DEBUG generate_daily_report: orders found={len(orders)}")
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
@@ -136,7 +140,7 @@ def generate_daily_report(db: Session) -> dict:
     total_items = sum(len(_safe_list(o.parsed_items)) for o in clear_orders)
 
     return {
-        "date_str":        today.strftime("%d %B %Y"),
+        "date_str":        date_str,
         "total_orders":    str(len(clear_orders)),
         "total_items":     str(total_items),
         "product_summary": product_summary,
