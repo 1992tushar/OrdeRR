@@ -150,6 +150,21 @@ def upsert_default_price(
 # NOTE: /prices/defaults must be declared BEFORE /prices/{customer_phone}
 # so FastAPI does not treat "defaults" as a phone number path segment.
 
+@router.get("/prices/all")
+def get_all_customer_prices(
+    db:       Session = Depends(get_db),
+    username: str     = Depends(require_auth),
+):
+    """List all CustomerProductPrice rows across all customers."""
+    rows = (
+        db.query(CustomerProductPrice)
+        .order_by(CustomerProductPrice.customer_phone, CustomerProductPrice.product_name)
+        .all()
+    )
+    return [_customer_price_dict(r) for r in rows]
+
+
+
 @router.get("/prices/{customer_phone}")
 def get_customer_prices(
     customer_phone: str,

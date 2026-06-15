@@ -27,3 +27,19 @@ services:
         sync: false
       - key: DASHBOARD_PASSWORD
         sync: false
+      # ── Billing feature flags (all OFF in production until ready) ──
+      - key: FLAG_BILLING_ENABLED
+        value: "false"
+      - key: FLAG_BILLING_AUTO_INVOICE
+        value: "false"
+      - key: FLAG_BILLING_BULK_GENERATE
+        value: "false"
+      # ── Billing config ──
+      - key: INVOICE_PREFIX
+        value: "INV"
+      - key: INVOICE_START
+        value: "1"
+      - key: INVOICE_DIR
+        value: "/tmp/invoices"
+      - key: PLACE_OF_SUPPLY
+        value: "Maharashtra"
