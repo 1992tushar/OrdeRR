@@ -1,6 +1,9 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, Numeric, ForeignKey, UniqueConstraint
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
+
+JSONB = PG_JSONB().with_variant(JSON(), "sqlite")
 from app.database import Base
 
 

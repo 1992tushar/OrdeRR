@@ -378,8 +378,8 @@ class TestAutoInvoiceHookIsNoopWhenDisabled:
 
             # Also patch the WhatsApp notifier so the test doesn't make
             # real network calls
-            with patch("app.services.order_service.send_order_confirmation_to_customer"):
-                with patch("app.services.order_service.notify_manager_new_order"):
+            with patch("app.services.order_service.send_order_confirmation_to_customer", create=True):
+                with patch("app.services.order_service.notify_manager_new_order", create=True):
                     try:
                         _save_and_notify(
                             db=db_session,
@@ -429,8 +429,8 @@ class TestAutoInvoiceHookIsNoopWhenDisabled:
 
             customer = self._make_mock_customer()
 
-            with patch("app.services.order_service.send_order_confirmation_to_customer"):
-                with patch("app.services.order_service.notify_manager_new_order"):
+            with patch("app.services.order_service.send_order_confirmation_to_customer", create=True):
+                with patch("app.services.order_service.notify_manager_new_order", create=True):
                     try:
                         _save_and_notify(
                             db=db_session,

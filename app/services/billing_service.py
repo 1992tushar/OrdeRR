@@ -11,18 +11,19 @@ try_auto_invoice() NEVER raises — it is safe to call from order_service.
 import json
 import logging
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from app.models.invoice import CustomerProductPrice, DefaultProductPrice, Invoice
+from app.models.invoice import CustomerProductPrice, DefaultProductPrice, Invoice, ProductItemCode
 from app.models.order import Order
 
 logger = logging.getLogger(__name__)
 
 INVOICE_DIR = os.getenv("INVOICE_DIR", "./invoices")
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 # ── 1. Migration guard ─────────────────────────────────────────────────────────
@@ -33,11 +34,20 @@ def ensure_billing_schema(engine) -> None:
     Safe to call multiple times — idempotent.
     """
     with engine.connect() as conn:
-        result = conn.execute(text(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name='orders' AND column_name='invoice_id'"
-        ))
-        if not result.fetchone():
+        dialect = engine.dialect.name
+
+        if dialect == "sqlite":
+            result = conn.execute(text("PRAGMA table_info('orders')"))
+            columns = [row[1] for row in result]
+            has_invoice_id = "invoice_id" in columns
+        else:
+            result = conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='orders' AND column_name='invoice_id'"
+            ))
+            has_invoice_id = result.fetchone() is not None
+
+        if not has_invoice_id:
             conn.execute(text(
                 "ALTER TABLE orders ADD COLUMN invoice_id INTEGER REFERENCES invoices(id)"
             ))
@@ -51,12 +61,10 @@ def ensure_billing_schema(engine) -> None:
 
 def get_price(customer_phone: str, product_name: str, db: Session) -> Optional[float]:
     """
-    Exact logic from Section 10:
     1. Customer-specific price
     2. Default price fallback
     3. None → invoice blocked
     """
-    # 1. Customer-specific price
     price = db.query(CustomerProductPrice).filter_by(
         customer_phone=customer_phone,
         product_name=product_name,
@@ -64,14 +72,12 @@ def get_price(customer_phone: str, product_name: str, db: Session) -> Optional[f
     if price:
         return float(price.price_per_unit)
 
-    # 2. Default price fallback
     default = db.query(DefaultProductPrice).filter_by(
         product_name=product_name,
     ).first()
     if default:
         return float(default.price_per_unit)
 
-    # 3. None → invoice blocked, user must set price
     return None
 
 
@@ -79,7 +85,6 @@ def get_price(customer_phone: str, product_name: str, db: Session) -> Optional[f
 
 def get_next_invoice_number(db: Session) -> tuple[int, str]:
     """
-    Exact logic from Section 11.
     Returns (integer, formatted_string) e.g. (1, "INV1").
     Respects INVOICE_START env var on first invoice.
     """
@@ -88,6 +93,44 @@ def get_next_invoice_number(db: Session) -> tuple[int, str]:
     last   = db.query(func.max(Invoice.invoice_number)).scalar() or (start - 1)
     next_num = last + 1
     return next_num, f"{prefix}{next_num}"
+
+
+# ── Helper: item code lookup ───────────────────────────────────────────────────
+
+def _get_item_code(product_name: str, db: Session) -> str:
+    """Return item code for a product, or empty string if not configured."""
+    row = db.query(ProductItemCode).filter_by(product_name=product_name).first()
+    return row.item_code if row else ""
+
+
+# ── Helper: build PDF-ready line item ─────────────────────────────────────────
+
+def _build_line_item(sr: int, product: str, quantity: float, unit: str,
+                     unit_price: float, item_code: str = "") -> dict:
+    """
+    Produce a dict with all keys expected by invoice_generator._draw_table():
+      sr, description, item_code, qty, uom, unit_price,
+      discount, discount2, rate, net_amount
+    Also retains product/quantity/unit for billing_service internal use.
+    """
+    net = round(quantity * unit_price, 3)
+    return {
+        # ── PDF renderer keys ──────────────────────────────────────────────
+        "sr":          sr,
+        "description": product,
+        "item_code":   item_code,
+        "qty":         quantity,
+        "uom":         unit,
+        "unit_price":  unit_price,
+        "discount":    0.0,
+        "discount2":   0.0,
+        "rate":        unit_price,   # rate = unit_price (no discount applied)
+        "net_amount":  net,
+        # ── Internal keys (stored in Invoice.line_items, used by routes) ──
+        "product":     product,
+        "quantity":    quantity,
+        "unit":        unit,
+    }
 
 
 # ── Helper: safe JSONB list ────────────────────────────────────────────────────
@@ -132,39 +175,50 @@ def create_invoice(
 
     Raises
     ------
-    ValueError  : Order not found, or price missing with no override.
+    ValueError  : Order not found / already billed / price missing with no override.
     Exception   : PDF write failure (DB record NOT saved in this case).
     """
-    # Lazy import — only loaded when billing flag is on
     from app.services.invoice_generator import generate_invoice_pdf
+    from app.services.amount_in_words import amount_in_words
 
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise ValueError(f"Order {order_id} not found")
 
+    # Guard: already billed
+    if getattr(order, "invoice_id", None) is not None:
+        raise ValueError(f"Order {order_id} is already billed")
+
     parsed_items = _safe_list(order.parsed_items)
 
     # ── Build line items ──────────────────────────────────────────────────────
     if line_items_override is not None:
-        line_items = line_items_override
+        # Normalise caller-supplied items into full PDF-ready shape
+        line_items = []
+        for idx, item in enumerate(line_items_override):
+            product    = item.get("product", "")
+            quantity   = float(item.get("quantity", 0))
+            unit       = item.get("unit", "KGS")
+            unit_price = float(item.get("unit_price", 0))
+            item_code  = _get_item_code(product, db)
+            line_items.append(
+                _build_line_item(idx + 1, product, quantity, unit, unit_price, item_code)
+            )
     else:
         line_items = []
-        missing = []
-        for item in parsed_items:
+        missing    = []
+        for idx, item in enumerate(parsed_items):
             product  = item.get("product", "")
-            quantity = item.get("quantity", 0)
+            quantity = float(item.get("quantity", 0))
             unit     = item.get("unit", "KGS")
             price    = get_price(order.customer_phone, product, db)
             if price is None:
                 missing.append(product)
             else:
-                line_items.append({
-                    "product":    product,
-                    "quantity":   quantity,
-                    "unit":       unit,
-                    "unit_price": price,
-                    "net_amount": round(quantity * price, 3),
-                })
+                item_code = _get_item_code(product, db)
+                line_items.append(
+                    _build_line_item(idx + 1, product, quantity, unit, price, item_code)
+                )
         if missing:
             raise ValueError(
                 f"Price missing for product(s): {', '.join(missing)}. "
@@ -182,32 +236,35 @@ def create_invoice(
     invoice_number_int, invoice_number_str = get_next_invoice_number(db)
 
     # ── PDF filename ──────────────────────────────────────────────────────────
-    safe_phone = (order.customer_phone or "").replace("+", "")
-    date_tag   = invoice_date.replace("-", "")
+    safe_phone   = (order.customer_phone or "").replace("+", "")
+    date_tag     = invoice_date.replace("-", "")
     pdf_filename = f"{invoice_number_str}_{safe_phone}_{date_tag}.pdf"
     pdf_path     = os.path.join(INVOICE_DIR, pdf_filename)
 
     # ── Generate PDF FIRST — if this fails we must NOT commit to DB ───────────
     try:
         os.makedirs(INVOICE_DIR, exist_ok=True)
-        generate_invoice_pdf(
-            pdf_path=pdf_path,
-            invoice_number=invoice_number_str,
-            invoice_date=invoice_date,
-            customer_name=order.customer_name or "",
-            customer_phone=order.customer_phone or "",
-            line_items=line_items,
-            subtotal=subtotal,
-            additional_charge=additional_charge,
-            round_off=round_off,
-            total_amount=total_amount,
-        )
+        invoice_data = {
+            "invoice_number":    invoice_number_str,
+            "invoice_date":      invoice_date,
+            "customer_name":     order.customer_name or "",
+            "customer_phone":    order.customer_phone or "",
+            "place_of_supply":   "",
+            "line_items":        line_items,
+            "subtotal":          subtotal,
+            "additional_charge": additional_charge,
+            "round_off":         round_off,
+            "total_amount":      total_amount,
+            "due_amount":        due_amount,
+            "amount_in_words":   amount_in_words(total_amount),
+        }
+        generate_invoice_pdf(invoice_data=invoice_data, output_path=pdf_path)
     except Exception as pdf_err:
         logger.error(
             "billing_service: PDF generation failed for order %s: %s",
             order_id, pdf_err, exc_info=True,
         )
-        raise  # propagate — DB record NOT saved (per Section 13)
+        raise
 
     # ── Persist invoice record ────────────────────────────────────────────────
     try:
@@ -230,7 +287,6 @@ def create_invoice(
         db.add(invoice)
         db.flush()  # get invoice.id without committing yet
 
-        # Link order → invoice
         order.invoice_id = invoice.id
         db.commit()
         db.refresh(invoice)
@@ -258,9 +314,9 @@ def create_invoice(
 
 def create_bulk_invoices(date_str: str, db: Session) -> dict:
     """
-    Find all orders for date_str without an invoice, generate each.
+    Find all unbilled orders for date_str, generate each.
+    Uses savepoints so one failure does not abort the rest.
     Returns {"success": N, "failed": M, "errors": [...]}.
-    Per Section 13: generate as many as possible; report counts.
     """
     orders = (
         db.query(Order)
@@ -276,26 +332,27 @@ def create_bulk_invoices(date_str: str, db: Session) -> dict:
     failed  = 0
     errors  = []
 
-    invoice_date = date_str  # use the order's business date as invoice date
-
     for order in orders:
+        sp = db.begin_nested()  # savepoint — isolates each invoice attempt
         try:
             create_invoice(
                 order_id            = order.id,
-                invoice_date        = invoice_date,
+                invoice_date        = date_str,
                 line_items_override = None,
                 db                  = db,
             )
+            sp.commit()
             success += 1
         except Exception as e:
+            sp.rollback()
             failed += 1
             msg = f"Order {order.id} ({order.customer_name}): {e}"
             errors.append(msg)
             logger.warning("billing_service bulk: %s", msg)
 
     logger.info(
-        "billing_service bulk: %s success=%d failed=%d for date %s",
-        date_str, success, failed, date_str,
+        "billing_service bulk: success=%d failed=%d for date %s",
+        success, failed, date_str,
     )
     return {"success": success, "failed": failed, "errors": errors}
 
@@ -306,16 +363,13 @@ def try_auto_invoice(db: Session, order: Order) -> Optional[dict]:
     """
     Called from order_service after order save (behind feature flags).
     NEVER raises — all exceptions are caught and logged.
-
     Returns result dict on success, None on skip or failure.
     """
-    # Guard: only auto-invoice confirmed orders not yet billed
     if order.status != "confirmed":
         return None
     if getattr(order, "invoice_id", None) is not None:
         return None
 
-    # Check all prices available before attempting
     parsed_items = _safe_list(order.parsed_items)
     for item in parsed_items:
         product = item.get("product", "")
@@ -326,12 +380,11 @@ def try_auto_invoice(db: Session, order: Order) -> Optional[dict]:
             )
             return None
 
-    # All prices present — attempt invoice creation
     try:
         invoice_date = (
             order.business_date
             if order.business_date
-            else datetime.utcnow().date().isoformat()
+            else datetime.now(IST).date().isoformat()
         )
         result = create_invoice(
             order_id            = order.id,
@@ -339,14 +392,14 @@ def try_auto_invoice(db: Session, order: Order) -> Optional[dict]:
             line_items_override = None,
             db                  = db,
         )
-        # Patch generated_by to 'auto' after commit
+        # Patch generated_by to 'auto' — non-critical
         try:
             inv = db.query(Invoice).filter(Invoice.id == result["invoice_id"]).first()
             if inv:
                 inv.generated_by = "auto"
                 db.commit()
         except Exception:
-            pass  # non-critical
+            pass
         logger.info(
             "billing_service auto: invoice %s generated for order %s",
             result["invoice_number"], order.id,
@@ -364,9 +417,7 @@ def try_auto_invoice(db: Session, order: Order) -> Optional[dict]:
 # ── 7. Billing summary ─────────────────────────────────────────────────────────
 
 def get_billing_summary(date_str: str, db: Session) -> dict:
-    """
-    Returns {"total_orders": N, "billed": N, "unbilled": N, "revenue": N}.
-    """
+    """Returns {"total_orders": N, "billed": N, "unbilled": N, "revenue": N}."""
     orders = (
         db.query(Order)
         .filter(
@@ -376,11 +427,21 @@ def get_billing_summary(date_str: str, db: Session) -> dict:
         .all()
     )
 
-    total   = len(orders)
-    billed  = sum(1 for o in orders if getattr(o, "invoice_id", None) is not None)
-    unbilled = total - billed
 
-    # Revenue = sum of total_amount across invoices for this date
+    from app.models.invoice import Invoice
+    
+    billed_order_ids = {
+        row[0] for row in
+        db.query(Invoice.order_id)
+        .filter(Invoice.status != "voided")
+        .all()
+    }
+    
+    total    = len(orders)
+    billed   = sum(1 for o in orders if o.id in billed_order_ids)
+    unbilled = total - billed
+    
+
     revenue_row = (
         db.query(func.sum(Invoice.total_amount))
         .filter(Invoice.invoice_date == date.fromisoformat(date_str))
@@ -401,9 +462,9 @@ def get_billing_summary(date_str: str, db: Session) -> dict:
 def get_orders_with_billing_status(date_str: str, db: Session) -> list:
     """
     Returns list of order dicts with added "billing_status" field:
-      "billed"         — has invoice_id
-      "prices_missing" — one or more products have no price
-      "unbilled"       — all prices set but not yet billed
+      "Billed"         — has invoice_id
+      "Prices Missing" — one or more products have no price
+      "Unbilled"       — all prices set but not yet billed
     """
     orders = (
         db.query(Order)
@@ -417,14 +478,14 @@ def get_orders_with_billing_status(date_str: str, db: Session) -> list:
     result = []
     for order in orders:
         if getattr(order, "invoice_id", None) is not None:
-            billing_status = "billed"
+            billing_status = "Billed"
         else:
             parsed_items = _safe_list(order.parsed_items)
             any_missing = any(
                 get_price(order.customer_phone, item.get("product", ""), db) is None
                 for item in parsed_items
             )
-            billing_status = "prices_missing" if any_missing else "unbilled"
+            billing_status = "Prices Missing" if any_missing else "Unbilled"
 
         result.append({
             "id":             order.id,

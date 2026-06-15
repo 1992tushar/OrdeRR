@@ -1,6 +1,9 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
+
+JSONB = PG_JSONB().with_variant(JSON(), "sqlite")
 from sqlalchemy import text
 from app.database import Base
 
@@ -46,7 +49,8 @@ class Order(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
-    invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
+    #invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.id", use_alter=True, name="fk_orders_invoice_id"), nullable=True)
 
     def __repr__(self):
         return (

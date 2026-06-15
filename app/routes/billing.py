@@ -249,6 +249,18 @@ def generate_invoice(
 ):
     """Generate an invoice for a single order."""
     try:
+        # In the generate endpoint, BEFORE calling billing_service.create_invoice(...)
+        # Add this block:
+        from app.models.invoice import Invoice as InvoiceModel
+
+        existing = db.query(InvoiceModel).filter(
+            InvoiceModel.order_id == payload.order_id
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Order {payload.order_id} is already billed (invoice {existing.invoice_number})"
+            )
         result = billing_service.create_invoice(
             order_id            = payload.order_id,
             invoice_date        = payload.invoice_date,
@@ -258,10 +270,11 @@ def generate_invoice(
         return result
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise  # let 400/409 pass through unchanged
     except Exception as e:
-        logger.error("billing routes: generate_invoice error: %s", e, exc_info=True)
+        logger.error(f"billing routes: generate_invoice error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Invoice generation failed: {e}")
-
 
 @router.post("/invoices/generate-bulk")
 def generate_bulk(
@@ -399,7 +412,9 @@ def void_invoice(
         order = db.query(Order).filter(Order.id == inv.order_id).first()
         if order and getattr(order, "invoice_id", None) == invoice_id:
             order.invoice_id = None
-        db.commit()
+        #db.commit()
+        db.flush()
+
         db.refresh(inv)
     except Exception as e:
         db.rollback()
