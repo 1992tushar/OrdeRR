@@ -213,12 +213,19 @@ def _save_and_notify(
             )
         except Exception:
             pass
+
+        # For edits, confirmation is the update message above — treat as sent
+        order.confirmation_sent    = True
+        order.forwarded_to_manager = True
+
     else:
-        send_order_confirmation(
+        # Capture actual send result — confirmation_sent reflects reality
+        confirmation_sent = send_order_confirmation(
             customer_phone  = customer_phone,
             parsed          = parsed,
             restaurant_name = restaurant_name,
         )
+
         if not unclear_items:
             send_manager_alert(
                 manager_phone   = MANAGER_PHONE,
@@ -235,8 +242,9 @@ def _save_and_notify(
             except Exception as e:
                 print(f"⚠️ Unclear items manager alert failed: {e}")
 
-    order.confirmation_sent    = True
-    order.forwarded_to_manager = True
+        order.confirmation_sent    = confirmation_sent  # True only if WA API succeeded
+        order.forwarded_to_manager = True
+
     db.commit()
 
     return {
@@ -385,9 +393,9 @@ def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
         pending_repeat.status = "received"
         db.commit()
 
-        send_order_confirmation(customer_phone, parsed, customer.restaurant_name)
+        confirmation_sent = send_order_confirmation(customer_phone, parsed, customer.restaurant_name)
         send_manager_alert(MANAGER_PHONE, customer_phone, parsed, customer.restaurant_name)
-        pending_repeat.confirmation_sent    = True
+        pending_repeat.confirmation_sent    = confirmation_sent
         pending_repeat.forwarded_to_manager = True
         db.commit()
         return {"order_id": pending_repeat.id, "status": "repeat_confirmed", "parsed": parsed}
@@ -419,9 +427,9 @@ def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
         pending_replace.status = "received"
         db.commit()
 
-        send_order_confirmation(customer_phone, parsed, customer.restaurant_name)
+        confirmation_sent = send_order_confirmation(customer_phone, parsed, customer.restaurant_name)
         send_manager_alert(MANAGER_PHONE, customer_phone, parsed, customer.restaurant_name)
-        pending_replace.confirmation_sent    = True
+        pending_replace.confirmation_sent    = confirmation_sent
         pending_replace.forwarded_to_manager = True
         db.commit()
         return {"order_id": pending_replace.id, "status": "replace_confirmed", "parsed": parsed}

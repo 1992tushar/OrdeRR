@@ -1,3 +1,4 @@
+import logging
 import os
 import requests
 
@@ -8,10 +9,33 @@ META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
 
+logger = logging.getLogger(__name__)
+
 # ── Approved template names ───────────────────────────────────────────────────
 TEMPLATE_MANAGER_NEW_ORDER         = "manager_new_order"
 TEMPLATE_CUSTOMER_REGISTRATION     = "customer_registration_welcome"
 TEMPLATE_SALESPERSON_REGISTRATION  = "salesperson_registration_welcome"
+
+
+# ── Send helper ───────────────────────────────────────────────────────────────
+
+def _send_and_log(send_fn, recipient: str, label: str, *args, **kwargs) -> bool:
+    """
+    Call send_fn(recipient, *args, **kwargs), log failures, return True/False.
+    Use this wherever order.confirmation_sent or similar boolean columns are set.
+    """
+    try:
+        result = send_fn(recipient, *args, **kwargs)
+        if result is None:
+            logger.error(f"WA FAIL [{label}] to {recipient}: send returned None")
+            return False
+        if isinstance(result, dict) and result.get("error"):
+            logger.error(f"WA FAIL [{label}] to {recipient}: {result['error']}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"WA EXCEPTION [{label}] to {recipient}: {e}")
+        return False
 
 
 def send_whatsapp_message(phone: str, message: str) -> dict:
@@ -151,7 +175,10 @@ def send_order_confirmation(
     parsed: dict,
     restaurant_name: str = None,
 ) -> bool:
-    """Free-form confirmation to customer — always within 24hr window."""
+    """
+    Free-form confirmation to customer — always within 24hr window.
+    Returns True if the message was sent successfully, False otherwise.
+    """
     items         = parsed.get("items", [])
     delivery_time = parsed.get("delivery_time", "")
 
@@ -176,7 +203,7 @@ def send_order_confirmation(
         f"📞 Contact us if you need to make any changes.\n\n"
         f"— {PLANT_NAME} Team"
     )
-    return send_whatsapp_message(customer_phone, message) is not None
+    return _send_and_log(send_whatsapp_message, customer_phone, "order_confirmation", message)
 
 
 def send_manager_alert(
