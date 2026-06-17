@@ -450,7 +450,8 @@
             <div class="add-sp-form">
                 <div><label>Name</label><input type="text" id="sp-name" placeholder="e.g. Rahul" autocomplete="off"/></div>
                 <div><label>WhatsApp Number</label><input type="tel" id="sp-phone" placeholder="9XXXXXXXXX" autocomplete="off"/></div>
-                <div class="add-sp-btns">
+                <div><label>Area <span style="color:#c62828">*</span></label><input type="text" id="sp-area" placeholder="e.g. Baner, Hinjawadi" autocomplete="off"/></div>
+                <div class="add-sp-btns">    
                     <button class="btn btn-save" onclick="addSalesperson()">Save</button>
                     <button class="btn btn-cancel-ui" onclick="toggleAddSP()">Cancel</button>
                 </div>
@@ -459,7 +460,7 @@
         <div class="desktop-only">
             <div class="summary-table">
                 <table>
-                    <thead><tr><th>Name</th><th>Phone</th><th>Customers</th><th>Status</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Phone</th><th>Area</th><th>Customers</th><th>Status</th><th>Actions</th></tr></thead>
                     <tbody id="sp-tbody"><tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
                 </table>
             </div>
@@ -728,10 +729,11 @@ async function loadSalespersons() {
 function renderSalespersons(list) {
     const tbody = document.getElementById('sp-tbody');
     if (tbody) {
-        if (!list.length) { tbody.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">No salespersons yet</td></tr>'; }
+        if (!list.length) { tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:#aaa;padding:24px">No salespersons yet</td></tr>'; }
         else tbody.innerHTML = list.map(s=>`<tr>
             <td><strong>${esc(s.name)}</strong></td>
             <td style="color:#888;font-size:13px">${esc(s.phone)}</td>
+            <td>${esc(s.area||'—')}</td>
             <td>${s.customer_count}</td>
             <td>${s.active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
             <td>${s.active?`<button class="btn btn-deactivate" onclick="toggleSP(${s.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="toggleSP(${s.id},true)">Activate</button>`}</td>
@@ -743,7 +745,7 @@ function renderSalespersons(list) {
         cards.innerHTML = list.map(s=>`
             <div class="mobile-card ${!s.active?'inactive':''}">
                 <div class="mobile-card-row">
-                    <div><div class="mobile-card-name">${esc(s.name)}</div><div class="mobile-card-sub">${esc(s.phone)} · ${s.customer_count} customers</div></div>
+                    <div><div class="mobile-card-name">${esc(s.name)}</div><div class="mobile-card-sub">${esc(s.phone)}${s.area?' · '+esc(s.area):''} · ${s.customer_count} customers</div></div>
                     ${s.active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}
                 </div>
                 <div class="mobile-card-actions">
@@ -756,13 +758,14 @@ function renderSalespersons(list) {
 function toggleAddSP() { document.getElementById('add-sp-panel').classList.toggle('open'); }
 
 async function addSalesperson() {
-    const name=document.getElementById('sp-name').value.trim(), phone=document.getElementById('sp-phone').value.trim();
-    if(!name||!phone){showToast('Name and phone required','error');return;}
+    const name=document.getElementById('sp-name').value.trim(), phone=document.getElementById('sp-phone').value.trim(), area=document.getElementById('sp-area').value.trim();
+    if(!name||!phone||!area){showToast('Name, phone and area are required','error');return;}
     try {
-        await api('POST','/admin/salespersons',{name,phone});
+        await api('POST','/admin/salespersons',{name,phone,area});
         showToast(`✅ ${name} added`,'success');
         document.getElementById('sp-name').value='';
         document.getElementById('sp-phone').value='';
+        document.getElementById('sp-area').value='';
         document.getElementById('add-sp-panel').classList.remove('open');
         loadSalespersons();
     } catch(e){showToast('❌ '+(JSON.parse(e.message)?.detail||'Failed'),'error');}

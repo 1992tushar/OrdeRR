@@ -9,7 +9,9 @@ MANAGER_PHONE        = os.getenv("MANAGER_PHONE")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
 
 # ── Approved template names ───────────────────────────────────────────────────
-TEMPLATE_MANAGER_NEW_ORDER = "manager_new_order"
+TEMPLATE_MANAGER_NEW_ORDER         = "manager_new_order"
+TEMPLATE_CUSTOMER_REGISTRATION     = "customer_registration_welcome"
+TEMPLATE_SALESPERSON_REGISTRATION  = "salesperson_registration_welcome"
 
 
 def send_whatsapp_message(phone: str, message: str) -> dict:
@@ -92,6 +94,37 @@ def send_whatsapp_template(phone: str, template_name: str, parameters: list) -> 
         print(f"   Params: {parameters}\n")
         return {"status": "simulated"}
 
+
+# ── Registration welcome templates ────────────────────────────────────────────
+
+def send_customer_registration_welcome(phone: str, plant_name: str) -> dict:
+    """
+    Send customer registration welcome via approved template.
+    Template: customer_registration_welcome
+    {{1}} = plant_name
+    """
+    return send_whatsapp_template(
+        phone,
+        TEMPLATE_CUSTOMER_REGISTRATION,
+        [plant_name],
+    )
+
+
+def send_salesperson_registration_welcome(phone: str, name: str, area: str) -> dict:
+    """
+    Send salesperson registration welcome via approved template.
+    Template: salesperson_registration_welcome
+    {{1}} = salesperson name
+    {{2}} = area
+    """
+    return send_whatsapp_template(
+        phone,
+        TEMPLATE_SALESPERSON_REGISTRATION,
+        [name, area],
+    )
+
+
+# ── Order notifications ───────────────────────────────────────────────────────
 
 def _format_items_freeform(items: list) -> str:
     """Newline-separated item list for free-form WhatsApp messages."""
@@ -295,8 +328,8 @@ def send_manager_menu(phone: str) -> dict:
     else:
         print(f"\n📤 SIMULATION — Manager menu → {phone}")
         return {"status": "simulated"}
- 
- 
+
+
 def send_salesperson_menu(phone: str, name: str = "there") -> dict:
     """
     Send an interactive Quick Reply menu to a salesperson.
