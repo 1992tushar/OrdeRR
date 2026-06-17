@@ -156,6 +156,11 @@ def _build_unclear_alert(
     return "\n".join(lines)
 
 
+def _has_digits(text: str) -> bool:
+    """Return True if the message contains any digit — signals a quantity/order attempt."""
+    return bool(re.search(r'\d', text))
+
+
 def _save_and_notify(
     db: Session,
     customer: Customer,
@@ -458,13 +463,38 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
 
     # Nothing parseable at all
     if parsed["is_unclear"] and not parsed.get("unclear_items"):
-        send_whatsapp_message(
-            customer_phone,
-            "ℹ️ Sorry, I couldn't understand that as an order.\n\n"
-            "Please send your order with item names and quantities, for example:\n"
-            "_2 paneer, 1 curd, 3 butter_",
-        )
-        return {"order_id": None, "status": "unclear_message", "parsed": None}
+        if _has_digits(message):
+            # Contains digits → likely a failed order attempt, not small talk.
+            # Save as unclear order so it surfaces immediately on the dashboard.
+            order = Order(
+                plant_name     = PLANT_NAME,
+                customer_phone = customer_phone,
+                customer_name  = customer.restaurant_name,
+                raw_message    = message,
+                is_unclear     = True,
+                unclear_reason = "Contains numbers but no items could be matched",
+                business_date  = get_current_business_date_str(),
+                delivery_date  = get_delivery_date_str(),
+                status         = "received",
+            )
+            db.add(order)
+            db.commit()
+
+            send_whatsapp_message(
+                customer_phone,
+                "We received your message but couldn't read the items clearly. "
+                "Our team will check and confirm shortly. 🙏",
+            )
+            return {"order_id": order.id, "status": "order_unclear_no_items", "parsed": None}
+
+        else:
+            send_whatsapp_message(
+                customer_phone,
+                "ℹ️ Sorry, I couldn't understand that as an order.\n\n"
+                "Please send your order with item names and quantities, for example:\n"
+                "_2 paneer, 1 curd, 3 butter_",
+            )
+            return {"order_id": None, "status": "unclear_message", "parsed": None}
 
     existing_order = get_todays_active_order(db, customer_phone)
 
