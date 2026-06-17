@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import secrets
@@ -30,6 +31,8 @@ from app.services.intent_classifier import (
     GREETINGS,
     FILLER_PHRASES,
 )
+
+logger = logging.getLogger(__name__)
 
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
@@ -130,6 +133,47 @@ def _get_pending_replace(db: Session, customer_phone: str) -> Order | None:
     )
 
 
+# ── Salesperson helper ────────────────────────────────────────────────────────
+
+def _get_assigned_salesperson(db: Session, customer: Customer) -> Salesperson | None:
+    """Return the active salesperson assigned to this customer, or None."""
+    if not customer.salesperson_id:
+        return None
+    return (
+        db.query(Salesperson)
+        .filter(
+            Salesperson.id     == customer.salesperson_id,
+            Salesperson.active == True,
+        )
+        .first()
+    )
+
+
+def _notify_salesperson(
+    db: Session,
+    customer: Customer,
+    parsed: dict,
+    label: str = "",
+) -> None:
+    """
+    Send the assigned salesperson the same order alert the manager receives.
+    `label` is an optional prefix (e.g. '✏️ Updated' or '❌ Cancelled').
+    Silently swallows all errors so it never affects the customer flow.
+    """
+    sp = _get_assigned_salesperson(db, customer)
+    if not sp or not sp.phone:
+        return
+    try:
+        send_manager_alert(
+            manager_phone   = sp.phone,
+            customer_phone  = customer.phone_number,
+            parsed          = parsed,
+            restaurant_name = customer.restaurant_name,
+        )
+    except Exception as e:
+        logger.warning("Failed to notify salesperson %s: %s", sp.phone, e)
+
+
 # ── Notification helpers ──────────────────────────────────────────────────────
 
 def _build_unclear_alert(
@@ -204,6 +248,7 @@ def _save_and_notify(
             f"Your previous order has been replaced with:\n\n"
             f"{items_text}\n\nThank you!",
         )
+        # Notify manager
         try:
             send_whatsapp_message(
                 MANAGER_PHONE,
@@ -213,6 +258,9 @@ def _save_and_notify(
             )
         except Exception:
             pass
+
+        # Notify assigned salesperson
+        _notify_salesperson(db, customer, parsed)
 
         # For edits, confirmation is the update message above — treat as sent
         order.confirmation_sent    = True
@@ -227,20 +275,33 @@ def _save_and_notify(
         )
 
         if not unclear_items:
+            # Notify manager
             send_manager_alert(
                 manager_phone   = MANAGER_PHONE,
                 customer_phone  = customer_phone,
                 parsed          = parsed,
                 restaurant_name = restaurant_name,
             )
+            # Notify assigned salesperson
+            _notify_salesperson(db, customer, parsed)
+
         if unclear_items:
+            unclear_msg = _build_unclear_alert(
+                restaurant_name, customer_phone, unclear_items, parsed_items
+            )
+            # Notify manager of unclear items
             try:
-                send_whatsapp_message(
-                    MANAGER_PHONE,
-                    _build_unclear_alert(restaurant_name, customer_phone, unclear_items, parsed_items),
-                )
+                send_whatsapp_message(MANAGER_PHONE, unclear_msg)
             except Exception as e:
-                print(f"⚠️ Unclear items manager alert failed: {e}")
+                logger.warning("Unclear items manager alert failed: %s", e)
+
+            # Notify assigned salesperson of unclear items too
+            sp = _get_assigned_salesperson(db, customer)
+            if sp and sp.phone:
+                try:
+                    send_whatsapp_message(sp.phone, unclear_msg)
+                except Exception as e:
+                    logger.warning("Unclear items salesperson alert failed: %s", e)
 
         order.confirmation_sent    = confirmation_sent  # True only if WA API succeeded
         order.forwarded_to_manager = True
@@ -289,7 +350,7 @@ def _handle_onboarding(db: Session, customer: Customer, message: str) -> dict:
             f"Please assign area and salesperson on the dashboard.",
         )
     except Exception as e:
-        print(f"⚠️ New customer manager alert failed: {e}")
+        logger.warning("New customer manager alert failed: %s", e)
 
     return {"order_id": None, "status": "customer_onboarded", "parsed": None}
 
@@ -313,6 +374,7 @@ def _handle_cancel(db: Session, customer: Customer) -> dict:
         customer_phone,
         "✅ Your order has been cancelled.\n\nJust send your order anytime to place a new one.",
     )
+    # Notify manager of cancellation
     try:
         send_whatsapp_message(
             MANAGER_PHONE,
@@ -323,6 +385,20 @@ def _handle_cancel(db: Session, customer: Customer) -> dict:
         )
     except Exception:
         pass
+
+    # Notify assigned salesperson of cancellation
+    sp = _get_assigned_salesperson(db, customer)
+    if sp and sp.phone:
+        try:
+            send_whatsapp_message(
+                sp.phone,
+                f"❌ *Order Cancelled — {PLANT_NAME}*\n\n"
+                f"🏪 {customer.restaurant_name}\n"
+                f"📱 {customer_phone}\n\n"
+                f"Their order for today has been cancelled.",
+            )
+        except Exception as e:
+            logger.warning("Cancel salesperson alert failed: %s", e)
 
     return {"order_id": existing.id, "status": "order_cancelled", "parsed": None}
 
@@ -395,6 +471,9 @@ def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
 
         confirmation_sent = send_order_confirmation(customer_phone, parsed, customer.restaurant_name)
         send_manager_alert(MANAGER_PHONE, customer_phone, parsed, customer.restaurant_name)
+        # Notify assigned salesperson
+        _notify_salesperson(db, customer, parsed)
+
         pending_repeat.confirmation_sent    = confirmation_sent
         pending_repeat.forwarded_to_manager = True
         db.commit()
@@ -429,6 +508,9 @@ def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
 
         confirmation_sent = send_order_confirmation(customer_phone, parsed, customer.restaurant_name)
         send_manager_alert(MANAGER_PHONE, customer_phone, parsed, customer.restaurant_name)
+        # Notify assigned salesperson
+        _notify_salesperson(db, customer, parsed)
+
         pending_replace.confirmation_sent    = confirmation_sent
         pending_replace.forwarded_to_manager = True
         db.commit()
@@ -538,23 +620,30 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
             return {"order_id": pending.id, "status": "replace_requested", "parsed": parsed}
 
         else:
-            # After dispatch cutoff — accept as additional order, alert manager
+            # After dispatch cutoff — accept as additional order, alert manager + salesperson
             result = _save_and_notify(db, customer, parsed, message, is_photo=is_photo)
             existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
+            additional_msg = (
+                f"⚠️ *Additional Order — {PLANT_NAME}*\n\n"
+                f"🏪 {customer.restaurant_name}\n"
+                f"📱 {customer_phone}\n\n"
+                f"*Original order* (placed at {existing_order.created_at.strftime('%I:%M %p')}):\n"
+                + "\n".join(f"• {i['product']} — {i['quantity']} {i['unit']}" for i in existing_items)
+                + f"\n\n*Additional order:*\n"
+                + "\n".join(f"• {i['product']} — {i['quantity']} {i['unit']}" for i in parsed.get("items", []))
+                + "\n\nPlease check if this can be fulfilled."
+            )
             try:
-                send_whatsapp_message(
-                    MANAGER_PHONE,
-                    f"⚠️ *Additional Order — {PLANT_NAME}*\n\n"
-                    f"🏪 {customer.restaurant_name}\n"
-                    f"📱 {customer_phone}\n\n"
-                    f"*Original order* (placed at {existing_order.created_at.strftime('%I:%M %p')}):\n"
-                    + "\n".join(f"• {i['product']} — {i['quantity']} {i['unit']}" for i in existing_items)
-                    + f"\n\n*Additional order:*\n"
-                    + "\n".join(f"• {i['product']} — {i['quantity']} {i['unit']}" for i in parsed.get("items", []))
-                    + "\n\nPlease check if this can be fulfilled.",
-                )
+                send_whatsapp_message(MANAGER_PHONE, additional_msg)
             except Exception:
                 pass
+            # Notify assigned salesperson of additional order too
+            sp = _get_assigned_salesperson(db, customer)
+            if sp and sp.phone:
+                try:
+                    send_whatsapp_message(sp.phone, additional_msg)
+                except Exception as e:
+                    logger.warning("Additional order salesperson alert failed: %s", e)
             return result
 
     # No existing order — straightforward save
@@ -582,7 +671,7 @@ def process_incoming_order(
     if not customer:
         internal_phones = get_internal_phones(db)
         if customer_phone in internal_phones:
-            print(f"ℹ️ Ignored message from internal phone {customer_phone}")
+            logger.info("Ignored message from internal phone %s", customer_phone)
             return {"order_id": None, "status": "internal_phone_ignored", "parsed": None}
 
         customer = create_new_customer(db, customer_phone)
