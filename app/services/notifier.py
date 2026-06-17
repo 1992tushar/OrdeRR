@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # ── Approved template names ───────────────────────────────────────────────────
 TEMPLATE_MANAGER_NEW_ORDER         = "manager_new_order"
-TEMPLATE_CUSTOMER_REGISTRATION     = "customer_registration_welcome"
+TEMPLATE_CUSTOMER_REGISTRATION     = "customer_registration_welcome_v2"
 TEMPLATE_SALESPERSON_REGISTRATION  = "salesperson_registration_welcome"
 
 
@@ -124,7 +124,7 @@ def send_whatsapp_template(phone: str, template_name: str, parameters: list) -> 
 def send_customer_registration_welcome(phone: str, plant_name: str) -> dict:
     """
     Send customer registration welcome via approved template.
-    Template: customer_registration_welcome
+    Template: customer_registration_welcome_v2
     {{1}} = plant_name
     """
     return send_whatsapp_template(

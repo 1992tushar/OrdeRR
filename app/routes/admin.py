@@ -53,8 +53,7 @@ from app.services.order_service import get_current_business_date_str, RESET_HOUR
 from app.services.notifier import send_manager_alert
 from app.services.customer_service import get_customer_by_phone
 from app.models.noise_phrase import NoisePhrase
-from app.services.product_catalog import generate_order_template
-
+from app.services.notifier import send_whatsapp_message, send_customer_registration_welcome
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +69,12 @@ IST        = timezone(timedelta(hours=5, minutes=30))
 class SalespersonCreate(BaseModel):
     name: str
     phone: str
+    area: Optional[str] = None
 
 class SalespersonUpdate(BaseModel):
     name:   Optional[str]  = None
     phone:  Optional[str]  = None
+    area:   Optional[str]  = None
     active: Optional[bool] = None
 
 class CustomerAssign(BaseModel):
@@ -440,7 +441,7 @@ def list_salespersons(db: Session = Depends(get_db), username: str = Depends(req
     for sp in sps:
         count = db.query(Customer).filter(Customer.salesperson_id == sp.id).count()
         result.append({
-            "id": sp.id, "name": sp.name, "phone": sp.phone,
+            "id": sp.id, "name": sp.name, "phone": sp.phone, "area": sp.area,
             "active": sp.active, "customer_count": count,
             "created_at": sp.created_at.isoformat() if sp.created_at else None,
         })
@@ -457,7 +458,7 @@ def create_salesperson(payload: SalespersonCreate, db: Session = Depends(get_db)
     if db.query(Salesperson).filter(Salesperson.phone == normalized).first():
         raise HTTPException(status_code=400, detail=f"Salesperson with phone {normalized} already exists")
 
-    sp = Salesperson(name=payload.name.strip(), phone=normalized, active=True)
+    sp = Salesperson(name=payload.name.strip(), phone=normalized, area=payload.area.strip() if payload.area else None, active=True)
     db.add(sp); db.commit(); db.refresh(sp)
 
     try:
@@ -473,7 +474,7 @@ def create_salesperson(payload: SalespersonCreate, db: Session = Depends(get_db)
     except Exception as e:
         print(f"⚠️ Welcome message failed (salesperson still created): {e}")
 
-    return {"status": "created", "salesperson": {"id": sp.id, "name": sp.name, "phone": sp.phone, "active": sp.active}}
+    return {"status": "created", "salesperson": {"id": sp.id, "name": sp.name, "phone": sp.phone, "area": sp.area, "active": sp.active}}
 
 
 @router.put("/salespersons/{salesperson_id}")
@@ -482,6 +483,7 @@ def update_salesperson(salesperson_id: int, payload: SalespersonUpdate, db: Sess
     if not sp:
         raise HTTPException(status_code=404, detail="Salesperson not found")
     if payload.name   is not None: sp.name   = payload.name.strip()
+    if payload.area is not None: sp.area = payload.area.strip()
     if payload.phone  is not None:
         error = validate_phone(payload.phone)
         if error:
@@ -490,7 +492,7 @@ def update_salesperson(salesperson_id: int, payload: SalespersonUpdate, db: Sess
     if payload.active is not None: sp.active = payload.active
 
     db.commit(); db.refresh(sp)
-    return {"status": "updated", "salesperson": {"id": sp.id, "name": sp.name, "phone": sp.phone, "active": sp.active}}
+    return {"status": "updated", "salesperson": {"id": sp.id, "name": sp.name, "phone": sp.phone, "area": sp.area, "active": sp.active}}
 
 
 @router.delete("/salespersons/{salesperson_id}")
@@ -592,15 +594,14 @@ def add_customer_manually(
                 ))
         except Exception as e:
             logger.warning(f"Manager notification failed for new customer {customer.phone_number}: {e}")
+        
         try:
-            send_whatsapp_message(customer.phone_number, (
-                f"👋 Welcome to {PLANT_NAME}!\n\n"
-                f"You've been registered as a daily order customer. "
-                f"To place your order, simply send us a message with your items.\n\n"
-                f"{generate_order_template()}"
-            ))
+            send_customer_registration_welcome(customer.phone_number, PLANT_NAME)
         except Exception as e:
-            logger.warning(f"Welcome message failed for {customer.phone_number}: {e}")
+            logger.warning(f"Welcome template failed for {customer.phone_number}: {e}")
+
+
+
         return {"status": "created", "customer": _customer_row(customer, db)}
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
