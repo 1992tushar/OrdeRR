@@ -496,7 +496,11 @@
                 <tbody id="billing-orders-tbody"><tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
             </table>
         </div>
-        <h2 style="margin-top:8px">💲 Pricing Management</h2>
+
+        <!-- ── CUSTOMER PRICES ── -->
+        <h2 style="margin-top:8px">💲 Pricing Management
+            <button class="section-btn" onclick="openAddCustomerPriceModal()">＋ Add Price</button>
+        </h2>
         <p style="font-size:13px;color:#718096;margin-bottom:12px;">Customer-specific prices override default prices.</p>
         <div class="summary-table product-table-wrap">
             <table>
@@ -504,6 +508,8 @@
                 <tbody id="customer-prices-tbody"><tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
             </table>
         </div>
+
+        <!-- ── DEFAULT PRICES ── -->
         <h2 style="margin-top:8px">📦 Default Prices</h2>
         <div class="summary-table product-table-wrap">
             <table>
@@ -515,7 +521,11 @@
 </div>
 {% endif %}
 
-<!-- MODALS -->
+<!-- ══════════════════════════════════════════════════════════════════
+     MODALS
+     ══════════════════════════════════════════════════════════════════ -->
+
+<!-- Assign Salesperson -->
 <div id="assign-modal" class="modal-overlay">
     <div class="modal-box">
         <div class="modal-header">
@@ -538,6 +548,7 @@
     </div>
 </div>
 
+<!-- Order History -->
 <div id="history-modal" class="modal-overlay">
     <div class="modal-box">
         <div class="modal-header">
@@ -551,6 +562,7 @@
     </div>
 </div>
 
+<!-- Add Customer -->
 <div id="add-customer-modal" class="modal-overlay">
   <div class="modal-box">
     <div class="modal-header">
@@ -576,6 +588,7 @@
   </div>
 </div>
 
+<!-- Post Order -->
 <div id="post-order-modal" class="modal-overlay">
   <div class="modal-box">
     <div class="modal-header">
@@ -600,6 +613,7 @@
   </div>
 </div>
 
+<!-- Invoice Preview -->
 {% if billing_enabled %}
 <div id="invoicePreviewModal" class="modal-overlay">
     <div class="modal-box">
@@ -626,6 +640,47 @@
             <div style="display:flex;gap:10px;justify-content:flex-end">
                 <button class="btn btn-cancel-ui" onclick="closeModal('invoicePreviewModal')">Cancel</button>
                 <button class="btn btn-save" id="inv-confirm-btn" onclick="confirmGenerateInvoice()">Confirm &amp; Generate</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── NEW: Add / Edit Customer Price Modal ── -->
+<div id="add-customer-price-modal" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
+            <div>
+                <h3>💲 Set Customer Price</h3>
+                <div id="acp-customer-line" style="font-size:12px;color:#888;margin-top:2px"></div>
+            </div>
+            <button class="btn btn-cancel-ui" onclick="closeModal('add-customer-price-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="acp-phone"/>
+
+            <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Customer Phone <span style="color:#c62828">*</span></label>
+            <input id="acp-phone-display" type="text" placeholder="e.g. 917385305590"
+                style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"
+                oninput="document.getElementById('acp-phone').value=this.value.trim()"/>
+
+            <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Product <span style="color:#c62828">*</span></label>
+            <select id="acp-product" style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none;background:white">
+                <option value="">— Select product —</option>
+            </select>
+
+            <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Price per unit (₹) <span style="color:#c62828">*</span></label>
+            <input id="acp-price" type="number" step="0.01" min="0" placeholder="e.g. 42.00"
+                style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+            <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">UOM</label>
+            <select id="acp-uom" style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:20px;outline:none;background:white">
+                <option value="KGS">KGS</option>
+                <option value="NOS">NOS</option>
+            </select>
+
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button class="btn btn-cancel-ui" onclick="closeModal('add-customer-price-modal')">Cancel</button>
+                <button class="btn btn-save" onclick="submitCustomerPrice()">Save Price</button>
             </div>
         </div>
     </div>
@@ -1300,18 +1355,21 @@ function checkEmptyFailed() {
 
 {% if billing_enabled %}
 // ── Billing ───────────────────────────────────────────────────────────────────
-let currentBillingDate = "{{ target_date }}";
+let currentBillingDate = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
 let billingOrdersCache = [];
 
 function switchTabBillingHook() {
+    document.getElementById('billing-date-label').textContent = currentBillingDate;  // ← add this
     loadBillingTab(currentBillingDate);
     loadPricingSection();
 }
 
 function changeBillingDate(delta) {
-    const d = new Date(currentBillingDate);
-    d.setDate(d.getDate() + delta);
-    currentBillingDate = d.toISOString().substring(0,10);
+    // Parse as local midnight to avoid UTC offset shift
+    const [y, m, d] = currentBillingDate.split('-').map(Number);
+    const date = new Date(y, m - 1, d);   // local midnight, no UTC issue
+    date.setDate(date.getDate() + delta);
+    currentBillingDate = date.toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
     document.getElementById('billing-date-label').textContent = currentBillingDate;
     loadBillingTab(currentBillingDate);
 }
@@ -1320,34 +1378,39 @@ async function loadBillingTab(date) {
     const tbody = document.getElementById('billing-orders-tbody');
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
     try {
-        const data = await api('GET', `/admin/billing/orders/${date}`);
-        billingOrdersCache = data.orders || [];
-        document.getElementById('bill-total').textContent = billingOrdersCache.length;
-        document.getElementById('bill-billed').textContent = billingOrdersCache.filter(o=>o.billing_status==='Billed').length;
-        document.getElementById('bill-unbilled').textContent = billingOrdersCache.filter(o=>o.billing_status!=='Billed').length;
-        document.getElementById('bill-revenue').textContent = (data.revenue || 0).toFixed(2);
+        const [orders, summary] = await Promise.all([
+            api('GET', `/admin/billing/orders/${date}`),
+            api('GET', `/admin/billing/summary?date=${date}`)
+        ]);
+        billingOrdersCache = orders || [];
+
+        document.getElementById('bill-total').textContent   = summary.total_orders;
+        document.getElementById('bill-billed').textContent  = summary.billed;
+        document.getElementById('bill-unbilled').textContent = summary.unbilled;
+        document.getElementById('bill-revenue').textContent = (summary.revenue || 0).toFixed(2);
+
         if (!billingOrdersCache.length) {
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px">No orders for this date</td></tr>';
             return;
         }
         tbody.innerHTML = billingOrdersCache.map(o => {
-            const itemsStr = (o.items||[]).map(i=>`${esc(i.product)} (${i.quantity} ${esc(i.unit)})`).join(', ');
+            const itemsStr = (o.parsed_items || []).map(i => `${esc(i.product)} (${i.quantity} ${esc(i.unit)})`).join(', ');
             let badge, actions;
             if (o.billing_status === 'Billed') {
-                badge = '<span class="badge ordered-badge">✅ Billed</span>';
+                badge   = '<span class="badge ordered-badge">✅ Billed</span>';
                 actions = `<a href="/admin/billing/invoices/${o.invoice_id}/pdf" target="_blank"><button class="btn btn-assign">View Invoice</button></a>
                            <a href="/admin/billing/invoices/${o.invoice_id}/pdf" download><button class="btn btn-save">Download PDF</button></a>`;
             } else if (o.billing_status === 'Prices Missing') {
-                badge = '<span class="badge manual-badge">⚠️ Prices Missing</span>';
-                actions = `<button class="btn btn-deactivate" onclick="openPricingForCustomer('${esc(o.customer_phone)}','${(o.customer_name||'').replace(/'/g,"\\'")}')">⚠️ Set Prices</button>`;
+                badge   = '<span class="badge manual-badge">⚠️ Prices Missing</span>';
+                actions = `<button class="btn btn-deactivate" onclick="openPricingForCustomer('${esc(o.customer_phone)}','${(o.customer_name || '').replace(/'/g, "\\'")}')">⚠️ Set Prices</button>`;
             } else {
-                badge = '<span class="badge pending-badge">🟡 Unbilled</span>';
-                actions = `<button class="btn btn-save" onclick="openInvoiceModal(${o.order_id})">Generate Invoice</button>`;
+                badge   = '<span class="badge pending-badge">🟡 Unbilled</span>';
+                actions = `<button class="btn btn-save" onclick="openInvoiceModal(${o.id})">Generate Invoice</button>`;
             }
             return `<tr>
                 <td><strong>${esc(o.customer_name || o.customer_phone)}</strong><div style="font-size:11px;color:#aaa">${esc(o.customer_phone)}</div></td>
                 <td style="font-size:12px">${itemsStr}</td>
-                <td>₹${(o.amount||0).toFixed(2)}</td>
+                <td>—</td>
                 <td>${badge}</td>
                 <td style="display:flex;gap:6px;flex-wrap:wrap">${actions}</td>
             </tr>`;
@@ -1357,57 +1420,93 @@ async function loadBillingTab(date) {
     }
 }
 
-async function openInvoiceModal(orderId) {
+async function openInvoiceModal(orderId) { 
     try {
-        const order = billingOrdersCache.find(o => o.order_id === orderId) || await api('GET', `/admin/billing/orders/by-id/${orderId}`);
+        const order = billingOrdersCache.find(o => o.id === orderId);
+        if (!order) {
+            showToast('❌ Order not found — refresh and try again', 'error');
+            return;
+        }
         document.getElementById('inv-order-id').value = orderId;
         document.getElementById('inv-customer-line').textContent = `${order.customer_name || ''} — ${order.customer_phone}`;
-        document.getElementById('inv-date').value = new Date().toISOString().substring(0,10);
+        document.getElementById('inv-date').value = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Kolkata'});
+
+        // Fetch customer prices to pre-fill unit prices
+        let priceMap = {};
+        try {
+            const [custPrices, defPrices] = await Promise.all([
+                api('GET', `/admin/billing/prices/${order.customer_phone}`),
+                api('GET', `/admin/billing/prices/defaults`)
+            ]);
+            defPrices.forEach(p => { priceMap[p.product_name] = p.price_per_unit; });
+            custPrices.forEach(p => { priceMap[p.product_name] = p.price_per_unit; }); // customer overrides default
+        } catch(e) { console.error('Failed to load prices', e); }
+
         const tbody = document.getElementById('inv-line-items-tbody');
-        tbody.innerHTML = (order.items||[]).map((i, idx) => `
-            <tr>
+        tbody.innerHTML = (order.parsed_items || []).map((i, idx) => {
+            const unitPrice = priceMap[i.product] || 0;
+            const net = unitPrice * i.quantity;
+            return `<tr>
                 <td>${esc(i.product)}</td>
                 <td>${i.quantity}</td>
                 <td>${esc(i.unit)}</td>
-                <td><input type="number" step="0.01" id="inv-price-${idx}" value="${(i.unit_price||0).toFixed(2)}" style="width:90px;padding:6px 8px;border:1px solid #ccc;border-radius:6px" oninput="recalcInvoiceTotal()"/></td>
-                <td id="inv-net-${idx}">${((i.unit_price||0)*i.quantity).toFixed(2)}</td>
-            </tr>`).join('');
+                <td><input type="number" step="0.01" id="inv-price-${idx}" value="${unitPrice.toFixed(2)}" style="width:90px;padding:6px 8px;border:1px solid #ccc;border-radius:6px" oninput="recalcInvoiceTotal()"/></td>
+                <td id="inv-net-${idx}">${net.toFixed(2)}</td>
+            </tr>`;
+        }).join('');
+
         recalcInvoiceTotal();
         document.getElementById('invoicePreviewModal').classList.add('open');
     } catch(e) { showToast('❌ Failed to load order details', 'error'); }
 }
 
 function recalcInvoiceTotal() {
-    const order = billingOrdersCache.find(o => o.order_id === parseInt(document.getElementById('inv-order-id').value));
-    if (!order) return;
     let total = 0;
-    (order.items||[]).forEach((item, idx) => {
-        const price = parseFloat(document.getElementById(`inv-price-${idx}`).value) || 0;
-        const net = price * item.quantity;
-        document.getElementById(`inv-net-${idx}`).textContent = net.toFixed(2);
+    const rows = document.querySelectorAll('#inv-line-items-tbody tr');
+    rows.forEach((row, idx) => {
+        const priceInput = document.getElementById(`inv-price-${idx}`);
+        const netCell = document.getElementById(`inv-net-${idx}`);
+        if (!priceInput || !netCell) return;
+
+        // Get quantity from the second cell (index 1)
+        const qty = parseFloat(row.cells[1]?.textContent) || 0;
+        const price = parseFloat(priceInput.value) || 0;
+        const net = qty * price;
+        netCell.textContent = net.toFixed(2);
         total += net;
     });
     document.getElementById('inv-total').textContent = total.toFixed(2);
 }
 
 async function confirmGenerateInvoice() {
+    const btn = document.getElementById('inv-confirm-btn');  // ← move this up
     const orderId = parseInt(document.getElementById('inv-order-id').value);
-    const order = billingOrdersCache.find(o => o.order_id === orderId);
+    const order = billingOrdersCache.find(o => o.id === orderId);
+
+    if (!order) {
+        showToast('❌ Order not found — refresh and try again', 'error');
+        return;  // btn.disabled = false not needed here since we never disabled it
+    }
+
     const invDate = document.getElementById('inv-date').value;
-    const lineItems = (order.items||[]).map((item, idx) => ({
-        product: item.product, quantity: item.quantity, unit: item.unit,
-        unit_price: parseFloat(document.getElementById(`inv-price-${idx}`).value) || 0
+    const lineItems = (order.parsed_items || []).map((item, idx) => ({
+        product:    item.product,
+        quantity:   item.quantity,
+        unit:       item.unit,
+        unit_price: parseFloat(document.getElementById(`inv-price-${idx}`)?.value) || 0
     }));
-    const btn = document.getElementById('inv-confirm-btn');
+
     btn.disabled = true; btn.textContent = 'Generating…';
     try {
-        const data = await api('POST', '/admin/billing/invoices/generate', { order_id: orderId, invoice_date: invDate, line_items: lineItems });
+        const data = await api('POST', '/admin/billing/invoices/generate', {
+            order_id: orderId, invoice_date: invDate, line_items_override: lineItems
+        });
         showToast(`✅ Invoice ${data.invoice_number || ''} generated`, 'success');
         closeModal('invoicePreviewModal');
         loadBillingTab(currentBillingDate);
     } catch(e) {
         let msg = 'Failed to generate invoice';
-        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_){}
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
         showToast('❌ ' + msg, 'error');
     } finally { btn.disabled = false; btn.textContent = 'Confirm & Generate'; }
 }
@@ -1444,7 +1543,10 @@ async function loadPricingSection() {
                     <td>${esc(p.product_name)}</td>
                     <td><input type="number" step="0.01" id="cp-price-${p.id}" value="${p.price_per_unit.toFixed(2)}" style="width:90px;padding:6px 8px;border:1px solid #ccc;border-radius:6px"/></td>
                     <td>${esc(p.uom)}</td>
-                    <td><button class="btn btn-save" onclick="setPrice('${esc(p.customer_phone)}','${esc(p.product_name)}', document.getElementById('cp-price-${p.id}').value)">Save</button></td>
+                    <td style="display:flex;gap:6px;flex-wrap:wrap">
+                        <button class="btn btn-save" onclick="setPrice('${esc(p.customer_phone)}','${esc(p.product_name)}', document.getElementById('cp-price-${p.id}').value, '${esc(p.uom)}')">Save</button>
+                        <button class="btn btn-deactivate" onclick="deleteCustomerPrice(${p.id})">Delete</button>
+                    </td>
                 </tr>`).join('');
         }
         if (!defaultPrices.length) {
@@ -1464,14 +1566,23 @@ async function loadPricingSection() {
     }
 }
 
-async function setPrice(customerPhone, productName, priceVal) {
+async function setPrice(customerPhone, productName, priceVal, uom) {
     const price = parseFloat(priceVal);
     if (isNaN(price) || price < 0) { showToast('Enter a valid price', 'error'); return; }
     try {
-        await api('POST', '/admin/billing/prices', { customer_phone: customerPhone, product_name: productName, price_per_unit: price });
+        await api('POST', '/admin/billing/prices', { customer_phone: customerPhone, product_name: productName, price_per_unit: price, uom: uom || 'KGS' });
         showToast(`✅ Price updated for ${productName}`, 'success');
         loadPricingSection(); loadBillingTab(currentBillingDate);
     } catch(e) { showToast('❌ Failed to update price', 'error'); }
+}
+
+async function deleteCustomerPrice(priceId) {
+    if (!confirm('Delete this customer price?')) return;
+    try {
+        await api('DELETE', `/admin/billing/prices/${priceId}`);
+        showToast('Price deleted', 'success');
+        loadPricingSection();
+    } catch(e) { showToast('❌ Failed to delete price', 'error'); }
 }
 
 async function setDefaultPrice(productName, priceVal) {
@@ -1484,9 +1595,65 @@ async function setDefaultPrice(productName, priceVal) {
     } catch(e) { showToast('❌ Failed to update default price', 'error'); }
 }
 
+// ── NEW: Customer Price Modal ─────────────────────────────────────────────────
+
 function openPricingForCustomer(customerPhone, customerName) {
     switchTab('billing', document.getElementById('billing-tab-btn'));
-    showToast(`Showing pricing — set values for ${customerName}`, '');
+    // Small delay to let the tab render before opening the modal
+    setTimeout(() => openAddCustomerPriceModal(customerPhone, customerName), 100);
+}
+
+async function openAddCustomerPriceModal(customerPhone, customerName) {
+    // Populate hidden + visible phone fields
+    const phone = customerPhone || '';
+    document.getElementById('acp-phone').value = phone;
+    document.getElementById('acp-phone-display').value = phone;
+    document.getElementById('acp-phone-display').readOnly = !!phone; // lock if pre-filled from customer row
+    document.getElementById('acp-customer-line').textContent = phone
+        ? `${customerName || ''} — ${phone}`
+        : 'Enter customer phone below';
+    document.getElementById('acp-price').value = '';
+    document.getElementById('acp-uom').value = 'KGS';
+
+    // Populate product dropdown
+    const select = document.getElementById('acp-product');
+    select.innerHTML = '<option value="">— Select product —</option>';
+    const names = await fetchProductNames();
+    names.forEach(p => {
+        select.innerHTML += `<option value="${esc(p)}">${esc(p)}</option>`;
+    });
+    select.value = '';
+
+    document.getElementById('add-customer-price-modal').classList.add('open');
+    setTimeout(() => select.focus(), 150);
+}
+
+async function submitCustomerPrice() {
+    const phone   = document.getElementById('acp-phone').value.trim();
+    const product = document.getElementById('acp-product').value;
+    const price   = parseFloat(document.getElementById('acp-price').value);
+    const uom     = document.getElementById('acp-uom').value;
+
+    if (!phone)                    { showToast('⚠️ Customer phone is required', 'error'); return; }
+    if (!product)                  { showToast('⚠️ Select a product', 'error'); return; }
+    if (isNaN(price) || price < 0) { showToast('⚠️ Enter a valid price', 'error'); return; }
+
+    try {
+        await api('POST', '/admin/billing/prices', {
+            customer_phone: phone,
+            product_name:   product,
+            price_per_unit: price,
+            uom
+        });
+        showToast(`✅ ${product} @ ₹${price.toFixed(2)} saved for ${phone}`, 'success');
+        closeModal('add-customer-price-modal');
+        loadPricingSection();
+        loadBillingTab(currentBillingDate);
+    } catch(e) {
+        let msg = 'Failed to save price';
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
+        showToast('❌ ' + msg, 'error');
+    }
 }
 {% endif %}
 

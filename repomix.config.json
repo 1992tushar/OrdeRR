@@ -1,0 +1,21 @@
+{
+  "ignore": {
+    "useGitignore": true,
+    "customPatterns": [
+      "app/templates/**",
+      "output.txt",
+      "*.db",
+      "Procfile",
+      "runtime.txt",
+      "render.yaml",
+      "pytest.ini",
+      "README.md",
+      "requirements.txt",
+      ".python-version"
+    ]
+  },
+  "output": {
+    "removeComments": true,
+    "removeEmptyLines": true
+  }
+}

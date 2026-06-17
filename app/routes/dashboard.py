@@ -18,11 +18,6 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 def _safe_list(value) -> list:
-    """
-    Return a guaranteed list from a JSONB field.
-    Handles: None, already-a-list (normal JSONB), JSON string (legacy),
-    double-encoded string, empty/null sentinels.
-    """
     if not value:
         return []
     if isinstance(value, list):
@@ -34,13 +29,27 @@ def _safe_list(value) -> list:
             parsed = json.loads(value)
             if isinstance(parsed, list):
                 return parsed
-            # double-encoded: parsed is still a string
             if isinstance(parsed, str):
                 inner = json.loads(parsed)
                 return inner if isinstance(inner, list) else []
         except Exception:
             pass
     return []
+
+
+def _to_ist(dt: datetime) -> datetime | None:
+    """Convert a datetime to IST, handling both naive (assumed UTC) and aware datetimes."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST)
+
+
+def _fmt_ist(dt: datetime, fmt: str = "%d %b %Y %I:%M %p") -> str:
+    """Convert a datetime to IST and format it as a string."""
+    converted = _to_ist(dt)
+    return converted.strftime(fmt) if converted else ""
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -65,11 +74,29 @@ def dashboard(
     ).all()
 
     for order in orders:
-        order.created_at = order.created_at.astimezone(IST)
+        order.created_at   = _to_ist(order.created_at)
         order.items_parsed = _safe_list(order.parsed_items)
         unclear_list = _safe_list(order.unclear_items)
-        order.has_unclear_items = bool(unclear_list)
+        order.has_unclear_items  = bool(unclear_list)
         order.unclear_items_list = unclear_list
+
+        # After fetching orders, add billing_status to each
+        try:
+            from app.models.invoice import Invoice
+            billed_order_ids = {
+                row[0] for row in db.query(Invoice.order_id)
+                .filter(Invoice.status != "voided")
+                .all()
+            }
+            for order in orders:
+                if order.id in billed_order_ids:
+                    order.billing_status = "Billed"
+                else:
+                    # Check if prices are missing for any item
+                    order.billing_status = "Unbilled"
+        except Exception:
+            for order in orders:
+                order.billing_status = "Unbilled"
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
@@ -88,14 +115,20 @@ def dashboard(
             product_summary[key]["total_quantity"] += quantity
             product_summary[key]["orders_count"]   += 1
 
-    yesterday = (target_date - timedelta(days=1)).isoformat()
-    tomorrow  = (target_date + timedelta(days=1)).isoformat()
-    is_today  = (target_date == today)
-    now_ist = datetime.now(IST)
+    yesterday        = (target_date - timedelta(days=1)).isoformat()
+    tomorrow         = (target_date + timedelta(days=1)).isoformat()
+    is_today         = (target_date == today)
+    now_ist          = datetime.now(IST)
     is_before_cutoff = now_ist.hour < 20
 
     failed_messages   = []
-    reliability_stats = {"has_issues": False, "total_today": 0, "confirmed_today": 0, "failed_today": 0, "manual_review_total": 0}
+    reliability_stats = {
+        "has_issues":          False,
+        "total_today":         0,
+        "confirmed_today":     0,
+        "failed_today":        0,
+        "manual_review_total": 0,
+    }
 
     try:
         from app.models.inbound_message import InboundMessage
@@ -108,7 +141,7 @@ def dashboard(
                 "id":                m.id,
                 "customer_phone":    m.customer_phone,
                 "raw_message":       (m.raw_message or "")[:400],
-                "received_at":       m.received_at.strftime("%d %b %Y %I:%M %p") if m.received_at else "",
+                "received_at":       _fmt_ist(m.received_at),
                 "processing_status": m.processing_status,
                 "failure_reason":    m.failure_reason or "Unknown error",
                 "attempts":          m.processing_attempts,
@@ -123,7 +156,7 @@ def dashboard(
         name="dashboard.html",
         context={
             "plant_name"         : os.getenv("PLANT_NAME", "Fluffy"),
-            "current_time"       : datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "current_time"       : now_ist.strftime("%d %b %Y, %I:%M %p"),
             "orders"             : orders,
             "clear_orders"       : clear_orders,
             "unclear_orders"     : unclear_orders,

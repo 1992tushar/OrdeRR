@@ -8,3 +8,7 @@ check_db.py
 invoices/
 scripts/local/
 test_invoice.pdf
+
+# Add these
+*.db
+output.txt

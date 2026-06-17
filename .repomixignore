@@ -1,0 +1,18 @@
+# Templates — rarely need AI review, huge line count
+app/templates/
+
+# Test output — never useful context
+output.txt
+
+# Test databases
+*.db
+
+# Config files with no logic
+Procfile
+runtime.txt
+render.yaml
+pytest.ini
+README.md
+requirements.txt
+.python-version
+

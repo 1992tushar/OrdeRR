@@ -61,7 +61,7 @@ def get_current_business_date_str() -> str:
     return get_current_business_date().strftime("%Y-%m-%d")
 
 def get_delivery_date_str() -> str:
-    return get_today_ist().strftime("%Y-%m-%d")
+    return get_current_business_date().strftime("%Y-%m-%d")
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -514,7 +514,7 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
                     f"⚠️ *Additional Order — {PLANT_NAME}*\n\n"
                     f"🏪 {customer.restaurant_name}\n"
                     f"📱 {customer_phone}\n\n"
-                    f"*Original order* (placed at {existing_order.created_at.strftime('%I:%M %p')}):\n"
+                    f"*Original order* (placed at {existing_order.created_at.astimezone(IST).strftime('%I:%M %p')} IST):\n"
                     + "\n".join(f"• {i['product']} — {i['quantity']} {i['unit']}" for i in existing_items)
                     + f"\n\n*Additional order:*\n"
                     + "\n".join(f"• {i['product']} — {i['quantity']} {i['unit']}" for i in parsed.get("items", []))
