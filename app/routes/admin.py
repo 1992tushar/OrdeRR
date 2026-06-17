@@ -43,7 +43,7 @@ from app.models.salesperson import Salesperson
 from app.models.inbound_message import InboundMessage
 from app.models.unclear_item_alias import UnclearItemAlias
 from app.models.customer_product_alias import CustomerProductAlias
-from app.services.customer_service import normalize_phone
+from app.services.customer_service import normalize_phone, validate_phone
 from app.services.notifier import send_whatsapp_message
 from app.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 from app.services.template_parser import PRODUCT_DEFINITIONS
@@ -449,6 +449,10 @@ def list_salespersons(db: Session = Depends(get_db), username: str = Depends(req
 
 @router.post("/salespersons")
 def create_salesperson(payload: SalespersonCreate, db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    error = validate_phone(payload.phone)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
     normalized = normalize_phone(payload.phone)
     if db.query(Salesperson).filter(Salesperson.phone == normalized).first():
         raise HTTPException(status_code=400, detail=f"Salesperson with phone {normalized} already exists")
@@ -478,8 +482,13 @@ def update_salesperson(salesperson_id: int, payload: SalespersonUpdate, db: Sess
     if not sp:
         raise HTTPException(status_code=404, detail="Salesperson not found")
     if payload.name   is not None: sp.name   = payload.name.strip()
-    if payload.phone  is not None: sp.phone  = normalize_phone(payload.phone)
+    if payload.phone  is not None:
+        error = validate_phone(payload.phone)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        sp.phone = normalize_phone(payload.phone)
     if payload.active is not None: sp.active = payload.active
+
     db.commit(); db.refresh(sp)
     return {"status": "updated", "salesperson": {"id": sp.id, "name": sp.name, "phone": sp.phone, "active": sp.active}}
 

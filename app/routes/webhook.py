@@ -155,7 +155,7 @@ def handle_manager_add_customer(db: Session, message_text: str) -> str:
     if len(tokens) < 2:
         return (
             "⚠️ Format: ADD CUSTOMER <phone> <restaurant name>\n"
-            "Example: ADD CUSTOMER 919876543210 Hotel Delicious"
+            "Example: ADD CUSTOMER 9876543210 Hotel Delicious"
         )
 
     phone_raw, restaurant_name = tokens[0], tokens[1]
