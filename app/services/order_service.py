@@ -66,6 +66,37 @@ def get_delivery_date_str() -> str:
     return get_today_ist().strftime("%Y-%m-%d")
 
 
+# ── JSON-safety helper ────────────────────────────────────────────────────────
+
+def _safe_load_list(value) -> list:
+    """
+    Safely coerce a JSONB/text column value to a Python list.
+    Handles: None, already-a-list (normal JSONB), JSON string (legacy),
+    double-encoded JSON string, empty/null sentinels.
+
+    Use this everywhere you need to read parsed_items or unclear_items
+    back from an Order row — never call json.loads() directly on these
+    columns, because on Postgres/JSONB the driver already returns a list.
+    """
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        if value in ("null", "[]", ""):
+            return []
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, str):  # double-encoded
+                inner = json.loads(parsed)
+                return inner if isinstance(inner, list) else []
+        except Exception:
+            pass
+    return []
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def get_internal_phones(db: Session) -> set:
@@ -174,6 +205,49 @@ def _notify_salesperson(
         logger.warning("Failed to notify salesperson %s: %s", sp.phone, e)
 
 
+# ── Stats write helper (unit inference learning loop) ─────────────────────────
+
+def _update_stats_for_items(customer_phone: str, parsed_items: list, db) -> None:
+    """
+    Write confirmed quantities to customer_product_stats (FRD §5.3).
+
+    Called ONLY after an order is fully confirmed (saved to DB with a
+    resolved unit).  Skips items that are still ambiguous
+    (UNIT_AMBIGUOUS_MARKER) — those must be resolved by the manager first
+    via /admin/unclear-items/resolve-qty before stats are written.
+
+    Also skips non-kg items (nos, etc.) — only kg quantities feed the
+    inference model.
+
+    Swallows all errors so it never interrupts the order flow.
+    """
+    from app.services.unit_inference import record_confirmed_qty, UNIT_AMBIGUOUS_MARKER
+
+    for item in parsed_items:
+        unit = item.get("unit", "")
+
+        # Never write stats for items pending manager review
+        if unit == UNIT_AMBIGUOUS_MARKER:
+            continue
+
+        # Only track kg quantities (nos/pieces handled separately; g
+        # quantities are stored as kg by the admin resolver)
+        if unit.lower() != "kg":
+            continue
+
+        product  = item.get("product", "")
+        quantity = item.get("quantity", 0)
+        if not product or quantity <= 0:
+            continue
+
+        record_confirmed_qty(
+            product=product,
+            customer_phone=customer_phone,
+            qty_kg=float(quantity),
+            db=db,
+        )
+
+
 # ── Notification helpers ──────────────────────────────────────────────────────
 
 def _build_unclear_alert(
@@ -218,14 +292,20 @@ def _save_and_notify(
     unclear_items   = parsed.get("unclear_items", [])
     parsed_items    = parsed.get("items", [])
 
+    # FIX: pass Python lists directly — SQLAlchemy/JSONB serializes them.
+    # Previously json.dumps() was called here, which double-encoded the data
+    # on Postgres (storing a JSON string instead of a JSON array). This caused
+    # admin.py's resolver to write a clean list back while the original save
+    # had written a string, creating an inconsistency that broke the confirmed-
+    # order display after word-qty resolution.
     order = Order(
         plant_name     = PLANT_NAME,
         customer_name  = restaurant_name,
         customer_phone = customer_phone,
         raw_message    = raw_message,
         is_photo_order = is_photo,
-        parsed_items   = json.dumps(parsed_items),
-        unclear_items  = json.dumps(unclear_items) if unclear_items else None,
+        parsed_items   = parsed_items,
+        unclear_items  = unclear_items or None,
         delivery_date  = get_delivery_date_str(),
         delivery_time  = parsed.get("delivery_time"),
         is_unclear     = parsed.get("is_unclear", False),
@@ -307,6 +387,14 @@ def _save_and_notify(
         order.forwarded_to_manager = True
 
     db.commit()
+
+    # ── Update unit-inference stats for confirmed kg items ────────────────────
+    # Only write stats for items that have a resolved unit (not UNIT_AMBIGUOUS_MARKER).
+    # Items still pending manager review must not poison the training signal.
+    # Commit separately so the order save above is isolated from any stats error.
+    if parsed_items:
+        _update_stats_for_items(customer_phone, parsed_items, db)
+        db.commit()  # commit stats update independently
 
     return {
         "order_id"      : order.id,
@@ -413,13 +501,15 @@ def _handle_repeat(db: Session, customer: Customer) -> dict:
         )
         return {"order_id": None, "status": "no_last_order", "parsed": None}
 
-    items = json.loads(last.parsed_items)
+    # FIX: use _safe_load_list instead of json.loads — on Postgres/JSONB the
+    # column is already a list; json.loads() raises TypeError on a list object.
+    items = _safe_load_list(last.parsed_items)
     pending = Order(
         plant_name     = PLANT_NAME,
         customer_name  = customer.restaurant_name,
         customer_phone = customer_phone,
         raw_message    = "repeat",
-        parsed_items   = json.dumps(items),
+        parsed_items   = items,   # FIX: pass list directly, not json.dumps(items)
         delivery_date  = get_delivery_date_str(),
         business_date  = get_current_business_date_str(),
         is_unclear     = False,
@@ -460,7 +550,9 @@ def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
     pending_replace   = _get_pending_replace(db, customer_phone)
 
     if pending_repeat:
-        items  = json.loads(pending_repeat.parsed_items)
+        # FIX: use _safe_load_list — json.loads() raises TypeError on Postgres
+        # when the JSONB column is already deserialized to a Python list.
+        items  = _safe_load_list(pending_repeat.parsed_items)
         parsed = {
             "items": items, "unclear_items": [],
             "delivery_date": None, "delivery_time": None,
@@ -477,6 +569,12 @@ def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
         pending_repeat.confirmation_sent    = confirmation_sent
         pending_repeat.forwarded_to_manager = True
         db.commit()
+
+        # ── Write stats for confirmed repeat items ────────────────────────────
+        if items:
+            _update_stats_for_items(customer_phone, items, db)
+            db.commit()
+
         return {"order_id": pending_repeat.id, "status": "repeat_confirmed", "parsed": parsed}
 
     if pending_replace:
@@ -497,23 +595,55 @@ def _handle_confirm_yes(db: Session, customer: Customer) -> dict:
             old_order.cancelled_at = datetime.now(IST)
             old_order.status       = "cancelled"
 
-        items  = json.loads(pending_replace.parsed_items)
+        # FIX: use _safe_load_list for both columns
+        items         = _safe_load_list(pending_replace.parsed_items)
+        unclear_items = _safe_load_list(pending_replace.unclear_items)
+
         parsed = {
-            "items": items, "unclear_items": [],
-            "delivery_date": None, "delivery_time": pending_replace.delivery_time,
-            "is_unclear": False, "unclear_reason": None,
+            "items":          items,
+            "unclear_items":  unclear_items,
+            "delivery_date":  None,
+            "delivery_time":  pending_replace.delivery_time,
+            "is_unclear":     False,
+            "unclear_reason": None,
         }
         pending_replace.status = "received"
         db.commit()
 
         confirmation_sent = send_order_confirmation(customer_phone, parsed, customer.restaurant_name)
-        send_manager_alert(MANAGER_PHONE, customer_phone, parsed, customer.restaurant_name)
-        # Notify assigned salesperson
-        _notify_salesperson(db, customer, parsed)
+
+        # Mirror _save_and_notify's branching: only send the normal
+        # manager/salesperson alert when nothing is unclear. Otherwise route
+        # through the unclear-items alert so the manager actually sees the
+        # unresolved line and it isn't lost.
+        if not unclear_items:
+            send_manager_alert(MANAGER_PHONE, customer_phone, parsed, customer.restaurant_name)
+            _notify_salesperson(db, customer, parsed)
+        else:
+            unclear_msg = _build_unclear_alert(
+                customer.restaurant_name, customer_phone, unclear_items, items
+            )
+            try:
+                send_whatsapp_message(MANAGER_PHONE, unclear_msg)
+            except Exception as e:
+                logger.warning("Unclear items manager alert failed (replace-confirm): %s", e)
+
+            sp = _get_assigned_salesperson(db, customer)
+            if sp and sp.phone:
+                try:
+                    send_whatsapp_message(sp.phone, unclear_msg)
+                except Exception as e:
+                    logger.warning("Unclear items salesperson alert failed (replace-confirm): %s", e)
 
         pending_replace.confirmation_sent    = confirmation_sent
         pending_replace.forwarded_to_manager = True
         db.commit()
+
+        # ── Write stats for confirmed replace items ───────────────────────────
+        if items:
+            _update_stats_for_items(customer_phone, items, db)
+            db.commit()
+
         return {"order_id": pending_replace.id, "status": "replace_confirmed", "parsed": parsed}
 
     # Stale yes with no pending order — treat as a normal order attempt
@@ -595,14 +725,17 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
         )
 
         if current_time_ist < cutoff_time:
-            # Before dispatch cutoff — ask customer to confirm replacement
+            # Before dispatch cutoff — ask customer to confirm replacement.
+            # FIX: pass lists directly to Order columns (no json.dumps).
+            pending_items   = parsed.get("items", [])
+            pending_unclear = parsed.get("unclear_items") or None
             pending = Order(
                 plant_name     = PLANT_NAME,
                 customer_name  = customer.restaurant_name,
                 customer_phone = customer_phone,
                 raw_message    = message,
-                parsed_items   = json.dumps(parsed.get("items", [])),
-                unclear_items  = json.dumps(parsed.get("unclear_items", [])) if parsed.get("unclear_items") else None,
+                parsed_items   = pending_items,
+                unclear_items  = pending_unclear,
                 delivery_date  = get_delivery_date_str(),
                 delivery_time  = parsed.get("delivery_time"),
                 business_date  = get_current_business_date_str(),
@@ -612,9 +745,10 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
             db.add(pending)
             db.commit()
 
+            # FIX: use _safe_load_list to read existing order's parsed_items
             send_replace_confirmation_request(
                 customer_phone = customer_phone,
-                existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else [],
+                existing_items = _safe_load_list(existing_order.parsed_items),
                 new_items      = parsed.get("items", []),
             )
             return {"order_id": pending.id, "status": "replace_requested", "parsed": parsed}
@@ -622,7 +756,8 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
         else:
             # After dispatch cutoff — accept as additional order, alert manager + salesperson
             result = _save_and_notify(db, customer, parsed, message, is_photo=is_photo)
-            existing_items = json.loads(existing_order.parsed_items) if existing_order.parsed_items else []
+            # FIX: use _safe_load_list to read existing order's parsed_items
+            existing_items = _safe_load_list(existing_order.parsed_items)
             additional_msg = (
                 f"⚠️ *Additional Order — {PLANT_NAME}*\n\n"
                 f"🏪 {customer.restaurant_name}\n"
@@ -705,6 +840,9 @@ def process_incoming_order(
 
     if intent == Intent.HISTORY:
         return _handle_history(db, customer)
+
+    if intent == Intent.GREETING:
+        return {"order_id": None, "status": "greeting_ignored", "parsed": None}
 
     if intent == Intent.CONFIRM_YES:
         return _handle_confirm_yes(db, customer)

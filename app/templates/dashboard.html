@@ -166,6 +166,112 @@
         .scope-select.customer { border-color:#3182ce; color:#2b6cb0; }
         .scope-select.global   { border-color:#e67e22; color:#c05621; }
 
+        /* ── Quantity-ambiguous items ── */
+        .qty-ambiguous-pill {
+            font-size: 13px;
+            font-family: monospace;
+            background: #fffbeb;
+            border: 1px solid #fcd34d;
+            border-radius: 6px;
+            padding: 4px 10px;
+            color: #92400e;
+            flex: 1;
+            min-width: 120px;
+        }
+        .qty-ambiguous-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #d97706;
+            background: #fef3c7;
+            border-radius: 4px;
+            padding: 2px 6px;
+            white-space: nowrap;
+        }
+        .unit-toggle-btn {
+            font-size: 13px;
+            font-weight: 700;
+            padding: 5px 14px;
+            border-radius: 6px;
+            border: 2px solid #e2e8f0;
+            background: white;
+            cursor: pointer;
+            color: #4a5568;
+            transition: all .15s;
+        }
+        .unit-toggle-btn.selected-kg  { border-color: #3182ce; background: #ebf8ff; color: #2b6cb0; }
+        .unit-toggle-btn.selected-g   { border-color: #38a169; background: #f0fff4; color: #276749; }
+        .qty-confirm-btn {
+            font-size: 12px;
+            background: #3182ce;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 5px 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            font-weight: 600;
+        }
+        .qty-confirm-btn:disabled { opacity: .6; cursor: not-allowed; }
+        .qty-confirm-btn.done     { background: #38a169; }
+
+        /* ── Word-quantity items ── */
+        .word-qty-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #6b21a8;
+            background: #f3e8ff;
+            border-radius: 4px;
+            padding: 2px 6px;
+            white-space: nowrap;
+        }
+        .word-qty-pill {
+            font-size: 13px;
+            font-family: monospace;
+            background: #faf5ff;
+            border: 1px solid #d8b4fe;
+            border-radius: 6px;
+            padding: 4px 10px;
+            color: #6b21a8;
+            flex: 1;
+            min-width: 120px;
+        }
+        .word-qty-qty-input {
+            font-size: 14px;
+            font-weight: 700;
+            width: 72px;
+            padding: 5px 8px;
+            border: 2px solid #d8b4fe;
+            border-radius: 6px;
+            text-align: center;
+            outline: none;
+        }
+        .word-qty-qty-input:focus { border-color: #9333ea; }
+        .word-qty-unit-btn {
+            font-size: 13px;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 6px;
+            border: 2px solid #e2e8f0;
+            background: white;
+            cursor: pointer;
+            color: #4a5568;
+            transition: all .15s;
+        }
+        .word-qty-unit-btn.selected { border-color: #9333ea; background: #faf5ff; color: #6b21a8; }
+        .word-qty-save-btn {
+            font-size: 12px;
+            background: #7c3aed;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 5px 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            font-weight: 600;
+        }
+        .word-qty-save-btn:disabled { opacity: .6; cursor: not-allowed; }
+        .word-qty-save-btn.done { background: #38a169; }
+
         /* ── Modals ── */
         .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:500; align-items:flex-end; justify-content:center; }
         .modal-overlay.open { display:flex; }
@@ -1098,31 +1204,114 @@ async function loadUnclearOrders() {
                 </div>` : '';
 
             // CHANGE 3: Updated unclearSection with scope dropdown + customer_phone
+            // CHANGE 7 (unit inference): branch on __qty_ambiguous__ prefix and render
+            // a kg/g toggle row instead of a product-select row for those lines.
             const unclearSection = `
                 <div>
                     <div class="unclear-section-label unclear-raw-label">❓ Unresolved items — assign correct product:</div>
                     <div style="font-size:11px;color:#888;margin-bottom:8px;">📱 ${esc(order.customer_phone)} — ${esc(order.customer_name)}</div>
-                    ${order.unclear_items.map((rawLine, idx) => `
-                        <div class="unclear-item-row">
-                            <div class="unclear-raw-pill">${esc(rawLine)}</div>
-                            <select class="unclear-select" id="sel-${order.order_id}-${idx}">
-                                <option value="">— select product —</option>
-                                ${productOptions}
-                            </select>
-                            <select class="scope-select customer" id="scope-${order.order_id}-${idx}"
-                                onchange="this.className='scope-select '+(this.value==='customer'?'customer':'global')">
-                                <option value="customer">This customer only</option>
-                                <option value="global">All customers (global)</option>
-                            </select>
-                            <button class="unclear-save-btn"
-                                onclick="resolveItem('${esc(rawLine).replace(/'/g,"\\'")}', 'sel-${order.order_id}-${idx}', this, '${esc(order.customer_phone)}', 'scope-${order.order_id}-${idx}')">
-                                Save &amp; Apply
-                            </button>
-                            <button class="unclear-save-btn" style="background:#718096;"
-                                onclick="markAsNoise('${esc(rawLine).replace(/'/g,"\\'")}', this)">
-                                🚫 Noise
-                            </button>
-                        </div>`).join('')}
+                    ${order.unclear_items.map((rawLine, idx) => {
+
+                        // ── Word-quantity item (new) ──────────────────────────────────────────
+                        if (rawLine.startsWith('__word_qty__')) {
+                            // Parse:  __word_qty__Wings::1.5::kg  [डेढ़ → 1.5 kg (word qty — confirm)]
+                            // or:     __word_qty__UNKNOWN::1.5::?  [...] | raw: डेढ़ किलो lollipop
+                            const isUnknown = rawLine.startsWith('__word_qty__UNKNOWN::');
+
+                            // Strip prefix and the human-readable hint (everything after the first '  [')
+                            const body      = rawLine.replace('__word_qty__', '').split('  [')[0]; // "Wings::1.5::kg"
+                            const parts     = body.split('::');   // ["Wings", "1.5", "kg"]
+                            const parsedProduct = isUnknown ? '' : (parts[0] || '');
+                            const parsedQty     = parseFloat(parts[1]) || '';
+                            const parsedUnit    = parts[2] || 'kg';                 // "kg" or "nos" or "?"
+
+                            // Human-readable hint text (the [...] part) for display
+                            const hintMatch = rawLine.match(/\[(.+?)\]/);
+                            const hintText  = hintMatch ? hintMatch[1] : rawLine;
+
+                            const rowId     = `wq-${order.order_id}-${idx}`;
+
+                            // Unit buttons: spec says kg / nos toggle, always editable
+                            // Default-select the parser's unit hint if it's kg or nos
+                            const kgSel  = (parsedUnit === 'kg')  ? 'selected' : '';
+                            const nosSel = (parsedUnit === 'nos') ? 'selected' : '';
+
+                            return `
+                                <div class="unclear-item-row" id="${rowId}-row">
+                                    <span class="word-qty-label">🔤 Word qty</span>
+                                    <div class="word-qty-pill" title="${esc(rawLine)}">${esc(hintText)}</div>
+                                    ${isUnknown ? `
+                                        <select class="unclear-select" id="${rowId}-product" onchange="wqCheckReady('${rowId}')">
+                                            <option value="">— select product —</option>
+                                            ${productOptions}
+                                        </select>` : `
+                                        <select class="unclear-select" id="${rowId}-product" onchange="wqCheckReady('${rowId}')">
+                                            ${products.map(p => `<option value="${esc(p)}"${p === parsedProduct ? ' selected' : ''}>${esc(p)}</option>`).join('')}
+                                        </select>`}
+                                    <input  class="word-qty-qty-input" type="number" id="${rowId}-qty"
+                                            value="${parsedQty}" min="0.01" step="0.01"
+                                            oninput="wqCheckReady('${rowId}')"/>
+                                    <button class="word-qty-unit-btn ${kgSel}"  id="${rowId}-kg"
+                                            onclick="wqSelectUnit('${rowId}','kg')">kg</button>
+                                    <button class="word-qty-unit-btn ${nosSel}" id="${rowId}-nos"
+                                            onclick="wqSelectUnit('${rowId}','nos')">nos</button>
+                                    <button class="word-qty-save-btn" id="${rowId}-btn" disabled
+                                            onclick="resolveWordQtyItem(${order.order_id},'${rowId}','${esc(order.customer_phone)}')">
+                                        Save &amp; Apply
+                                    </button>
+                                    <button class="unclear-save-btn" style="background:#718096;"
+                                            onclick="markAsNoise('${esc(rawLine).replace(/'/g,"\\'")}', this)">
+                                        🚫 Noise
+                                    </button>
+                                </div>`;
+                        }
+
+                        // ── Quantity-ambiguous item (unit inference) ───────────────
+                        if (rawLine.startsWith('__qty_ambiguous__')) {
+                            // Format: __qty_ambiguous__<Product>::<quantity>
+                            const inner   = rawLine.replace('__qty_ambiguous__', '');
+                            const sepIdx  = inner.lastIndexOf('::');
+                            const product = sepIdx >= 0 ? inner.substring(0, sepIdx) : inner;
+                            const qty     = sepIdx >= 0 ? inner.substring(sepIdx + 2) : '?';
+                            const rowId   = `qty-${order.order_id}-${idx}`;
+                            return `
+                                <div class="unclear-item-row" id="${rowId}-row">
+                                    <span class="qty-ambiguous-label">⚖️ Unit unclear</span>
+                                    <div class="qty-ambiguous-pill">${esc(product)} — ${esc(qty)} <em style="color:#aaa">kg or g?</em></div>
+                                    <button class="unit-toggle-btn" id="${rowId}-kg"
+                                        onclick="selectUnit('${rowId}', 'kg')">kg</button>
+                                    <button class="unit-toggle-btn" id="${rowId}-g"
+                                        onclick="selectUnit('${rowId}', 'g')">g</button>
+                                    <button class="qty-confirm-btn" id="${rowId}-btn"
+                                        onclick="resolveQtyItem(${order.order_id}, '${esc(product)}', ${qty}, '${esc(order.customer_phone)}', '${rowId}')">
+                                        Confirm
+                                    </button>
+                                </div>`;
+                        }
+
+                        // ── Product-name unclear item (existing behaviour, unchanged) ──
+                        return `
+                            <div class="unclear-item-row">
+                                <div class="unclear-raw-pill">${esc(rawLine)}</div>
+                                <select class="unclear-select" id="sel-${order.order_id}-${idx}">
+                                    <option value="">— select product —</option>
+                                    ${productOptions}
+                                </select>
+                                <select class="scope-select customer" id="scope-${order.order_id}-${idx}"
+                                    onchange="this.className='scope-select '+(this.value==='customer'?'customer':'global')">
+                                    <option value="customer">This customer only</option>
+                                    <option value="global">All customers (global)</option>
+                                </select>
+                                <button class="unclear-save-btn"
+                                    onclick="resolveItem('${esc(rawLine).replace(/'/g,"\\'")}', 'sel-${order.order_id}-${idx}', this, '${esc(order.customer_phone)}', 'scope-${order.order_id}-${idx}')">
+                                    Save &amp; Apply
+                                </button>
+                                <button class="unclear-save-btn" style="background:#718096;"
+                                    onclick="markAsNoise('${esc(rawLine).replace(/'/g,"\\'")}', this)">
+                                    🚫 Noise
+                                </button>
+                            </div>`;
+                    }).join('')}
                 </div>`;
 
             return `
@@ -1142,6 +1331,16 @@ async function loadUnclearOrders() {
                     </details>
                 </div>`;
         }).join('');
+
+        // Initialise _wqSelectedUnit for any pre-selected unit buttons
+        document.querySelectorAll('.word-qty-unit-btn.selected').forEach(btn => {
+            const id  = btn.id;  // e.g. "wq-42-0-kg"
+            const rowId = id.substring(0, id.lastIndexOf('-'));  // "wq-42-0"
+            const unit  = id.substring(id.lastIndexOf('-') + 1); // "kg" or "nos"
+            _wqSelectedUnit[rowId] = unit;
+            // Enable Save & Apply if product is pre-filled too
+            wqCheckReady(rowId);
+        });
 
         loadNoisePhrases();
 
@@ -1188,6 +1387,110 @@ async function resolveItem(rawText, selectId, btn, customerPhone, scopeSelectId)
         btn.textContent = 'Save & Apply';
         let msg = e.message;
         try { msg = JSON.parse(e.message)?.detail || msg; } catch(_){}
+        showToast('❌ ' + msg, 'error');
+    }
+}
+
+// ── Quantity ambiguity helpers (unit inference) ────────────────────────────────
+const _selectedUnit = {};   // rowId → 'kg' | 'g'
+
+function selectUnit(rowId, unit) {
+    _selectedUnit[rowId] = unit;
+    ['kg', 'g'].forEach(u => {
+        const btn = document.getElementById(`${rowId}-${u}`);
+        if (btn) btn.className = 'unit-toggle-btn' + (u === unit ? ` selected-${u}` : '');
+    });
+}
+
+async function resolveQtyItem(orderId, product, quantity, customerPhone, rowId) {
+    const unit = _selectedUnit[rowId];
+    if (!unit) { showToast('Please select kg or g first', 'error'); return; }
+
+    const btn = document.getElementById(`${rowId}-btn`);
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+        const data = await api('POST', '/admin/unclear-items/resolve-qty', {
+            order_id:       orderId,
+            product:        product,
+            quantity:       quantity,
+            confirmed_unit: unit,
+            customer_phone: customerPhone,
+        });
+        btn.textContent = `✅ ${quantity} ${unit}`;
+        btn.classList.add('done');
+        showToast(`✅ ${product}: confirmed as ${quantity} ${unit}`, 'success');
+        setTimeout(() => loadUnclearOrders(), 1500);
+    } catch(e) {
+        btn.disabled = false;
+        btn.textContent = 'Confirm';
+        let msg = e.message;
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
+        showToast('❌ ' + msg, 'error');
+    }
+}
+
+// ── Word-quantity resolution helpers ──────────────────────────────────────────
+
+// Track selected units for word-qty rows (separate from _selectedUnit for qty-ambiguous)
+const _wqSelectedUnit = {};  // rowId → 'kg' | 'nos'
+
+function wqSelectUnit(rowId, unit) {
+    _wqSelectedUnit[rowId] = unit;
+    ['kg', 'nos'].forEach(u => {
+        const btn = document.getElementById(`${rowId}-${u}`);
+        if (btn) btn.className = 'word-qty-unit-btn' + (u === unit ? ' selected' : '');
+    });
+    wqCheckReady(rowId);
+}
+
+function wqCheckReady(rowId) {
+    const productEl  = document.getElementById(`${rowId}-product`);
+    const qtyEl      = document.getElementById(`${rowId}-qty`);
+    const saveBtn    = document.getElementById(`${rowId}-btn`);
+    if (!saveBtn) return;
+
+    const productOk  = productEl && productEl.value !== '';
+    const qtyVal     = parseFloat(qtyEl && qtyEl.value);
+    const qtyOk      = !isNaN(qtyVal) && qtyVal > 0;
+    const unitOk     = !!_wqSelectedUnit[rowId];
+
+    saveBtn.disabled = !(productOk && qtyOk && unitOk);
+}
+
+async function resolveWordQtyItem(orderId, rowId, customerPhone) {
+    const productEl = document.getElementById(`${rowId}-product`);
+    const qtyEl     = document.getElementById(`${rowId}-qty`);
+    const product   = productEl ? productEl.value : '';
+    const quantity  = parseFloat(qtyEl ? qtyEl.value : '');
+    const unit      = _wqSelectedUnit[rowId];
+
+    if (!product)               { showToast('Please select a product',     'error'); return; }
+    if (!quantity || quantity <= 0) { showToast('Please enter a valid quantity', 'error'); return; }
+    if (!unit)                  { showToast('Please select kg or nos',     'error'); return; }
+
+    const btn = document.getElementById(`${rowId}-btn`);
+    btn.disabled  = true;
+    btn.textContent = 'Saving…';
+
+    try {
+        const data = await api('POST', '/admin/unclear-items/resolve-word-qty', {
+            order_id:       orderId,
+            product:        product,
+            quantity:       quantity,
+            unit:           unit,
+            customer_phone: customerPhone,
+        });
+        btn.textContent = `✅ ${quantity} ${unit} — ${data.retro_patched} past order${data.retro_patched !== 1 ? 's' : ''} updated`;
+        btn.classList.add('done');
+        showToast(`✅ ${product}: ${quantity} ${unit} added to order (${data.retro_patched} past orders updated)`, 'success');
+        setTimeout(() => { loadUnclearOrders(); loadAliases(); loadCustomerAliases(); }, 1800);
+    } catch(e) {
+        btn.disabled    = false;
+        btn.textContent = 'Save & Apply';
+        let msg = e.message;
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
         showToast('❌ ' + msg, 'error');
     }
 }

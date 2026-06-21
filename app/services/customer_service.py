@@ -25,8 +25,13 @@ def normalize_phone(phone: str) -> str:
 
     # Only add 91 prefix if the number is exactly 10 digits (raw Indian mobile)
     # This avoids the bug where 911234567890 would incorrectly get prefixed again
-    if len(phone) == 10 and not phone.startswith("91"):
-        phone = f"91{phone}"
+  
+
+
+    if len(phone) == 10:
+        phone = f"91{phone}"   # always prefix 10-digit numbers, no startswith check
+    return phone
+
 
     return phone
 

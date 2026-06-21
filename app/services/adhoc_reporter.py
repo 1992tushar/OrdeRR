@@ -54,6 +54,7 @@ REPORT_KEYWORDS = {
     "today report",
     "aaj",
     "aaj ka report",
+    "daily",
 }
 
 # ── Button reply IDs ──────────────────────────────────────────────────────────

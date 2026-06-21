@@ -1,4 +1,5 @@
 from enum import Enum
+import re
 
 
 class Intent(Enum):
@@ -9,6 +10,7 @@ class Intent(Enum):
     CONFIRM_YES      = "confirm_yes"
     CONFIRM_NO       = "confirm_no"
     HISTORY          = "history"
+    GREETING         = "greeting"
     ORDER            = "order"
 
 
@@ -19,7 +21,7 @@ CANCEL_KEYWORDS = {
     "cancel", "cancel order", "cancel my order", "order cancel",
     "cancel karo", "cancel kar", "band karo", "mat bhejo",
     "order band", "no order", "no order today", "aaj nahi",
-    "order nahi", "nahi chahiye",
+    "order nahi", "nahi chahiye", "रद्द करो", "रद्द कर दो",
 }
 
 REPEAT_KEYWORDS = {
@@ -116,5 +118,35 @@ def classify_intent(
     if lower in HISTORY_KEYWORDS:
         return Intent.HISTORY
 
-    # 6. Everything else is treated as an order attempt
+    # 6. Greeting / filler — checked before the digit-free whole-word
+    #    fallback so a plain "hi"/"thanks"/"ok sure" isn't misread as an
+    #    order. Only fires on exact whole-message match (not substring),
+    #    same as the other keyword-set checks above.
+    if lower in GREETINGS or lower in FILLER_PHRASES:
+        return Intent.GREETING
+
+    # 7. Fallback — real customer messages rarely match a keyword set
+    #    exactly (e.g. "please cancel my order today"). Allow whole-word
+    #    matching for these short, free-text intents, but ONLY when the
+    #    message has no digits — product orders almost always carry a
+    #    quantity, so this avoids misclassifying catalog phrases like
+    #    "No Skin Tandoor 5 kg" (which contains the word "no") as CANCEL.
+    if not any(ch.isdigit() for ch in lower):
+        if _contains_whole_word(lower, CANCEL_KEYWORDS):
+            return Intent.CANCEL
+        if _contains_whole_word(lower, REPEAT_KEYWORDS):
+            return Intent.REPEAT_LAST
+        if _contains_whole_word(lower, HISTORY_KEYWORDS):
+            return Intent.HISTORY
+
+    # 8. Everything else is treated as an order attempt
     return Intent.ORDER
+
+
+def _contains_whole_word(text: str, phrases: set[str]) -> bool:
+    """True if any phrase in `phrases` appears in `text` as a whole word
+    (or whole phrase), not as a substring of a larger word."""
+    for phrase in phrases:
+        if re.search(rf"\b{re.escape(phrase)}\b", text):
+            return True
+    return False

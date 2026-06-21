@@ -15,6 +15,8 @@ Unclear:      GET /admin/unclear-items
               GET /admin/unclear-items/aliases
               GET /admin/product-names
               POST /admin/unclear-items/resolve
+              POST /admin/unclear-items/resolve-qty   ← unit-inference resolution
+              POST /admin/unclear-items/resolve-word-qty  ← word-quantity resolution (spec §6)
               DELETE /admin/unclear-items/aliases/{id}
 Customer Aliases:
               GET  /admin/customer-aliases
@@ -54,7 +56,7 @@ from app.services.notifier import send_manager_alert
 from app.services.customer_service import get_customer_by_phone
 from app.models.noise_phrase import NoisePhrase
 from app.services.notifier import send_whatsapp_message, send_customer_registration_welcome
-
+from sqlalchemy.exc import IntegrityError
 logger = logging.getLogger(__name__)
 
 
@@ -69,7 +71,7 @@ IST        = timezone(timedelta(hours=5, minutes=30))
 class SalespersonCreate(BaseModel):
     name: str
     phone: str
-    area: Optional[str] = None
+    area: str        # remove Optional and default
 
 class SalespersonUpdate(BaseModel):
     name:   Optional[str]  = None
@@ -113,6 +115,34 @@ class CustomerAliasCreate(BaseModel):
     customer_phone: str
     raw_text: str
     canonical_product_name: str
+
+class ResolveQtyAmbiguity(BaseModel):
+    """
+    Payload for resolving a quantity-ambiguous unclear item (FRD §3.4, §5.3).
+    The manager picks the confirmed unit for a specific (order, product) pair
+    from the Unclear tab kg/g toggle UI.
+    """
+    order_id:       int
+    product:        str          # canonical product name
+    quantity:       float        # the original raw number
+    confirmed_unit: str          # "kg" or "g"
+    customer_phone: str
+
+class ResolveWordQtyItem(BaseModel):
+    """
+    Payload for resolving a __word_qty__ unclear item (spec §6).
+
+    order_id:       the specific order being resolved right now
+    product:        canonical product name (manager-confirmed)
+    quantity:       manager-confirmed quantity (pre-filled from sentinel, editable)
+    unit:           manager-confirmed unit — "kg" or "nos"
+    customer_phone: used to scope the product-only alias (Option B)
+    """
+    order_id:       int
+    product:        str
+    quantity:       float
+    unit:           str
+    customer_phone: str
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -218,7 +248,7 @@ def _retroactive_remove_noise(normalized: str, db: Session) -> int:
 
         if changed:
             # ✅ Assign native list — no json.dumps needed for JSONB
-            order.unclear_items = remaining if remaining else None
+            order.unclear_items = remaining if remaining else []
             if not remaining:
                 order.is_unclear = False
             patched_ids.append(order.id)
@@ -234,6 +264,8 @@ def _retroactive_patch_global(raw: str, canonical: str, db: Session) -> int:
     """
     Move unclear items matching `raw` into parsed_items for ALL orders.
     Uses ORM — assigns native Python lists directly to JSONB columns.
+    Skips __qty_ambiguous__ sentinels (those are resolved by resolve-qty endpoint).
+    Skips __word_qty__ sentinels (those are resolved by resolve-word-qty endpoint).
     """
     orders = db.query(Order).filter(
         Order.unclear_items.isnot(None),
@@ -244,13 +276,18 @@ def _retroactive_patch_global(raw: str, canonical: str, db: Session) -> int:
 
     for order in orders:
         unclear = _safe_list(order.unclear_items)
-        parsed  = _safe_list(order.parsed_items)
+        parsed  = list(_safe_list(order.parsed_items))
         if not unclear:
             continue
 
         remaining     = []
         matched_lines = []
         for line in unclear:
+            # Never retroactively patch sentinels — those require explicit
+            # manager resolution via their respective endpoints
+            if line.startswith("__qty_ambiguous__") or line.startswith("__word_qty__"):
+                remaining.append(line)
+                continue
             product_part = _extract_product_name_from_line(line)
             if product_part == raw or product_part.startswith(raw) or raw in product_part:
                 matched_lines.append(line)
@@ -266,7 +303,7 @@ def _retroactive_patch_global(raw: str, canonical: str, db: Session) -> int:
 
         # ✅ Assign native lists — no json.dumps needed for JSONB
         order.parsed_items  = parsed
-        order.unclear_items = remaining if remaining else None
+        order.unclear_items = remaining if remaining else []
         if not remaining:
             order.is_unclear = False
         patched_ids.append(order.id)
@@ -282,6 +319,7 @@ def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db: Sessio
     """
     Move unclear items matching `raw` into parsed_items for ONE customer's orders.
     Uses ORM — assigns native Python lists directly to JSONB columns.
+    Skips __qty_ambiguous__ and __word_qty__ sentinels.
     """
     orders = db.query(Order).filter(
         Order.customer_phone == phone,
@@ -293,13 +331,17 @@ def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db: Sessio
 
     for order in orders:
         unclear = _safe_list(order.unclear_items)
-        parsed  = _safe_list(order.parsed_items)
+        parsed  = list(_safe_list(order.parsed_items))
         if not unclear:
             continue
 
         remaining     = []
         matched_lines = []
         for line in unclear:
+            # Never retroactively patch sentinels
+            if line.startswith("__qty_ambiguous__") or line.startswith("__word_qty__"):
+                remaining.append(line)
+                continue
             product_part = _extract_product_name_from_line(line)
             if product_part == raw or product_part.startswith(raw) or raw in product_part:
                 matched_lines.append(line)
@@ -315,7 +357,7 @@ def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db: Sessio
 
         # ✅ Assign native lists — no json.dumps needed for JSONB
         order.parsed_items  = parsed
-        order.unclear_items = remaining if remaining else None
+        order.unclear_items = remaining if remaining else []
         if not remaining:
             order.is_unclear = False
         patched_ids.append(order.id)
@@ -336,7 +378,7 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db: Session) ->
     if not unclear:
         return 0
 
-    parsed  = _safe_list(order.parsed_items)
+    parsed  = list(_safe_list(order.parsed_items))
     unit    = _get_unit_for_canonical(canonical)
 
     remaining     = []
@@ -357,12 +399,96 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db: Session) ->
 
     # ✅ Assign native lists — no json.dumps needed for JSONB
     order.parsed_items  = parsed
-    order.unclear_items = remaining if remaining else None
+    order.unclear_items = remaining if remaining else []
     if not remaining:
         order.is_unclear = False
 
     # ✅ No db.commit() here — caller commits
     return 1
+
+
+def _retroactive_patch_word_qty(
+    product:  str,
+    unit:     str,
+    phone:    str,
+    db:       Session,
+) -> int:
+    """
+    Spec §6.3 — resolve past __word_qty__ rows for THIS customer only.
+
+    Finds every order for `phone` whose unclear_items contains a sentinel
+    starting with __word_qty__{product}:: and resolves each using its OWN
+    parsed quantity — never the current order's quantity.
+
+    The current order has already been patched and committed before this
+    runs, so it won't match (its sentinel has been removed).
+    """
+    prefix = f"__word_qty__{product}::"
+
+    orders = db.query(Order).filter(
+        Order.customer_phone == phone,
+        Order.unclear_items.isnot(None),
+        Order.is_cancelled == False,
+    ).all()
+
+    patched_ids = []
+
+    for order in orders:
+        unclear = _safe_list(order.unclear_items)
+        if not unclear:
+            continue
+
+        parsed    = list(_safe_list(order.parsed_items))
+        remaining = []
+        matched   = False
+
+        for entry in unclear:
+            if not entry.startswith(prefix):
+                remaining.append(entry)
+                continue
+
+            # Extract this row's own qty from the sentinel.
+            # Format: __word_qty__Wings::1.5::kg::lollipop  [डेढ़ → ...]
+            # After stripping prefix and hint: Wings::1.5::kg::lollipop
+            # Split on ::                    ["Wings", "1.5", "kg", "lollipop"]
+            try:
+                body    = entry[len("__word_qty__"):]    # "Wings::1.5::kg::lollipop  [...]"
+                body    = body.split("  [")[0].strip()   # "Wings::1.5::kg::lollipop"
+                parts   = body.split("::")               # ["Wings", "1.5", "kg", "lollipop"]
+                row_qty = float(parts[1]) if len(parts) > 1 else 1.0
+            except (IndexError, ValueError):
+                # Malformed sentinel — leave it, don't lose it
+                remaining.append(entry)
+                logger.warning(
+                    f"word_qty retro: malformed sentinel in order {order.id}: {entry!r}"
+                )
+                continue
+
+            parsed.append({
+                "product":        product,
+                "quantity":       row_qty,
+                "unit":           unit,
+                "explicit_unit":  True,
+                "_resolved_from": "word_qty_retro",
+            })
+            matched = True
+            # Don't append to remaining — this entry is resolved
+
+        if not matched:
+            continue
+
+        order.parsed_items  = parsed
+        order.unclear_items = remaining if remaining else []
+        if not remaining:
+            order.is_unclear = False
+
+        patched_ids.append(order.id)
+
+    if patched_ids:
+        db.commit()
+        logger.info(f"word_qty retro patch committed for orders: {patched_ids}")
+
+    return len(patched_ids)
 
 
 def _lookup_alias(raw_text: str, db: Session) -> Optional[str]:
@@ -572,6 +698,10 @@ def add_customer_manually(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
+    error = validate_phone(payload.phone)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
     try:
         customer = create_customer_manually(
             db=db,
@@ -594,17 +724,15 @@ def add_customer_manually(
                 ))
         except Exception as e:
             logger.warning(f"Manager notification failed for new customer {customer.phone_number}: {e}")
-        
+
         try:
             send_customer_registration_welcome(customer.phone_number, PLANT_NAME)
         except Exception as e:
             logger.warning(f"Welcome template failed for {customer.phone_number}: {e}")
 
-
-
         return {"status": "created", "customer": _customer_row(customer, db)}
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+    except (ValueError, IntegrityError):
+        raise HTTPException(status_code=409, detail="A customer with this phone number already exists.")    
 
 
 @router.get("/customers/{customer_id}/orders")
@@ -648,6 +776,8 @@ def assign_customer(customer_id: int, payload: CustomerAssign, db: Session = Dep
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
+    if payload.area is None and payload.salesperson_id is None:
+        raise HTTPException(status_code=400, detail="Provide area or salesperson_id")
     if payload.area is not None:
         customer.area = payload.area.strip()
     if payload.salesperson_id is not None:
@@ -826,7 +956,16 @@ def set_next_day_override(
     if now_ist.hour >= RESET_HOUR:
         raise HTTPException(status_code=403, detail="Override window closed. Orders are locked after 8 PM IST.")
 
-    order_ist = order.created_at.astimezone(IST)
+    if order.created_at.tzinfo is None:
+        # Some DB backends (e.g. SQLite) can strip tzinfo on read even
+        # though the column is timezone-aware. The wall-clock value as
+        # stored is already in IST (that's what every writer of this
+        # column uses), so attach the tz directly instead of calling
+        # .astimezone(), which would incorrectly assume the naive value
+        # is in the server's local timezone and shift it again.
+        order_ist = order.created_at.replace(tzinfo=IST)
+    else:
+        order_ist = order.created_at.astimezone(IST)
     cutoff = order_ist.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
     if order_ist >= cutoff:
         raise HTTPException(status_code=400, detail="This order was placed after 8 PM IST and is already assigned to the next day.")
@@ -839,7 +978,14 @@ def set_next_day_override(
         order.is_next_day_override = False
 
     db.commit(); db.refresh(order)
-    return {"success": True, "order_id": order.id, "business_date": order.business_date}
+    return {
+    "success": True,
+    "order": {
+        "id": order.id,
+        "is_next_day_override": order.is_next_day_override,
+        "business_date": order.business_date,
+    }
+        }
 
 
 # ── WhatsApp Window Status ────────────────────────────────────────────────────
@@ -988,6 +1134,9 @@ def resolve_unclear_item(
     if canonical not in valid_names:
         raise HTTPException(status_code=400, detail=f"'{canonical}' is not a valid product name")
 
+    if payload.scope == "customer" and not payload.customer_phone:
+        raise HTTPException(status_code=400, detail="customer_phone is required when scope='customer'")
+
     # ── GLOBAL scope ──────────────────────────────────────────────────────────
     if payload.scope == "global" or not payload.customer_phone:
         existing = db.query(UnclearItemAlias).filter(UnclearItemAlias.raw_text == raw).first()
@@ -1015,6 +1164,260 @@ def resolve_unclear_item(
 
     patched = _retroactive_patch_customer(raw, canonical, phone, db)
     return {"status": "ok", "scope": "customer", "orders_patched": patched}
+
+
+@router.post("/unclear-items/resolve-qty")
+def resolve_qty_ambiguity(
+    payload: ResolveQtyAmbiguity,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """
+    Manager resolves a quantity-ambiguous item (FRD §3.4, §5.3).
+
+    Steps:
+    1. Patch the order's parsed_items — replace UNIT_AMBIGUOUS_MARKER with
+       the confirmed unit.
+    2. Remove the matching __qty_ambiguous__ entry from unclear_items.
+    3. If unclear_items is now empty (no product-unclear items remain either),
+       clear is_unclear on the order.
+    4. Call record_confirmed_qty() so the learning loop fires.
+    5. Commit.
+    """
+    from app.services.unit_inference import record_confirmed_qty, UNIT_AMBIGUOUS_MARKER
+
+    order = db.query(Order).filter(Order.id == payload.order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    confirmed_unit = payload.confirmed_unit.lower().strip()
+    if confirmed_unit not in ("kg", "g"):
+        raise HTTPException(status_code=400, detail="confirmed_unit must be 'kg' or 'g'")
+
+    # ── Patch parsed_items ────────────────────────────────────────────────────
+    parsed = list(_safe_list(order.parsed_items))
+    patched = False
+    for item in parsed:
+        if (
+            item.get("product") == payload.product
+            and item.get("unit") == UNIT_AMBIGUOUS_MARKER
+            and abs(item.get("quantity", -1) - payload.quantity) < 0.001
+        ):
+            item["unit"] = confirmed_unit
+            patched = True
+            break   # only patch the first matching ambiguous item
+
+    if not patched:
+        # No matching UNIT_AMBIGUOUS_MARKER entry in parsed_items (e.g. the
+        # order only carries the __qty_ambiguous__ sentinel with an empty/
+        # already-cleared parsed_items list) — add the resolved item directly
+        # rather than 404ing, since the manager has just confirmed it.
+        parsed.append({
+            "product":  payload.product,
+            "quantity": payload.quantity,
+            "unit":     confirmed_unit,
+        })
+
+    order.parsed_items = parsed
+
+    # ── Remove matching __qty_ambiguous__ entry from unclear_items ────────────
+    # Compare quantities numerically, not via string equality — payload.quantity
+    # is a float (e.g. 10.0) but sentinels are stored with whatever formatting
+    # the parser used (e.g. "10"), so "10.0" != "10" as strings.
+    def _matches_qty_ambiguous_sentinel(entry: str) -> bool:
+        prefix = "__qty_ambiguous__"
+        if not entry.startswith(prefix) or "::" not in entry:
+            return False
+        product_part, _, qty_part = entry[len(prefix):].rpartition("::")
+        if product_part != payload.product:
+            return False
+        try:
+            return abs(float(qty_part) - payload.quantity) < 0.001
+        except ValueError:
+            return False
+
+    unclear = _safe_list(order.unclear_items)
+    unclear = [u for u in unclear if not _matches_qty_ambiguous_sentinel(u)]
+    order.unclear_items = unclear
+
+    # Clear is_unclear only when no unresolved items of any kind remain
+    remaining_ambiguous = [u for u in unclear if u.startswith("__qty_ambiguous__")]
+    still_ambiguous_items = [i for i in parsed if i.get("unit") == UNIT_AMBIGUOUS_MARKER]
+    remaining_product_unclear = [u for u in unclear if not u.startswith("__qty_ambiguous__")]
+    if not remaining_ambiguous and not still_ambiguous_items and not remaining_product_unclear:
+        order.is_unclear = False
+
+    db.flush()
+
+    # ── Learning loop — update stats with manager-confirmed value ─────────────
+    qty_kg = payload.quantity / 1000.0 if confirmed_unit == "g" else payload.quantity
+
+    record_confirmed_qty(
+        product=payload.product,
+        customer_phone=payload.customer_phone,
+        qty_kg=qty_kg,
+        db=db,
+    )
+
+    db.commit()
+
+    return {
+        "status":    "ok",
+        "order_id":  order.id,
+        "product":   payload.product,
+        "confirmed": f"{payload.quantity} {confirmed_unit}",
+    }
+
+
+@router.post("/unclear-items/resolve-word-qty")
+def resolve_word_qty_item(
+    payload: ResolveWordQtyItem,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """
+    Spec §6: resolve a __word_qty__ unclear item.
+
+    Atomically:
+      (a) Add a real line item to this order's parsed_items[] with the
+          manager-confirmed product, quantity, and unit.
+      (b) Remove the matching __word_qty__ sentinel from unclear_items[].
+          Clears is_unclear if no unresolved items remain.
+      (c) Write a product-only CustomerProductAlias keyed to the raw
+          product phrase from the sentinel's parts[3] (Option B — quantity
+          is never baked in; word_quantity.py re-derives it on every future
+          message). Falls back to canonical name if parts[3] absent.
+      (d) Retroactively resolve past orders for THIS customer that have
+          a matching __word_qty__{product}:: sentinel, each using its own
+          parsed quantity (spec §6.3).
+    """
+    # ── Validate inputs ───────────────────────────────────────────────────────
+    valid_names = {display for display, _, _ in PRODUCT_DEFINITIONS}
+    if payload.product not in valid_names:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{payload.product}' is not a valid product name",
+        )
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=400, detail="quantity must be > 0")
+
+    confirmed_unit = payload.unit.lower().strip()
+    if confirmed_unit not in ("kg", "nos"):
+        raise HTTPException(status_code=400, detail="unit must be 'kg' or 'nos'")
+
+    phone = payload.customer_phone.strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="customer_phone is required")
+
+    # ── Load order ────────────────────────────────────────────────────────────
+    order = db.query(Order).filter(Order.id == payload.order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # ── (a) Add confirmed line item to parsed_items ───────────────────────────
+    parsed = list(_safe_list(order.parsed_items))
+    parsed.append({
+        "product":        payload.product,
+        "quantity":       payload.quantity,
+        "unit":           confirmed_unit,
+        "explicit_unit":  True,
+        "_resolved_from": "word_qty_manual",
+    })
+    order.parsed_items = parsed
+
+    # ── (b) Remove matching sentinel from unclear_items ───────────────────────
+    # Match on prefix __word_qty__{product}:: for the known-product case.
+    # Also match __word_qty__UNKNOWN:: for rows where the parser couldn't
+    # identify the product — manager resolved it via the dropdown.
+    # Remove only the FIRST match (an order could have two word-qty rows
+    # for the same product at different quantities).
+    prefix      = f"__word_qty__{payload.product}::"
+    unclear     = _safe_list(order.unclear_items)
+    new_unclear = []
+    removed     = False
+
+    for entry in unclear:
+        if not removed and (
+            entry.startswith(prefix)
+            or entry.startswith("__word_qty__UNKNOWN::")
+        ):
+            removed = True
+            continue          # drop this sentinel
+        new_unclear.append(entry)
+
+    if not removed:
+        # Sentinel not found — log and continue rather than 404.
+        # Can happen on double-click or if the order was already patched
+        # by the retroactive pass of a prior resolution.
+        logger.warning(
+            f"resolve-word-qty: no sentinel found for product={payload.product!r} "
+            f"in order {order.id}. unclear_items was: {unclear!r}"
+        )
+
+    order.unclear_items = new_unclear if new_unclear else None
+    if not new_unclear:
+        order.is_unclear = False
+
+    db.flush()  # write parsed_items + unclear_items before alias write
+
+    # ── (c) Write product-only alias (Option B) ───────────────────────────────
+    # Extract the raw product phrase from the sentinel's parts[3].
+    # Sentinel format (new):  __word_qty__Wings::1.5::kg::lollipop  [डेढ़ → ...]
+    # Sentinel format (old):  __word_qty__Wings::1.5::kg  [डेढ़ → ...]
+    # parts[3] = "lollipop" → the customer's original product text.
+    # Fall back to canonical name for old-format sentinels or empty phrases.
+    alias_raw = payload.product.lower()   # safe default
+
+    original_sentinel = next(
+        (e for e in unclear if (
+            e.startswith(prefix) or e.startswith("__word_qty__UNKNOWN::")
+        )),
+        None,
+    )
+    if original_sentinel:
+        try:
+            body  = original_sentinel[len("__word_qty__"):]  # strip "__word_qty__"
+            body  = body.split("  [")[0].strip()             # strip hint "[डेढ़ → ...]"
+            parts = body.split("::")                         # ["Wings","1.5","kg","lollipop"]
+            if len(parts) > 3 and parts[3].strip():
+                alias_raw = parts[3].strip().lower()
+        except Exception:
+            pass  # fall back to canonical name default
+
+    existing_alias = db.query(CustomerProductAlias).filter(
+        CustomerProductAlias.customer_phone == phone,
+        CustomerProductAlias.raw_text       == alias_raw,
+    ).first()
+    if existing_alias:
+        existing_alias.canonical_product_name = payload.product
+    else:
+        db.add(CustomerProductAlias(
+            customer_phone         = phone,
+            raw_text               = alias_raw,
+            canonical_product_name = payload.product,
+        ))
+
+    db.commit()   # commit (a), (b), (c) atomically
+
+    # ── (d) Retroactive patch — this customer's past orders only ──────────────
+    # Runs after commit so the current order's sentinel is already gone
+    # and won't be matched again by the retro pass.
+    retro_patched = _retroactive_patch_word_qty(
+        product = payload.product,
+        unit    = confirmed_unit,
+        phone   = phone,
+        db      = db,
+    )
+
+    return {
+        "status":        "ok",
+        "order_id":      order.id,
+        "product":       payload.product,
+        "quantity":      payload.quantity,
+        "unit":          confirmed_unit,
+        "alias_written": alias_raw,
+        "retro_patched": retro_patched,
+    }
 
 
 @router.delete("/unclear-items/aliases/{alias_id}")

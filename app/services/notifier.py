@@ -235,6 +235,36 @@ def send_manager_alert(
     ) is not None
 
 
+def notify_manager_new_order(
+    customer_phone: str,
+    parsed: dict,
+    restaurant_name: str = None,
+) -> bool:
+    """
+    Free-form-message convenience wrapper for alerting the manager about a
+    new order. Sends via send_whatsapp_message (not the approved-template
+    path) to MANAGER_PHONE. send_manager_alert (the approved-template
+    variant with a different signature) is untouched and still used by the
+    main order flow — this is an additional, simpler notifier expected by
+    callers/tests that just want a quick free-form heads-up.
+    """
+    items         = parsed.get("items", [])
+    delivery_time = parsed.get("delivery_time", "As per usual schedule")
+
+    items_text    = _format_items_freeform(items)
+    delivery_text = f"🕒 Delivery: {delivery_time}" if delivery_time else "🕒 Delivery: As per usual schedule"
+    name_line     = f"🏪 {restaurant_name}\n" if restaurant_name else ""
+
+    message = (
+        f"🆕 *New Order — {PLANT_NAME}*\n\n"
+        f"{name_line}"
+        f"📱 {customer_phone}\n\n"
+        f"{items_text}\n"
+        f"{delivery_text}"
+    )
+    return send_whatsapp_message(MANAGER_PHONE, message) is not None
+
+
 def send_unclear_order_alert(
     manager_phone: str,
     customer_phone: str,

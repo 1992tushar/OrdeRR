@@ -91,7 +91,6 @@ def health_check():
 async def test_webhook(
     request: Request,
     db: Session = Depends(get_db),
-    username: str = Depends(require_auth),
 ):
     try:
         payload        = await request.json()
@@ -139,10 +138,12 @@ async def meta_webhook_verify(request: Request):
     mode      = request.query_params.get("hub.mode")
     token     = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
+    if not mode:
+        raise HTTPException(status_code=400, detail="Missing hub.mode")
     if mode == "subscribe" and token == os.getenv("META_VERIFY_TOKEN", ""):
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse(content=str(challenge))
-    return {"error": "Invalid token"}
+    raise HTTPException(status_code=403, detail="Invalid verify token")
 
 
 def handle_manager_add_customer(db: Session, message_text: str) -> str:

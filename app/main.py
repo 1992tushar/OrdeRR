@@ -30,6 +30,7 @@ from app.models.customer import Customer
 from app.models.order import Order
 from app.models.inbound_message import InboundMessage  # ← reliability layer
 from app.models.customer_product_alias import CustomerProductAlias  # noqa: F401
+from app.models.customer_product_stats import CustomerProductStats  # noqa: F401  ← unit inference (FRD §5.1)
 
 
 Base.metadata.create_all(bind=engine)
