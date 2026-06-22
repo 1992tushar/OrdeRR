@@ -31,7 +31,6 @@ from app.services.notifier import (
     send_manager_menu,
     send_salesperson_menu,
 )
-from app.services.order_service import get_current_business_date
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
 IST           = timezone(timedelta(hours=5, minutes=30))
@@ -211,7 +210,8 @@ def _send_manager_adhoc_report(manager_phone: str, db: Session):
 
 def _send_manager_summary(manager_phone: str, db: Session):
     """Sends the manager daily summary template."""
-    
+    from app.services.order_service import get_current_business_date
+
     delivery_date = get_current_business_date()
 
     date_str      = delivery_date.strftime("%d %B %Y")
@@ -273,6 +273,7 @@ def _safe_list(value) -> list:
 def _send_manager_daily_report_only(manager_phone: str, db: Session):
     """Sends the manager daily report template (product totals). Skips if no orders."""
     import json
+    from app.services.order_service import get_current_business_date
 
     delivery_date = get_current_business_date()
     date_str      = delivery_date.strftime("%d %B %Y")
