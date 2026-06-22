@@ -270,6 +270,8 @@ def _safe_list(value) -> list:
         return parsed if isinstance(parsed, list) else []
     except Exception:
         return []
+
+
 def _send_manager_daily_report_only(manager_phone: str, db: Session):
     """Sends the manager daily report template (product totals). Skips if no orders."""
     import json
@@ -312,6 +314,15 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
         [PLANT_NAME, date_str, str(len(orders)), items_text, product_summary],
     )
     print(f"   ✅ Daily report sent → {len(orders)} orders, {total_items_count} items")
+
+    # ── Email delivery sheet ──────────────────────────────────────────────────
+    try:
+        from app.services.reporter import generate_daily_report, _send_email_report
+        report_data = generate_daily_report(db)
+        _send_email_report(report_data, [])
+        print("   ✅ Email report sent")
+    except Exception as e:
+        print(f"   ⚠️ Email report failed: {e}")
 
 
 # ── Salesperson ad hoc report (unchanged logic) ───────────────────────────────
