@@ -211,7 +211,9 @@ def _send_manager_adhoc_report(manager_phone: str, db: Session):
 
 def _send_manager_summary(manager_phone: str, db: Session):
     """Sends the manager daily summary template."""
-    delivery_date = get_delivery_date_for_now()
+    from app.services.order_service import get_current_business_date
+    delivery_date = get_current_business_date()
+
     date_str      = delivery_date.strftime("%d %B %Y")
 
     print(f"\n📊 Manager summary requested by {manager_phone}")
@@ -279,7 +281,7 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
     orders = (
         db.query(Order)
         .filter(
-            Order.delivery_date == today_str,
+            Order.business_date == today_str,
             Order.is_cancelled == False,
             Order.is_unclear == False,
         )
