@@ -20,7 +20,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-
+import json
 from app.models.customer import Customer
 from app.models.order import Order
 from app.models.salesperson import Salesperson
@@ -274,7 +274,7 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
     """Sends the manager daily report template (product totals). Skips if no orders."""
     import json
 
-    delivery_date = get_delivery_date_for_now()
+    delivery_date = get_current_business_date()
     date_str      = delivery_date.strftime("%d %B %Y")
     today_str     = delivery_date.strftime("%Y-%m-%d")
 
@@ -289,12 +289,7 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
     )
 
     if not orders:
-        print(f"   ℹ️  No orders today — skipping daily report")
-        send_whatsapp_message(
-            manager_phone,
-            f"📋 *Daily Report — {PLANT_NAME}*\n\n"
-            f"No orders received yet for {date_str}."
-        )
+        print(f"   ℹ️  No orders today — skipping free-form message (window may be closed)")
         return
 
     product_totals: dict = {}
