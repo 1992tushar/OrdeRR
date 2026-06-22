@@ -23,7 +23,7 @@ ACK_MESSAGE = "✅ Order received. Processing now."
 # FIX: webhook.py transitions RECEIVED → PARSING directly (no ACK step),
 # then PARSING → CONFIRMED on success. Both paths must be valid.
 VALID_TRANSITIONS = {
-    "RECEIVED":      {"PROCESSING", "ACK_SENT", "PARSING", "FAILED"},
+    "RECEIVED":      {"PROCESSING", "ACK_SENT", "PARSING", "FAILED", "CONFIRMED"},
     "PROCESSING":    {"CONFIRMED", "FAILED", "MANUAL_REVIEW"},
     "ACK_SENT":      {"PARSING", "FAILED"},
     "PARSING":       {"PARSED", "NOTE", "FAILED", "CONFIRMED"},
