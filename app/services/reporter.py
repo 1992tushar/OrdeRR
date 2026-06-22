@@ -14,7 +14,7 @@ from app.models.order import Order
 from app.models.inbound_message import InboundMessage
 from app.models.customer import Customer
 from app.services.notifier import send_whatsapp_template, send_whatsapp_message
-
+from app.services.order_service import get_current_business_date_str
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
@@ -93,11 +93,11 @@ def get_todays_customer_notes(db: Session) -> list[dict]:
 
 def generate_daily_report(db: Session) -> dict:
     now_ist   = datetime.now(IST)
-    today_str = now_ist.strftime("%Y-%m-%d")
+    today_str = get_current_business_date_str()
     date_str  = now_ist.strftime("%d %B %Y")
 
     orders = db.query(Order).filter(
-        Order.delivery_date == today_str,
+        Order.business_date == today_str,
         Order.is_cancelled  == False,
     ).all()
 

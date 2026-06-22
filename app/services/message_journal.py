@@ -29,7 +29,7 @@ VALID_TRANSITIONS = {
     "PARSING":       {"PARSED", "NOTE", "FAILED", "CONFIRMED"},
     "PARSED":        {"ORDER_CREATED", "FAILED"},
     "ORDER_CREATED": {"CONFIRMED", "FAILED"},
-    "CONFIRMED":     set(),
+    "CONFIRMED":     {"CONFIRMED"},
     "NOTE":          set(),
     "FAILED":        {"PARSING", "PROCESSING", "ACK_SENT", "MANUAL_REVIEW"},
     "MANUAL_REVIEW": {"ORDER_CREATED", "CANCELLED"},
