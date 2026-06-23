@@ -17,6 +17,12 @@ v2 changes:
 v3 changes:
 - Noise filtering: skips header/footer lines like restaurant name, dates,
   "ORDER FOR THE DAY", "kg( 900 gm size)" annotations, emoji-only lines etc.
+
+v4 changes:
+- Unit inference: bare numbers on kg products are checked against customer
+  history and global fallback bands (FRD §4). Ambiguous quantities are
+  routed to the Unclear tab with a __qty_ambiguous__ sentinel instead of
+  silently defaulting to kg.
 """
 
 import re
@@ -25,7 +31,54 @@ from app.models.customer_product_alias import CustomerProductAlias
 from app.models.unclear_item_alias import UnclearItemAlias
 from app.models.noise_phrase import NoisePhrase
 
+# Sentinel stored in a parsed item's "unit" field when the quantity is
+# ambiguous and needs manager resolution.  order_service.py and admin.py
+# both check for this value to route the item to the unclear-items flow.
+UNIT_AMBIGUOUS_MARKER = "__unit_ambiguous__"
+
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
+
+# ── Multi-item single-line splitter ───────────────────────────────────────────
+# Some customers send several items on ONE line/string instead of one per
+# line, e.g.:
+#   "Chicken 5kg boneless 3kg lolipop 2kg tandoori 3"
+# Without splitting, the whole string fails the single-item regex below and
+# the entire line gets dumped into unclear_items as one unresolved blob.
+#
+# This regex finds repeated "<name> <qty> [unit]" runs within a single line
+# and breaks it into separate item-strings, each of which is then fed through
+# the normal per-line parsing pipeline independently. If a line only
+# contains a single such run (the normal case), it is returned unchanged so
+# existing single-item parsing behaviour is unaffected.
+_MULTI_ITEM_RE = re.compile(
+    r"([A-Za-z\u0900-\u097F][A-Za-z\u0900-\u097F\s/\.]*?)\s*[-:]?\s*"
+    r"(\d+(?:\.\d+)?)\s*"
+    r"(kg|kgs|kilo|kilos|kilogram|kilograms|pies|nos|no|nos\.|pcs|psc|pc|pis|pieces|piece|k)?",
+    re.IGNORECASE,
+)
+
+
+def _split_multi_item_line(line: str) -> list:
+    """Split a single line containing multiple '<name> <qty> [unit]' runs
+    into separate item-strings. Returns [line] unchanged if fewer than 2
+    runs are found (i.e. normal single-item line, date, phone number,
+    header, delivery-time line, etc.)."""
+    matches = list(_MULTI_ITEM_RE.finditer(line))
+    if len(matches) < 2:
+        return [line]
+
+    segments = []
+    for m in matches:
+        name = m.group(1).strip()
+        qty = m.group(2).strip()
+        unit = (m.group(3) or "").strip()
+        if not name:
+            continue
+        segment = f"{name} {qty}" + (f" {unit}" if unit else "")
+        segments.append(segment.strip())
+
+    return segments if segments else [line]
+# ───────────────────────────────────────────────────────────────────────────
 
 # ── Product Catalog ───────────────────────────────────────────────────────────
 # Format: (Display Name, default unit, [aliases])
@@ -80,7 +133,7 @@ PRODUCT_DEFINITIONS = [
 
     ("Breast Boneless", "kg", [
         "breast boneless", "boneless breast", "breast",
-        "breast piece", "breast boneless piece", "chicken breast",
+        "breast piece", "breast boneless piece",
         "chest boneless", "chest bonless", "cast bonlas",
         "berst boneless", "berst",
         "bonless", "boneless",
@@ -186,6 +239,25 @@ PRODUCT_DEFINITIONS = [
         "khima", "qeema",
     ]),
 
+    # ── New canonical products (used pervasively across customer orders /
+    #    test fixtures but previously missing from the catalog) ───────────────
+
+    ("Chicken Leg", "kg", [
+        "chicken leg", "chiken leg", "chicken legs",
+    ]),
+
+    ("Mutton", "kg", [
+        "mutton", "mutton meat", "goat meat", "goat", "lamb",
+    ]),
+
+    ("Chicken Breast", "kg", [
+        "chicken breast", "chiken breast", "chicken brest",
+    ]),
+
+    ("Chicken Whole", "nos", [
+        "chicken whole", "whole chicken nos",
+    ]),
+
 ]
 
 # Flat set of all valid canonical product names (for alias resolution validation)
@@ -218,38 +290,54 @@ def _match_product(raw_name: str):
     """
     Returns (display_name, unit) or None.
     Priority: exact → partial/startswith → token subset
+ 
+    startswith guard: a single-token input (e.g. "chicken") must not
+    startswith-match a multi-token alias (e.g. "chicken breast") — that
+    would cause "Chicken 10" to match Breast Boneless instead of going
+    to unclear items.  startswith only fires when BOTH sides are
+    multi-token, or the input has more tokens than the alias (i.e. the
+    input is more specific than the alias).
     """
     n = _normalize(raw_name)
     s = _squish(raw_name)
-
+    raw_tokens = _tokenize(raw_name)
+ 
     # 1. Exact
     for display, unit, aliases in PRODUCT_DEFINITIONS:
         for alias in aliases:
             if n == _normalize(alias) or s == _squish(alias):
                 return display, unit
-
+ 
     # 2. Partial / startswith
+    # Guard: only fire startswith when the input has >= 2 tokens OR the
+    # alias is a single token.  Prevents "chicken" matching "chicken breast".
     for display, unit, aliases in PRODUCT_DEFINITIONS:
         for alias in aliases:
             a  = _normalize(alias)
             aq = _squish(alias)
-            if n.startswith(a) or a.startswith(n):
-                return display, unit
-            if s.startswith(aq) or aq.startswith(s):
-                return display, unit
-
-    # 3. Token subset
-    raw_tokens = _tokenize(raw_name)
+            alias_tokens = _tokenize(alias)
+ 
+            if len(raw_tokens) >= 2 or len(alias_tokens) == 1:
+                if n.startswith(a) or a.startswith(n):
+                    return display, unit
+                if s.startswith(aq) or aq.startswith(s):
+                    return display, unit
+ 
+# 3. Token subset
+    # Guard: BOTH sides must have >= 2 tokens.
+    # A single generic word like "chicken" must never subset-match
+    # a multi-token alias like "chicken breast" or "bonless chicken".
     if raw_tokens:
         for display, unit, aliases in PRODUCT_DEFINITIONS:
             for alias in aliases:
                 alias_tokens = _tokenize(alias)
-                if alias_tokens and (
-                    raw_tokens.issubset(alias_tokens)
-                    or alias_tokens.issubset(raw_tokens)
-                ):
-                    return display, unit
-
+                if not alias_tokens:
+                    continue
+                if len(raw_tokens) >= 2 and len(alias_tokens) >= 2:
+                    if (raw_tokens.issubset(alias_tokens)
+                            or alias_tokens.issubset(raw_tokens)):
+                        return display, unit
+ 
     return None
 
 
@@ -382,6 +470,15 @@ _QTY_FIRST_RE = re.compile(
     r"^([\d]+(?:[./][\d]+)?)\s+(.+)$"
 )
 
+# Matches a standalone delivery-time line with no label, e.g. "7am",
+# "8:00 AM", "09:30". Requires either an am/pm marker or a colon, so a bare
+# number (a quantity) is never mistaken for a time.
+_TIME_LINE_RE = re.compile(
+    r"^\d{1,2}(:\d{2})?\s*(am|pm)$"
+    r"|^\d{1,2}:\d{2}$",
+    re.IGNORECASE,
+)
+
 
 # Common header/footer filler phrases customers add
 _FILLER_RE = re.compile(
@@ -492,8 +589,9 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
     Args:
         customer_phone: sender's phone number
         message:        raw WhatsApp message text
-        db:             optional SQLAlchemy Session — used to check alias table.
-                        Pass None to skip alias lookup (e.g. in tests).
+        db:             optional SQLAlchemy Session — used to check alias table
+                        and unit inference stats.  Pass None to skip both
+                        (e.g. in tests that don't need the DB).
 
     Returns:
         {
@@ -530,6 +628,15 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
 
     lines = message.strip().splitlines()
 
+    # Expand any single line that actually contains multiple items
+    # (e.g. "Chicken 5kg boneless 3kg lolipop 2kg tandoori 3") into separate
+    # item-strings so each one is parsed/matched independently instead of
+    # the whole line being dumped into unclear_items as one blob.
+    expanded_lines = []
+    for raw_line in lines:
+        expanded_lines.extend(_split_multi_item_line(raw_line))
+    lines = expanded_lines
+
     for raw_line in lines:
         line = raw_line.strip()
         if not line:
@@ -544,6 +651,13 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
                 t = time_match.group(1).strip()
                 if t and t not in ("__", "-", ""):
                     delivery_time = t
+            continue
+
+        # Standalone delivery-time line with no label, e.g. "7am", "8:00 AM",
+        # "09:30" — must have either an am/pm marker or a colon, so a bare
+        # number like "10" is never mistaken for a time.
+        if _TIME_LINE_RE.match(line.strip()):
+            delivery_time = line.strip()
             continue
 
         # Skip header/instruction/note lines (existing hard-coded list)
@@ -561,9 +675,13 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
         # Strip placeholder tokens
         line_clean = re.sub(r'__+', '', line).strip()
 
-        # No digits → unfilled template line, skip silently
-        if not line_clean or not re.search(r'\d', line_clean):
+        # Empty after stripping placeholders → skip
+        if not line_clean:
             continue
+
+        # Lines with no ASCII digit may carry word quantities (डेढ़, half…)
+        # Don't skip — flag has_digit so we know whether to try word parser.
+        has_digit = bool(re.search(r'\d', line_clean))
 
         # Handle "3k" style
         line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
@@ -572,7 +690,76 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
         line_clean = re.sub(r'^[\d]+[)\.\-]\s*', '', line_clean).strip()
         line_clean = re.sub(r'^[•\-\*]\s*', '', line_clean).strip()
 
-        # ── CHANGE 6: Primary regex, then qty-first fallback ──────────────────
+        # ── Word-quantity path (no ASCII digit in line) ───────────────────────
+        if not has_digit:
+            from app.services.word_quantity import parse_word_quantity
+            wq = parse_word_quantity(line_clean)
+            if wq:
+                # We have a quantity but still need to identify the product.
+                # Run the normal name matcher against the full line minus the
+                # quantity word so "डेढ़ किलो lollipop" → raw_name="lollipop".
+                # Simple approach: remove the matched word token(s) and unit
+                # hint words, treat remainder as product name.
+                import re as _re
+                _unit_words = {
+                    "kg","kgs","kilo","किलो","किलोग्राम","kilogram",
+                    "nos","pcs","pc","piece","pieces","nag","नग",
+                }
+                name_tokens = [
+                    t for t in line_clean.split()
+                    if t.lower() not in _unit_words
+                    and t not in wq.raw_word.split()
+                    and t.lower() not in wq.raw_word.lower().split()
+                ]
+                candidate_name = " ".join(name_tokens).strip()
+                product_match  = _lookup_customer_alias(candidate_name, customer_phone, db) if candidate_name else None
+                if not product_match:
+                    product_match = _lookup_alias(candidate_name, db) if candidate_name else None
+                if not product_match:
+                    product_match = _match_product(candidate_name) if candidate_name else None
+
+                # if product_match:
+                #     display_name, expected_unit = product_match
+                #     hint = (
+                #         f"__word_qty__{display_name}"
+                #         f"::{wq.quantity}"
+                #         f"::{wq.unit_hint or expected_unit}"
+                #         f"  [{wq.raw_word} → {wq.hint_str}]"
+                #     )
+                # else:
+                #     hint = f"__word_qty__UNKNOWN::{wq.quantity}::{wq.unit_hint or '?'}  [{wq.raw_word} → {wq.hint_str}] | raw: {line_clean}"
+
+
+                if product_match:
+                    display_name, expected_unit = product_match
+                    hint = (
+                        f"__word_qty__{display_name}"
+                        f"::{wq.quantity}"
+                        f"::{wq.unit_hint or expected_unit}"
+                        f"::{candidate_name}"
+                        f"  [{wq.raw_word} → {wq.hint_str}]"
+                    )
+                else:
+                    hint = (
+                        f"__word_qty__UNKNOWN"
+                        f"::{wq.quantity}"
+                        f"::{wq.unit_hint or '?'}"
+                        f"::{candidate_name}"
+                        f"  [{wq.raw_word} → {wq.hint_str}] | raw: {line_clean}"
+                    )    
+
+                unclear_items.append(hint)
+            else:
+                # No word quantity found either — check the noise-phrase
+                # table before dumping into unclear_items. This check was
+                # previously skipped entirely on this code path.
+                if _is_noise_phrase(line_clean, db):
+                    continue
+                unclear_items.append(line)
+            continue
+        # ── End word-quantity path ────────────────────────────────────────────
+
+        # ── Primary regex, then qty-first fallback ────────────────────────────
         # Pattern: <product name> <separator?> <quantity> [unit]
         split_match = re.match(
             r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|pies|nos|no|nos\.|pcs|psc|pc|pis|pieces|piece|k)?\s*$",
@@ -604,17 +791,21 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
         if raw_qty in ("__", "0", ""):
             continue
 
-        # ── CHANGE 5: Updated lookup chain ────────────────────────────────────
-        # 1. Global catalog aliases
-        product_match = _match_product(raw_name)
+        # ── Lookup chain ──────────────────────────────────────────────────────
+        # Customer-specific and manager-resolved global aliases take priority
+        # over the static catalog, so an explicit correction (e.g. "kaleji" →
+        # "Mutton") can override a hardcoded catalog default ("kaleji" →
+        # "Liver"). No effect when no DB session is passed.
+        # 1. Customer-specific alias
+        product_match = _lookup_customer_alias(raw_name, customer_phone, db)
 
-        # 2. Customer-specific alias  ← NEW
-        if not product_match:
-            product_match = _lookup_customer_alias(raw_name, customer_phone, db)
-
-        # 3. Global unclear_item_aliases
+        # 2. Global unclear_item_aliases
         if not product_match:
             product_match = _lookup_alias(raw_name, db)
+
+        # 3. Global catalog
+        if not product_match:
+            product_match = _match_product(raw_name)
 
         # 4. Noise check — skip silently
         if not product_match:
@@ -645,19 +836,76 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
             })
             continue
 
-        final_unit = raw_unit if raw_unit else expected_unit
+        # ── explicit_unit: True when the customer's text contained a unit token ──
+        # raw_unit is set only when the regex captured a unit token from the text.
+        explicit_unit = (raw_unit is not None)
 
-        # Merge duplicates
-        for item in items:
-            if item["product"] == display_name and item["unit"] == final_unit:
-                item["quantity"] += qty
-                break
+        # ── Unit inference (FR-3) ─────────────────────────────────────────────
+        # Only applies to kg products where the customer gave a bare number
+        # (no explicit unit token).  Products with nos/pcs default unit, and
+        # any line where the customer stated the unit, bypass inference entirely.
+        if explicit_unit or expected_unit != "kg":
+            # FR-2: explicit unit → use as-is.
+            # Non-kg products (nos) → no ambiguity possible.
+            final_unit = raw_unit if raw_unit else expected_unit
+
+            # Merge duplicates
+            for item in items:
+                if item["product"] == display_name and item["unit"] == final_unit:
+                    item["quantity"] += qty
+                    break
+            else:
+                items.append({
+                    "product":       display_name,
+                    "quantity":      qty,
+                    "unit":          final_unit,
+                    "explicit_unit": explicit_unit,
+                })
         else:
-            items.append({
-                "product":  display_name,
-                "quantity": qty,
-                "unit":     final_unit,
-            })
+            # FR-3: bare number on a kg product → run inference.
+            # Import here (lazy) so the module is usable without the service
+            # present in test environments that only import the parser.
+            from app.services.unit_inference import infer_unit
+
+            result = infer_unit(
+                product=display_name,
+                raw_number=qty,
+                customer_phone=customer_phone,
+                default_unit=expected_unit,
+                db=db,
+            )
+
+            if result.is_confident:
+                # Confident resolution — use inferred unit and continue normally.
+                final_unit = result.unit  # "kg" or "g"
+
+                # Merge duplicates
+                for item in items:
+                    if item["product"] == display_name and item["unit"] == final_unit:
+                        item["quantity"] += qty
+                        break
+                else:
+                    items.append({
+                        "product":        display_name,
+                        "quantity":       qty,
+                        "unit":           final_unit,
+                        "explicit_unit":  False,
+                        "_inferred_from": result.source,  # for debugging
+                    })
+            else:
+                # Ambiguous or no signal — route to unclear items.
+                # Store UNIT_AMBIGUOUS_MARKER so the dashboard renders a
+                # kg/g toggle instead of the product-name dropdown.
+                items.append({
+                    "product":       display_name,
+                    "quantity":      qty,
+                    "unit":          UNIT_AMBIGUOUS_MARKER,
+                    "explicit_unit": False,
+                })
+                unclear_items.append(
+                    f"__qty_ambiguous__{display_name}::{qty}"
+                )
+        # ── End of unit inference block ───────────────────────────────────────
 
     # is_unclear = truly nothing parseable at all
     is_unclear = len(items) == 0 and len(unclear_items) == 0

@@ -20,6 +20,8 @@ class Salesperson(Base):
         index=True
     )
 
+    area = Column(String, nullable=True)
+
     active = Column(Boolean, default=True)
 
     created_at = Column(
@@ -27,8 +29,7 @@ class Salesperson(Base):
         server_default=func.now()
     )
 
-    # Relationship back to customers
     customers = relationship("Customer", back_populates="salesperson")
 
     def __repr__(self):
-        return f"<Salesperson id={self.id} name={self.name} phone={self.phone}>"
+        return f"<Salesperson id={self.id} name={self.name} phone={self.phone} area={self.area}>"

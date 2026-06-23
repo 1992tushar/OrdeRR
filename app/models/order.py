@@ -1,7 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import text
 from app.database import Base
 
 
@@ -17,8 +16,9 @@ class Order(Base):
     raw_message    = Column(Text)
     is_photo_order = Column(Boolean, default=False)
 
-    parsed_items  = Column(JSONB, nullable=True)
-    unclear_items = Column(JSONB, nullable=True)
+    # JSON on SQLite (local), JSONB on Postgres (Render) — same code, both environments
+    parsed_items  = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    unclear_items = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
 
     # delivery_date always set at order creation as YYYY-MM-DD string
     delivery_date = Column(String, nullable=True, index=True)

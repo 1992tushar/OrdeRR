@@ -20,7 +20,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-
+import json
 from app.models.customer import Customer
 from app.models.order import Order
 from app.models.salesperson import Salesperson
@@ -31,7 +31,6 @@ from app.services.notifier import (
     send_manager_menu,
     send_salesperson_menu,
 )
-
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
 IST           = timezone(timedelta(hours=5, minutes=30))
@@ -54,6 +53,7 @@ REPORT_KEYWORDS = {
     "today report",
     "aaj",
     "aaj ka report",
+    "daily",
 }
 
 # ── Button reply IDs ──────────────────────────────────────────────────────────
@@ -210,7 +210,10 @@ def _send_manager_adhoc_report(manager_phone: str, db: Session):
 
 def _send_manager_summary(manager_phone: str, db: Session):
     """Sends the manager daily summary template."""
-    delivery_date = get_delivery_date_for_now()
+    from app.services.order_service import get_current_business_date
+
+    delivery_date = get_current_business_date()
+
     date_str      = delivery_date.strftime("%d %B %Y")
 
     print(f"\n📊 Manager summary requested by {manager_phone}")
@@ -267,18 +270,21 @@ def _safe_list(value) -> list:
         return parsed if isinstance(parsed, list) else []
     except Exception:
         return []
+
+
 def _send_manager_daily_report_only(manager_phone: str, db: Session):
     """Sends the manager daily report template (product totals). Skips if no orders."""
     import json
+    from app.services.order_service import get_current_business_date
 
-    delivery_date = get_delivery_date_for_now()
+    delivery_date = get_current_business_date()
     date_str      = delivery_date.strftime("%d %B %Y")
     today_str     = delivery_date.strftime("%Y-%m-%d")
 
     orders = (
         db.query(Order)
         .filter(
-            Order.delivery_date == today_str,
+            Order.business_date == today_str,
             Order.is_cancelled == False,
             Order.is_unclear == False,
         )
@@ -286,12 +292,7 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
     )
 
     if not orders:
-        print(f"   ℹ️  No orders today — skipping daily report")
-        send_whatsapp_message(
-            manager_phone,
-            f"📋 *Daily Report — {PLANT_NAME}*\n\n"
-            f"No orders received yet for {date_str}."
-        )
+        print(f"   ℹ️  No orders today — skipping free-form message (window may be closed)")
         return
 
     product_totals: dict = {}
@@ -313,6 +314,15 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
         [PLANT_NAME, date_str, str(len(orders)), items_text, product_summary],
     )
     print(f"   ✅ Daily report sent → {len(orders)} orders, {total_items_count} items")
+
+    # ── Email delivery sheet ──────────────────────────────────────────────────
+    try:
+        from app.services.reporter import generate_daily_report, _send_email_report
+        report_data = generate_daily_report(db)
+        _send_email_report(report_data, [])
+        print("   ✅ Email report sent")
+    except Exception as e:
+        print(f"   ⚠️ Email report failed: {e}")
 
 
 # ── Salesperson ad hoc report (unchanged logic) ───────────────────────────────

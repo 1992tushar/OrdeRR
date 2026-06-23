@@ -1,3 +1,4 @@
+import logging
 import os
 import requests
 
@@ -8,8 +9,33 @@ META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
 
+logger = logging.getLogger(__name__)
+
 # ── Approved template names ───────────────────────────────────────────────────
-TEMPLATE_MANAGER_NEW_ORDER = "manager_new_order"
+TEMPLATE_MANAGER_NEW_ORDER         = "manager_new_order"
+TEMPLATE_CUSTOMER_REGISTRATION     = "customer_registration_welcome_v2"
+TEMPLATE_SALESPERSON_REGISTRATION  = "salesperson_registration_welcome"
+
+
+# ── Send helper ───────────────────────────────────────────────────────────────
+
+def _send_and_log(send_fn, recipient: str, label: str, *args, **kwargs) -> bool:
+    """
+    Call send_fn(recipient, *args, **kwargs), log failures, return True/False.
+    Use this wherever order.confirmation_sent or similar boolean columns are set.
+    """
+    try:
+        result = send_fn(recipient, *args, **kwargs)
+        if result is None:
+            logger.error(f"WA FAIL [{label}] to {recipient}: send returned None")
+            return False
+        if isinstance(result, dict) and result.get("error"):
+            logger.error(f"WA FAIL [{label}] to {recipient}: {result['error']}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"WA EXCEPTION [{label}] to {recipient}: {e}")
+        return False
 
 
 def send_whatsapp_message(phone: str, message: str) -> dict:
@@ -93,6 +119,37 @@ def send_whatsapp_template(phone: str, template_name: str, parameters: list) -> 
         return {"status": "simulated"}
 
 
+# ── Registration welcome templates ────────────────────────────────────────────
+
+def send_customer_registration_welcome(phone: str, plant_name: str) -> dict:
+    """
+    Send customer registration welcome via approved template.
+    Template: customer_registration_welcome_v2
+    {{1}} = plant_name
+    """
+    return send_whatsapp_template(
+        phone,
+        TEMPLATE_CUSTOMER_REGISTRATION,
+        [plant_name],
+    )
+
+
+def send_salesperson_registration_welcome(phone: str, name: str, area: str) -> dict:
+    """
+    Send salesperson registration welcome via approved template.
+    Template: salesperson_registration_welcome
+    {{1}} = salesperson name
+    {{2}} = area
+    """
+    return send_whatsapp_template(
+        phone,
+        TEMPLATE_SALESPERSON_REGISTRATION,
+        [name, area],
+    )
+
+
+# ── Order notifications ───────────────────────────────────────────────────────
+
 def _format_items_freeform(items: list) -> str:
     """Newline-separated item list for free-form WhatsApp messages."""
     lines = ""
@@ -118,7 +175,10 @@ def send_order_confirmation(
     parsed: dict,
     restaurant_name: str = None,
 ) -> bool:
-    """Free-form confirmation to customer — always within 24hr window."""
+    """
+    Free-form confirmation to customer — always within 24hr window.
+    Returns True if the message was sent successfully, False otherwise.
+    """
     items         = parsed.get("items", [])
     delivery_time = parsed.get("delivery_time", "")
 
@@ -143,7 +203,7 @@ def send_order_confirmation(
         f"📞 Contact us if you need to make any changes.\n\n"
         f"— {PLANT_NAME} Team"
     )
-    return send_whatsapp_message(customer_phone, message) is not None
+    return _send_and_log(send_whatsapp_message, customer_phone, "order_confirmation", message)
 
 
 def send_manager_alert(
@@ -173,6 +233,36 @@ def send_manager_alert(
         TEMPLATE_MANAGER_NEW_ORDER,
         [PLANT_NAME, restaurant_line, items_with_delivery],
     ) is not None
+
+
+def notify_manager_new_order(
+    customer_phone: str,
+    parsed: dict,
+    restaurant_name: str = None,
+) -> bool:
+    """
+    Free-form-message convenience wrapper for alerting the manager about a
+    new order. Sends via send_whatsapp_message (not the approved-template
+    path) to MANAGER_PHONE. send_manager_alert (the approved-template
+    variant with a different signature) is untouched and still used by the
+    main order flow — this is an additional, simpler notifier expected by
+    callers/tests that just want a quick free-form heads-up.
+    """
+    items         = parsed.get("items", [])
+    delivery_time = parsed.get("delivery_time", "As per usual schedule")
+
+    items_text    = _format_items_freeform(items)
+    delivery_text = f"🕒 Delivery: {delivery_time}" if delivery_time else "🕒 Delivery: As per usual schedule"
+    name_line     = f"🏪 {restaurant_name}\n" if restaurant_name else ""
+
+    message = (
+        f"🆕 *New Order — {PLANT_NAME}*\n\n"
+        f"{name_line}"
+        f"📱 {customer_phone}\n\n"
+        f"{items_text}\n"
+        f"{delivery_text}"
+    )
+    return send_whatsapp_message(MANAGER_PHONE, message) is not None
 
 
 def send_unclear_order_alert(
@@ -295,8 +385,8 @@ def send_manager_menu(phone: str) -> dict:
     else:
         print(f"\n📤 SIMULATION — Manager menu → {phone}")
         return {"status": "simulated"}
- 
- 
+
+
 def send_salesperson_menu(phone: str, name: str = "there") -> dict:
     """
     Send an interactive Quick Reply menu to a salesperson.

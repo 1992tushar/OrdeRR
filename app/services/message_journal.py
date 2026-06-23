@@ -23,23 +23,29 @@ ACK_MESSAGE = "✅ Order received. Processing now."
 # FIX: webhook.py transitions RECEIVED → PARSING directly (no ACK step),
 # then PARSING → CONFIRMED on success. Both paths must be valid.
 VALID_TRANSITIONS = {
-    "RECEIVED":      {"ACK_SENT", "PARSING", "FAILED"},          # added PARSING
+    "RECEIVED":      {"PROCESSING", "ACK_SENT", "PARSING", "FAILED", "CONFIRMED"},
+    "PROCESSING":    {"CONFIRMED", "FAILED", "MANUAL_REVIEW"},
     "ACK_SENT":      {"PARSING", "FAILED"},
-    "PARSING":       {"PARSED", "NOTE", "FAILED", "CONFIRMED"},   # added CONFIRMED
+    "PARSING":       {"PARSED", "NOTE", "FAILED", "CONFIRMED"},
     "PARSED":        {"ORDER_CREATED", "FAILED"},
     "ORDER_CREATED": {"CONFIRMED", "FAILED"},
-    "CONFIRMED":     set(),
-    "NOTE":          set(),   # Terminal — customer sent a non-order note, stored for daily report
-    "FAILED":        {"PARSING", "ACK_SENT", "MANUAL_REVIEW"},
+    "CONFIRMED":     {"CONFIRMED"},
+    "NOTE":          set(),
+    "FAILED":        {"PARSING", "PROCESSING", "ACK_SENT", "MANUAL_REVIEW"},
     "MANUAL_REVIEW": {"ORDER_CREATED", "CANCELLED"},
     "CANCELLED":     set(),
 }
 
 
 def transition(msg: InboundMessage, new_status: str, db: Session, failure_reason: str = None):
+
     allowed = VALID_TRANSITIONS.get(msg.processing_status, set())
     if new_status not in allowed:
-        logger.warning("Invalid transition %s → %s for msg id=%s", msg.processing_status, new_status, msg.id)
+        raise ValueError(
+            f"Invalid transition {msg.processing_status} → {new_status} for msg id={msg.id}"
+        )
+
+    allowed = VALID_TRANSITIONS.get(msg.processing_status, set())
     msg.processing_status = new_status
     if failure_reason:
         msg.failure_reason = failure_reason
@@ -303,3 +309,16 @@ def _alert_manual_review(msg: InboundMessage, reason: str):
             send_whatsapp_message(MANAGER_PHONE, alert)
     except Exception:
         pass
+
+
+# Alias for backwards compatibility with tests
+record_inbound = persist_raw_message
+
+def record_inbound(db: Session, customer_phone: str, raw_message: str, meta_message_id: str, payload: dict) -> InboundMessage | None:
+    return persist_raw_message(
+        db,
+        meta_message_id=meta_message_id,
+        customer_phone=customer_phone,
+        raw_message=raw_message,
+        payload_json=json.dumps(payload) if payload else None,
+    )
