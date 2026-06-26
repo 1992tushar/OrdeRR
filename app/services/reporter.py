@@ -33,15 +33,21 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", f"{PLANT_NAME} OrdeRR")
 
 
 def _safe_list(value) -> list:
-    if not value:
+    if value is None:
         return []
-    try:
-        parsed = json.loads(value)
-        if isinstance(parsed, str):
-            parsed = json.loads(parsed)
-        return parsed if isinstance(parsed, list) else []
-    except Exception:
-        return []
+    if isinstance(value, list):     # ← add this
+        return value
+    if isinstance(value, str):
+        if value in ("null", "[]", ""):
+            return []
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+    return []
 
 
 def normalize_product(product: str) -> str:

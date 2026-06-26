@@ -57,6 +57,11 @@ from app.services.customer_service import get_customer_by_phone
 from app.models.noise_phrase import NoisePhrase
 from app.services.notifier import send_whatsapp_message, send_customer_registration_welcome
 from sqlalchemy.exc import IntegrityError
+
+from fastapi.responses import HTMLResponse
+from app.services.reporter import generate_daily_report, _build_print_html, get_todays_customer_notes
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -1529,3 +1534,20 @@ def test_management_summary(db: Session = Depends(get_db), username: str = Depen
 def test_daily_report(db: Session = Depends(get_db), username: str = Depends(require_auth)):
     send_daily_report(db)
     return {"status": "sent"}
+
+
+
+@router.get("/download-production-report")
+def download_production_report(
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    data  = generate_daily_report(db)
+    notes = get_todays_customer_notes(db)
+    html  = _build_print_html(data, notes)
+    date_slug = data["date_str"].replace(" ", "_")
+    filename  = f"production_report_{date_slug}.html"
+    return HTMLResponse(
+        content=html,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
