@@ -1,6 +1,8 @@
 import logging
 import os
 import requests
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.services.customer_service import normalize_phone
 
@@ -10,6 +12,8 @@ MANAGER_PHONE        = os.getenv("MANAGER_PHONE")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
 
 logger = logging.getLogger(__name__)
+
+IST = ZoneInfo("Asia/Kolkata")
 
 # ── Approved template names ───────────────────────────────────────────────────
 TEMPLATE_MANAGER_NEW_ORDER         = "manager_new_order"
@@ -106,6 +110,7 @@ def send_whatsapp_template(phone: str, template_name: str, parameters: list) -> 
             response = requests.post(url, json=payload, headers=headers, timeout=15)
             print(f"\n📤 WhatsApp template sent: {template_name}")
             print(f"   To       : {clean_phone}")
+            print(f"   Params   : {parameters}")
             print(f"   Status   : {response.status_code}")
             if response.status_code >= 400:
                 print(f"❌ Meta API Error: {response.text}")
@@ -213,25 +218,27 @@ def send_manager_alert(
     restaurant_name: str = None,
 ) -> bool:
     """
-    Send new order alert to manager via approved template.
+    Send new order alert to manager (or salesperson) via approved template.
+    Works even when the recipient's 24hr window is closed.
+
     Template: manager_new_order
-    {{1}} = PLANT_NAME
+    {{1}} = time received (IST)
     {{2}} = restaurant name + phone
-    {{3}} = items + delivery — pipe-separated, no newlines (Meta requirement)
+    {{3}} = items + delivery (pipe-separated, no newlines — Meta requirement)
     """
     items         = parsed.get("items", [])
-    delivery_time = parsed.get("delivery_time", "As per usual schedule")
+    delivery_time = parsed.get("delivery_time", "")
 
-    items_text    = _format_items_template(items)
-    delivery_text = f"Delivery: {delivery_time}" if delivery_time else "Delivery: As per usual schedule"
-
-    restaurant_line      = f"{restaurant_name or 'Unknown'} - {customer_phone}"
-    items_with_delivery  = f"{items_text} | {delivery_text}"
+    time_str        = datetime.now(IST).strftime("%I:%M %p")
+    restaurant_line = f"{restaurant_name or 'Unknown'} - {customer_phone}"
+    items_text      = _format_items_template(items)
+    delivery_text   = f"Delivery: {delivery_time}" if delivery_time else "Delivery: As per usual schedule"
+    items_with_delivery = f"{items_text} | {delivery_text}"
 
     return send_whatsapp_template(
         manager_phone,
         TEMPLATE_MANAGER_NEW_ORDER,
-        [PLANT_NAME, restaurant_line, items_with_delivery],
+        [time_str, restaurant_line, items_with_delivery],
     ) is not None
 
 
