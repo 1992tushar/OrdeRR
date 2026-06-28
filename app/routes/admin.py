@@ -8,6 +8,7 @@ Customer:     GET /admin/customers
               GET /admin/customers/{id}/orders
               POST /admin/customers/{id}/assign
               PUT  /admin/customers/{id}/status
+              PUT  /admin/customers/{id}            ← full customer edit (new)
               POST /customers
 Pending:      GET /admin/pending
 Window:       GET /admin/window-status
@@ -96,6 +97,18 @@ class CustomerCreate(BaseModel):
     restaurant_name: str
     area: Optional[str] = None
     salesperson_id: Optional[int] = None
+
+class CustomerEdit(BaseModel):
+    """Full-edit payload for a customer (Edit modal). All fields optional —
+    only provided fields are updated (partial update via exclude_unset)."""
+    restaurant_name:         Optional[str]  = None
+    owner_name:               Optional[str]  = None
+    phone_number:             Optional[str]  = None
+    address:                  Optional[str]  = None
+    city:                     Optional[str]  = None
+    area:                     Optional[str]  = None
+    salesperson_id:           Optional[int]  = None
+    is_daily_order_customer:  Optional[bool] = None
 
 class NextDayOverride(BaseModel):
     is_next_day: bool
@@ -656,9 +669,12 @@ def _customer_row(c: Customer, db: Session) -> dict:
         sp_name = sp.name if sp else None
     return {
         "id": c.id, "restaurant_name": c.restaurant_name,
+        "owner_name": c.owner_name,
         "phone_number": c.phone_number, "area": c.area,
+        "address": c.address, "city": c.city,
         "salesperson_id": c.salesperson_id, "salesperson_name": sp_name,
         "is_active": c.is_active,
+        "is_daily_order_customer": c.is_daily_order_customer,
         "created_at": c.created_at.isoformat() if c.created_at else None,
     }
 
@@ -813,6 +829,75 @@ def update_customer_status(customer_id: int, payload: CustomerStatus, db: Sessio
         "id": customer.id, "restaurant_name": customer.restaurant_name,
         "phone_number": customer.phone_number, "is_active": customer.is_active,
     }}
+
+
+@router.put("/customers/{customer_id}")
+def edit_customer(
+    customer_id: int,
+    payload: CustomerEdit,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """
+    Full edit of a customer's profile fields (Edit modal on the dashboard).
+    Only fields present in the payload (exclude_unset) are touched.
+    """
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    data = payload.dict(exclude_unset=True)
+
+    if "restaurant_name" in data:
+        name = (data["restaurant_name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Restaurant name cannot be empty")
+        customer.restaurant_name = name
+
+    if "owner_name" in data:
+        customer.owner_name = (data["owner_name"] or "").strip() or None
+
+    if "phone_number" in data:
+        new_phone = (data["phone_number"] or "").strip()
+        if not new_phone:
+            raise HTTPException(status_code=400, detail="Phone number cannot be empty")
+        error = validate_phone(new_phone)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        normalized = normalize_phone(new_phone)
+        if normalized != customer.phone_number:
+            existing = db.query(Customer).filter(
+                Customer.phone_number == normalized,
+                Customer.id != customer_id,
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Another customer already uses this phone number")
+            customer.phone_number = normalized
+
+    if "address" in data:
+        customer.address = (data["address"] or "").strip() or None
+
+    if "city" in data:
+        customer.city = (data["city"] or "").strip() or None
+
+    if "area" in data:
+        customer.area = (data["area"] or "").strip() or None
+
+    if "salesperson_id" in data:
+        sp_id = data["salesperson_id"]
+        if sp_id is not None:
+            sp = db.query(Salesperson).filter(Salesperson.id == sp_id).first()
+            if not sp:
+                raise HTTPException(status_code=404, detail=f"Salesperson id={sp_id} not found")
+        customer.salesperson_id = sp_id
+
+    if "is_daily_order_customer" in data:
+        customer.is_daily_order_customer = data["is_daily_order_customer"]
+
+    db.commit()
+    db.refresh(customer)
+
+    return {"status": "updated", "customer": _customer_row(customer, db)}
 
 
 @router.post("/customers/{customer_id}/post-order")

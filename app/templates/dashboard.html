@@ -730,6 +730,38 @@
 </div>
 
 
+<!-- Edit Customer Modal -->
+<!-- Edit Customer Modal -->
+<div id="edit-customer-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Edit Customer</h3>
+      <button class="btn btn-cancel-ui" onclick="closeModal('edit-customer-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Restaurant Name <span style="color:#c62828">*</span></label>
+      <input id="ec-name" type="text" style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">WhatsApp Number <span style="color:#c62828">*</span></label>
+      <input id="ec-phone" type="text" style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:6px;outline:none"/>
+      <div style="font-size:11px;color:#e67e22;margin-bottom:14px;">⚠️ Changing this changes which WhatsApp number this customer must message from.</div>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Area</label>
+      <input id="ec-area" type="text" style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:14px;outline:none"/>
+
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Salesperson</label>
+      <select id="ec-sp" style="width:100%;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:20px;outline:none;background:white">
+        <option value="">— Unassigned —</option>
+      </select>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-cancel-ui" onclick="closeModal('edit-customer-modal')">Cancel</button>
+        <button class="btn btn-save" id="ec-save-btn" onclick="submitEditCustomer()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ══ POST ORDER MODAL ══════════════════════════════════════════════════ -->
 <div id="post-order-modal" class="modal-overlay">
   <div class="modal-box">
@@ -775,6 +807,7 @@ let allSalespersons = [];
 let currentAssignId = null;
 let windowData = [];
 let productNames = [];
+let _editCustomerId = null;
 
 // ── Core ────────────────────────────────────────────────────────────────────
 
@@ -820,6 +853,61 @@ function closeModal(id) {
 document.querySelectorAll('.modal-overlay').forEach(el => {
     el.addEventListener('click', e => { if(e.target===el) el.classList.remove('open'); });
 });
+
+// ── Edit Customer Modal ──────────────────────────────────────────────────────
+
+function openEditModal(cid) {
+    const c = (window._allCustomers || []).find(x => x.id === cid);
+    if (!c) { showToast('Customer data not loaded — refresh and try again', 'error'); return; }
+
+    _editCustomerId = cid;
+
+    const sel = document.getElementById('ec-sp');
+    sel.innerHTML = '<option value="">— Unassigned —</option>';
+    allSalespersons.filter(s => s.active).forEach(s => {
+        sel.innerHTML += `<option value="${s.id}">${esc(s.name)}</option>`;
+    });
+
+    document.getElementById('ec-name').value  = c.restaurant_name || '';
+    document.getElementById('ec-phone').value = c.phone_number || '';
+    document.getElementById('ec-area').value  = c.area || '';
+    sel.value = c.salesperson_id || '';
+
+    const btn = document.getElementById('ec-save-btn');
+    btn.disabled = false; btn.textContent = 'Save Changes';
+
+    document.getElementById('edit-customer-modal').classList.add('open');
+}
+
+async function submitEditCustomer() {
+    const name  = document.getElementById('ec-name').value.trim();
+    const phone = document.getElementById('ec-phone').value.trim();
+    if (!name)  { showToast('⚠️ Restaurant name is required', 'error'); return; }
+    if (!phone) { showToast('⚠️ Phone number is required', 'error'); return; }
+
+    const spVal = document.getElementById('ec-sp').value;
+
+    const body = {
+        restaurant_name: name,
+        phone_number: phone,
+        area: document.getElementById('ec-area').value.trim(),
+        salesperson_id: spVal ? parseInt(spVal) : null,
+    };
+
+    const btn = document.getElementById('ec-save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+        const data = await api('PUT', `/admin/customers/${_editCustomerId}`, body);
+        showToast(`✅ ${data.customer.restaurant_name} updated`, 'success');
+        closeModal('edit-customer-modal');
+        loadCustomers();
+    } catch(e) {
+        let msg = 'Update failed';
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
+        showToast('❌ ' + msg, 'error');
+        btn.disabled = false; btn.textContent = 'Save Changes';
+    }
+}
 
 // ── Salespersons ─────────────────────────────────────────────────────────────
 
@@ -901,6 +989,7 @@ async function loadCustomers() {
 }
 
 function renderCustomers(customers) {
+    window._allCustomers = customers;
     document.getElementById('stat-total').textContent=customers.length;
     document.getElementById('stat-active').textContent=customers.filter(c=>c.is_active).length;
     document.getElementById('stat-inactive').textContent=customers.filter(c=>!c.is_active).length;
@@ -919,6 +1008,7 @@ function renderCustomers(customers) {
             <td>${sp}</td><td>${today}</td>
             <td>${c.is_active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
             <td style="display:flex;gap:5px;flex-wrap:wrap">
+                <button class="btn" style="background:#e3f2fd;color:#1565c0" onclick="openEditModal(${c.id})">✏️ Edit</button>
                 <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
                 ${toggle}
                 <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
@@ -942,6 +1032,7 @@ function renderCustomers(customers) {
                 ${todayBadge}
             </div>
             <div class="mobile-card-actions">
+                <button class="btn" style="background:#e3f2fd;color:#1565c0" onclick="openEditModal(${c.id})">✏️ Edit</button>
                 <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
                 ${toggle}
                 <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
