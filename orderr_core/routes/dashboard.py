@@ -13,8 +13,7 @@ import os
 
 router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
-templates = Jinja2Templates(directory="app/templates")
-
+templates = Jinja2Templates(directory="orderr_core/templates")
 
 def _safe_list(value) -> list:
     """

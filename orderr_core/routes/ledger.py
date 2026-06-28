@@ -24,8 +24,7 @@ import json
 router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
-templates = Jinja2Templates(directory="app/templates")
-
+templates = Jinja2Templates(directory="orderr_core/templates")
 LEDGER_DAYS = 7
 
 
