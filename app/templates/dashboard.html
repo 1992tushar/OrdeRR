@@ -298,6 +298,15 @@
         .tab-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#c62828; margin-left:4px; vertical-align:middle; }
         .empty { text-align:center; padding:36px 16px; color:#aaa; font-size:14px; }
         .info-box { background:#fff8e1; border-radius:10px; padding:12px 14px; font-size:13px; color:#7b5800; line-height:1.7; margin-top:4px; }
+
+        /* ── Customer Search Bar ── */
+        .customer-search-wrap { display:flex; align-items:center; gap:8px; margin-bottom:14px; background:white; padding:8px 12px; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+        .customer-search-input { flex:1; border:none; outline:none; font-size:14px; color:#333; background:transparent; min-width:0; }
+        .customer-search-input::placeholder { color:#bbb; }
+        .customer-search-clear { background:none; border:none; cursor:pointer; font-size:16px; color:#bbb; padding:0 2px; line-height:1; display:none; }
+        .customer-search-clear.visible { display:block; color:#888; }
+        .customer-search-count { font-size:12px; color:#075e54; font-weight:600; white-space:nowrap; }
+    </style>
     </style>
 </head>
 <body>
@@ -539,6 +548,16 @@
             <button class="section-btn" onclick="loadCustomers()">↻</button>
           </div>
         </h2>
+        <div class="customer-search-wrap">
+            <span style="font-size:16px;color:#bbb;flex-shrink:0">🔍</span>
+            <input class="customer-search-input" id="customer-search-input"
+                   type="text" autocomplete="off" spellcheck="false"
+                   placeholder="Search by name, phone, or area…"
+                   oninput="onCustomerSearchInput()"/>
+            <button class="customer-search-clear" id="customer-search-clear"
+                    onclick="clearCustomerSearch()" title="Clear search">✕</button>
+            <span class="customer-search-count" id="customer-search-count" style="display:none"></span>
+        </div>
         <div class="desktop-only">
             <div class="summary-table">
                 <table>
@@ -981,8 +1000,13 @@ async function toggleSP(id,active) {
 async function loadCustomers() {
     document.getElementById('customer-tbody').innerHTML='<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
     document.getElementById('customer-cards').innerHTML='<div class="empty">Loading...</div>';
-    try { const data=await api('GET','/admin/customers'); renderCustomers(data.customers||[]); }
-    catch(e){
+    try {
+        const data = await api('GET', '/admin/customers');
+        renderCustomers(data.customers || []);
+        // Re-apply any active search term after fresh load (persists across ↻ reload)
+        const term = document.getElementById('customer-search-input')?.value || '';
+        if (term.trim()) applyCustomerFilter(term);
+    } catch(e) {
         document.getElementById('customer-tbody').innerHTML='<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:24px">Failed</td></tr>';
         document.getElementById('customer-cards').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';
     }
@@ -990,39 +1014,50 @@ async function loadCustomers() {
 
 function renderCustomers(customers) {
     window._allCustomers = customers;
-    document.getElementById('stat-total').textContent=customers.length;
-    document.getElementById('stat-active').textContent=customers.filter(c=>c.is_active).length;
-    document.getElementById('stat-inactive').textContent=customers.filter(c=>!c.is_active).length;
-    document.getElementById('stat-ordered').textContent=customers.filter(c=>c.ordered_today).length;
+    // Stat cards always reflect the FULL unfiltered list
+    document.getElementById('stat-total').textContent   = customers.length;
+    document.getElementById('stat-active').textContent  = customers.filter(c=>c.is_active).length;
+    document.getElementById('stat-inactive').textContent= customers.filter(c=>!c.is_active).length;
+    document.getElementById('stat-ordered').textContent = customers.filter(c=>c.ordered_today).length;
+    renderCustomerRows(customers);
+}
 
-    const tbody=document.getElementById('customer-tbody');
-    if(!customers.length){tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';}
-    else tbody.innerHTML=customers.map(c=>{
-        const sp=c.salesperson_name?`<span style="font-size:13px">${esc(c.salesperson_name)}</span>`:'<span class="badge unassigned">Unassigned</span>';
-        const today=c.ordered_today?'<span class="badge ordered-badge">✅</span>':'<span class="badge pending-badge">⏳</span>';
-        const toggle=c.is_active?`<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="setStatus(${c.id},true)">Activate</button>`;
-        return `<tr>
-            <td><strong>${esc(c.restaurant_name||'—')}</strong></td>
-            <td style="font-size:12px;color:#888">${esc(c.phone_number)}</td>
-            <td>${esc(c.area||'')}</td>
-            <td>${sp}</td><td>${today}</td>
-            <td>${c.is_active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
-            <td style="display:flex;gap:5px;flex-wrap:wrap">
-                <button class="btn" style="background:#e3f2fd;color:#1565c0" onclick="openEditModal(${c.id})">✏️ Edit</button>
-                <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
-                ${toggle}
-                <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
-                <button class="btn" style="background:#e8f5e9;color:#2e7d32" onclick="openPostOrderModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">📝 Post Order</button>
-            </td>
-        </tr>`;
-    }).join('');
+function renderCustomerRows(customers) {
+    const tbody = document.getElementById('customer-tbody');
+    if (!customers.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';
+    } else {
+        tbody.innerHTML = customers.map(c => {
+            const sp     = c.salesperson_name ? `<span style="font-size:13px">${esc(c.salesperson_name)}</span>` : '<span class="badge unassigned">Unassigned</span>';
+            const today  = c.ordered_today ? '<span class="badge ordered-badge">✅</span>' : '<span class="badge pending-badge">⏳</span>';
+            const toggle = c.is_active
+                ? `<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`
+                : `<button class="btn btn-activate"   onclick="setStatus(${c.id},true)">Activate</button>`;
+            return `<tr>
+                <td><strong>${esc(c.restaurant_name||'—')}</strong></td>
+                <td style="font-size:12px;color:#888">${esc(c.phone_number)}</td>
+                <td>${esc(c.area||'')}</td>
+                <td>${sp}</td><td>${today}</td>
+                <td>${c.is_active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
+                <td style="display:flex;gap:5px;flex-wrap:wrap">
+                    <button class="btn" style="background:#e3f2fd;color:#1565c0" onclick="openEditModal(${c.id})">✏️ Edit</button>
+                    <button class="btn btn-assign" onclick="openAssignModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}',${c.salesperson_id||'null'},'${(c.area||'').replace(/'/g,"\\'")}')">Assign</button>
+                    ${toggle}
+                    <button class="btn" style="background:#f3e5f5;color:#6a1b9a" onclick="openHistory(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">History</button>
+                    <button class="btn" style="background:#e8f5e9;color:#2e7d32" onclick="openPostOrderModal(${c.id},'${(c.restaurant_name||'').replace(/'/g,"\\'")}')">📝 Post Order</button>
+                </td>
+            </tr>`;
+        }).join('');
+    }
 
-    const cards=document.getElementById('customer-cards');
-    if(!customers.length){cards.innerHTML='<div class="empty">No customers yet</div>';return;}
-    cards.innerHTML=customers.map(c=>{
-        const todayBadge=c.ordered_today?'<span class="badge ordered-badge">✅ Ordered</span>':'<span class="badge pending-badge">⏳ Pending</span>';
-        const spText=c.salesperson_name?`👤 ${esc(c.salesperson_name)}`:'Unassigned';
-        const toggle=c.is_active?`<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`:`<button class="btn btn-activate" onclick="setStatus(${c.id},true)">Activate</button>`;
+    const cards = document.getElementById('customer-cards');
+    if (!customers.length) { cards.innerHTML = '<div class="empty">No customers yet</div>'; return; }
+    cards.innerHTML = customers.map(c => {
+        const todayBadge = c.ordered_today ? '<span class="badge ordered-badge">✅ Ordered</span>' : '<span class="badge pending-badge">⏳ Pending</span>';
+        const spText     = c.salesperson_name ? `👤 ${esc(c.salesperson_name)}` : 'Unassigned';
+        const toggle     = c.is_active
+            ? `<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`
+            : `<button class="btn btn-activate"   onclick="setStatus(${c.id},true)">Activate</button>`;
         return `<div class="mobile-card ${!c.is_active?'inactive':''}">
             <div class="mobile-card-row">
                 <div>
@@ -1040,6 +1075,59 @@ function renderCustomers(customers) {
             </div>
         </div>`;
     }).join('');
+}
+
+// ── Customer Search ────────────────────────────────────────────────────────────
+
+let _customerSearchTimer = null;
+
+function onCustomerSearchInput() {
+    const input = document.getElementById('customer-search-input');
+    const term  = input.value;
+    document.getElementById('customer-search-clear').classList.toggle('visible', term.length > 0);
+    clearTimeout(_customerSearchTimer);
+    _customerSearchTimer = setTimeout(() => applyCustomerFilter(term), 175);
+}
+
+function applyCustomerFilter(term) {
+    const all   = window._allCustomers || [];
+    const q     = term.trim().toLowerCase();
+    const countEl = document.getElementById('customer-search-count');
+
+    if (!q) {
+        renderCustomerRows(all);
+        countEl.style.display = 'none';
+        return;
+    }
+
+    const filtered = all.filter(c =>
+        (c.restaurant_name || '').toLowerCase().includes(q) ||
+        (c.phone_number    || '').toLowerCase().includes(q) ||
+        (c.area            || '').toLowerCase().includes(q)
+    );
+
+    if (!filtered.length) {
+        const msg = `No customers match '${esc(term)}'`;
+        document.getElementById('customer-tbody').innerHTML =
+            `<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">${msg}</td></tr>`;
+        document.getElementById('customer-cards').innerHTML =
+            `<div class="empty">${msg}</div>`;
+    } else {
+        renderCustomerRows(filtered);
+    }
+
+    countEl.textContent  = `Showing ${filtered.length} of ${all.length} customers`;
+    countEl.style.display = 'inline';
+}
+
+function clearCustomerSearch() {
+    const input = document.getElementById('customer-search-input');
+    input.value = '';
+    document.getElementById('customer-search-clear').classList.remove('visible');
+    document.getElementById('customer-search-count').style.display = 'none';
+    clearTimeout(_customerSearchTimer);
+    renderCustomerRows(window._allCustomers || []);
+    input.focus();
 }
 
 function openAssignModal(cid,rname,spId,area) {
