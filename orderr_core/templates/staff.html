@@ -141,11 +141,14 @@ function escapeHtml(s) {
   }[c]));
 }
 
-const renderers = {
-  dashboard: renderDashboard,
-  employees: renderEmployees,
-  advances: renderAdvances,
-  leaves: renderLeaves
+// Resolve renderers by NAME at click-time. The render functions live in
+// later <script> blocks, so referencing them directly here would throw a
+// ReferenceError (aborting this block before the listener attaches).
+const RENDERER_NAMES = {
+  dashboard: 'renderDashboard',
+  employees: 'renderEmployees',
+  advances: 'renderAdvances',
+  leaves: 'renderLeaves'
 };
 
 tabsEl.addEventListener('click', (e) => {
@@ -153,7 +156,8 @@ tabsEl.addEventListener('click', (e) => {
   if (!btn) return;
   [...tabsEl.children].forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
-  renderers[btn.dataset.tab]();
+  const fn = window[RENDERER_NAMES[btn.dataset.tab]];
+  if (typeof fn === 'function') fn();
 });
 
 let expandedEmployeeId = null;
