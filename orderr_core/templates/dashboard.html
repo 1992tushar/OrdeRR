@@ -323,6 +323,7 @@
     <button class="tab-btn" onclick="switchTab('customers',this)">👥 Customers</button>
     <button class="tab-btn" onclick="switchTab('salespersons',this)">🧑 Sales</button>
     <button class="tab-btn" onclick="switchTab('window',this)" id="window-tab-btn">📡 Windows</button>
+    <button class="tab-btn" onclick="location.href='/billing'" id="billing-tab-btn">💰 Billing</button>
     <button class="tab-btn {% if not reliability_stats.has_issues %}hidden{% endif %}" onclick="switchTab('failed',this)" id="failed-tab-btn">⚠️ Failed<span class="tab-dot"></span></button>
 </div>
 
