@@ -19,6 +19,8 @@ from orderr_core.routes.ledger import router as ledger_router          # ← ADD
 from orderr_core.routes.invoices import router as invoices_router
 from orderr_core.routes.rates import router as rates_router
 from orderr_core.routes.billing import router as billing_router
+# Staff Ledger module router (absolute paths: /staff, /staff/api/*)
+from orderr_core.routes.staff import router as staff_router
 from orderr_core.services.reporter import send_daily_report
 from orderr_core.services.pending_notifier import (
     send_customer_reminders,
@@ -43,6 +45,11 @@ from orderr_core.models.actuals import OrderItemActual             # noqa: F401
 from orderr_core.models.invoice import Invoice, InvoiceItem        # noqa: F401
 from orderr_core.models.rate_unclear import RateUnclearItem        # noqa: F401
 from orderr_core.models.ocr_unmatched import OcrUnmatchedLine      # noqa: F401
+
+# Staff Ledger module models — owns employees/advances/leaves; shares Base/metadata
+from orderr_core.models.employee import Employee                   # noqa: F401
+from orderr_core.models.advance import Advance                     # noqa: F401
+from orderr_core.models.leave import Leave                         # noqa: F401
 
 
 Base.metadata.create_all(bind=engine)
@@ -196,6 +203,9 @@ app.include_router(ledger_router,    prefix="/ledger",    tags=["Ledger"])   # �
 app.include_router(invoices_router, tags=["Billing"])
 app.include_router(rates_router,    tags=["Billing"])
 app.include_router(billing_router,  tags=["Billing"])
+
+# ── Staff Ledger module (merged) — router carries its own absolute paths ───────
+app.include_router(staff_router,    tags=["Staff"])
 
 
 @app.get("/")
