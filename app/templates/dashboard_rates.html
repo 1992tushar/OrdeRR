@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Today's Rates — {{ today }}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    margin: 0; padding: 12px; background: #f4f4f5; color: #18181b;
+  }
+  h1 { font-size: 18px; margin: 4px 0 2px; }
+  .sub { font-size: 13px; color: #71717a; margin-bottom: 14px; }
+  a.unclear-link {
+    display: inline-block; margin-bottom: 14px; font-size: 13px;
+    color: #b91c1c; text-decoration: none; font-weight: 600;
+  }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; }
+  th, td { padding: 10px 8px; text-align: left; font-size: 14px; border-bottom: 1px solid #e4e4e7; }
+  th { background: #fafafa; font-size: 12px; color: #71717a; text-transform: uppercase; }
+  input[type=number] {
+    width: 90px; padding: 8px; font-size: 15px; border: 1px solid #d4d4d8;
+    border-radius: 6px;
+  }
+  select {
+    padding: 8px 4px; font-size: 13px; border: 1px solid #d4d4d8; border-radius: 6px;
+  }
+  .stale { color: #b45309; font-size: 11px; display: block; margin-top: 3px; }
+  .missing { color: #b91c1c; font-size: 11px; display: block; margin-top: 3px; }
+  button {
+    margin-top: 16px; width: 100%; padding: 14px; font-size: 16px; font-weight: 600;
+    background: #18181b; color: #fff; border: none; border-radius: 10px;
+  }
+  button:active { background: #3f3f46; }
+</style>
+</head>
+<body>
+  <h1>Today's Rates</h1>
+  <div class="sub">{{ today }} — edit any rate, blank = keep current</div>
+  <a class="unclear-link" href="/dashboard/rates/unclear">⚠ View Rate Unclear queue</a>
+
+  <form method="post" action="/dashboard/rates">
+    <table>
+      <thead>
+        <tr><th>Product</th><th>Unit</th><th>Rate (₹)</th></tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            {{ row.product }}
+            {% if row.rate is none %}
+              <span class="missing">No rate ever set</span>
+            {% elif row.not_confirmed_today %}
+              <span class="stale">Not confirmed today (from {{ row.rate_date }})</span>
+            {% endif %}
+          </td>
+          <td>
+            <select name="unit__{{ row.product }}">
+              <option value="kg" {% if row.unit == 'kg' %}selected{% endif %}>kg</option>
+              <option value="nos" {% if row.unit == 'nos' %}selected{% endif %}>nos</option>
+            </select>
+          </td>
+          <td>
+            <input type="number" step="0.01" min="0.01"
+                   name="rate__{{ row.product }}"
+                   placeholder="{{ row.rate if row.rate is not none else '—' }}"
+                   value="{{ row.rate if row.rate is not none else '' }}">
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit">Save Today's Rates</button>
+  </form>
+</body>
+</html>

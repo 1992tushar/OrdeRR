@@ -15,6 +15,10 @@ from app.database import engine, Base, SessionLocal
 from app.routes import webhook, dashboard
 from app.routes.admin import router as admin_router
 from app.routes.ledger import router as ledger_router          # ← ADD
+# Billing module routers (absolute paths: /billing/*, /dashboard/*, /webhook/rates)
+from app.routes.invoices import router as invoices_router
+from app.routes.rates import router as rates_router
+from app.routes.billing import router as billing_router
 from app.services.reporter import send_daily_report
 from app.services.pending_notifier import (
     send_customer_reminders,
@@ -31,6 +35,14 @@ from app.models.order import Order
 from app.models.inbound_message import InboundMessage  # ← reliability layer
 from app.models.customer_product_alias import CustomerProductAlias  # noqa: F401
 from app.models.customer_product_stats import CustomerProductStats  # noqa: F401  ← unit inference (FRD §5.1)
+
+# Billing module models — billing owns these tables; shares OrdeRR's Base/metadata
+from app.models.daily_rate import DailyRate                # noqa: F401
+from app.models.rate_override import CustomerRateOverride  # noqa: F401
+from app.models.actuals import OrderItemActual             # noqa: F401
+from app.models.invoice import Invoice, InvoiceItem        # noqa: F401
+from app.models.rate_unclear import RateUnclearItem        # noqa: F401
+from app.models.ocr_unmatched import OcrUnmatchedLine      # noqa: F401
 
 
 Base.metadata.create_all(bind=engine)
@@ -179,6 +191,11 @@ app.include_router(webhook.router,   prefix="/webhook",   tags=["Webhook"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 app.include_router(admin_router,     prefix="/admin",     tags=["Admin"])
 app.include_router(ledger_router,    prefix="/ledger",    tags=["Ledger"])   # ← ADD
+
+# ── Billing module (merged) — routers carry their own absolute paths ──────────
+app.include_router(invoices_router, tags=["Billing"])
+app.include_router(rates_router,    tags=["Billing"])
+app.include_router(billing_router,  tags=["Billing"])
 
 
 @app.get("/")
