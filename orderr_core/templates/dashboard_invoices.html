@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Invoices — Orderr Billing</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .sub { color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .banner { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: 0.9rem; }
+    .banner.ok  { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .banner.err { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem; }
+    .card h2 { font-size: 1rem; margin: 0 0 0.75rem; }
+    .form-row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; }
+    .form-group { display: flex; flex-direction: column; gap: 0.3rem; }
+    label { font-size: 0.8rem; color: #374151; font-weight: 600; }
+    input[type=text], input[type=number], input[type=date] {
+      padding: 0.4rem 0.6rem; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.9rem; min-width: 160px;
+    }
+    .btn { background: #1d4ed8; color: #fff; border: none; border-radius: 5px; padding: 0.5rem 1.2rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
+    .btn:hover { background: #1e40af; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f3f4f6; text-align: left; padding: 0.5rem 0.75rem; font-size: 0.82rem; color: #374151; border-bottom: 2px solid #d1d5db; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; }
+    tr:hover td { background: #f9fafb; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+    .tag-draft { background: #e0e7ff; color: #3730a3; }
+    .tag-sent  { background: #d1fae5; color: #065f46; }
+    .tag-paid  { background: #dcfce7; color: #15803d; }
+    .tag-void  { background: #f3f4f6; color: #6b7280; }
+    .amount { font-variant-numeric: tabular-nums; }
+    nav a { color: #1d4ed8; text-decoration: none; font-size: 0.88rem; margin-right: 1rem; }
+    nav { margin-bottom: 1.5rem; }
+    .empty { color: #9ca3af; font-size: 0.9rem; padding: 1.5rem 0; text-align: center; }
+    a.inv-link { color: #1d4ed8; text-decoration: none; font-weight: 600; }
+    a.inv-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/dashboard/actuals/upload">📷 Upload Report</a>
+  <a href="/dashboard/rates">Rates</a>
+  <a href="/dashboard/invoices/overrides">Rate Overrides</a>
+  <a href="/dashboard/rates/unclear">Unclear Rates</a>
+</nav>
+
+<h1>Invoices</h1>
+<p class="sub">Generate draft invoices from confirmed actuals. Phase 1 — draft only, no GST.</p>
+
+{% if success %}
+<div class="banner ok">{{ success }}</div>
+{% endif %}
+{% if error %}
+<div class="banner err">{{ error }}</div>
+{% endif %}
+
+<!-- Generate form -->
+<div class="card">
+  <h2>Generate Invoice</h2>
+  <form method="post" action="/dashboard/invoices/generate">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="order_id">Order ID *</label>
+        <input type="number" id="order_id" name="order_id" placeholder="e.g. 42" min="1" required>
+      </div>
+      <div class="form-group">
+        <label for="customer_phone">Customer Phone *</label>
+        <input type="text" id="customer_phone" name="customer_phone" placeholder="e.g. 9876543210" required>
+      </div>
+      <div class="form-group">
+        <label for="business_date">Business Date *</label>
+        <input type="date" id="business_date" name="business_date" value="{{ today }}" required>
+      </div>
+      <div class="form-group" style="justify-content:flex-end;">
+        <button type="submit" class="btn">Generate →</button>
+      </div>
+    </div>
+  </form>
+  <p style="font-size:0.8rem;color:#6b7280;margin-top:0.75rem;">
+    Billing is held automatically if any actuals are unconfirmed or any rate is unclear.
+    Upload a production report at <a href="/dashboard/actuals/upload">Upload Report</a> first.
+  </p>
+</div>
+
+<!-- Invoice list -->
+{% if invoices %}
+<table>
+  <thead><tr>
+    <th>Invoice No.</th>
+    <th>Order ID</th>
+    <th>Customer</th>
+    <th>Date</th>
+    <th>Total (₹)</th>
+    <th>Status</th>
+    <th>Created</th>
+  </tr></thead>
+  <tbody>
+  {% for inv in invoices %}
+  <tr>
+    <td><a class="inv-link" href="/dashboard/invoices/{{ inv.id }}">{{ inv.invoice_number }}</a></td>
+    <td>{{ inv.order_id }}</td>
+    <td>{{ inv.customer_phone }}</td>
+    <td>{{ inv.business_date }}</td>
+    <td class="amount">₹{{ "%.2f"|format(inv.total|float) }}</td>
+    <td>
+      <span class="tag tag-{{ inv.status }}">{{ inv.status }}</span>
+    </td>
+    <td style="color:#6b7280;font-size:0.82rem;">{{ inv.created_at.strftime('%d %b %H:%M') if inv.created_at else '—' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No invoices yet. Generate one above.</p>
+{% endif %}
+
+<script>
+  const d = document.getElementById('business_date');
+  if (!d.value) d.value = new Date().toISOString().slice(0, 10);
+</script>
+
+</body>
+</html>

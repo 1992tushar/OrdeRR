@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluffy Billing</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+
+.nav{display:flex;align-items:center;gap:0;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);margin-right:20px;display:flex;align-items:center;gap:6px;letter-spacing:-.2px}
+.nav-tabs{display:flex;height:100%;gap:2px}
+.nav-tab{display:flex;align-items:center;gap:6px;padding:0 14px;font-size:13px;font-weight:500;color:var(--ink3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;user-select:none}
+.nav-tab:hover{color:var(--ink)}
+.nav-tab.active{color:var(--green);border-bottom-color:var(--green)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+
+main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
+.view{display:none}
+.view.active{display:block}
+
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s;text-decoration:none}
+.btn-primary{background:var(--green);color:#fff}
+.btn-primary:hover{opacity:.88}
+.btn-primary:disabled{background:var(--ink3);cursor:not-allowed}
+.btn-ghost{background:transparent;color:var(--ink2);border:1px solid var(--border-strong)}
+.btn-ghost:hover{background:var(--bg)}
+.btn-sm{padding:6px 14px;font-size:12px;border-radius:6px}
+.action-bar{display:flex;align-items:center;gap:10px;margin-top:20px;flex-wrap:wrap}
+
+.err-banner{background:var(--red-bg);border:1px solid var(--red-border);border-radius:8px;padding:11px 14px;font-size:13px;color:var(--red);margin-bottom:16px}
+.ok-banner{background:var(--green-bg);border:1px solid var(--green-border);border-radius:8px;padding:11px 14px;font-size:13px;color:var(--green);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px;box-shadow:var(--shadow)}
+.card-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.card-title{font-weight:600;font-size:14px}
+.card-body{padding:20px}
+
+.stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
+.stat-card .n{font-size:26px;font-weight:700;line-height:1;color:var(--ink)}
+.stat-card .l{font-size:11px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.4px}
+.stat-card.s-green .n{color:var(--green)}
+.stat-card.s-amber .n{color:var(--amber)}
+.stat-card.s-red .n{color:var(--red)}
+.stat-card.s-blue .n{color:var(--blue)}
+
+.attn-banner{display:flex;align-items:center;gap:12px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--r);padding:14px 16px;margin-bottom:20px;font-size:13px;color:var(--amber)}
+.attn-banner strong{font-weight:600}
+.attn-banner .ab-icon{font-size:20px}
+.attn-actions{margin-left:auto;display:flex;gap:8px;flex-shrink:0}
+.attn-actions button{font-size:12px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;cursor:pointer;background:var(--amber);color:#fff}
+.attn-actions .btn-red{background:var(--red)}
+
+.sec-head{display:flex;align-items:center;justify-content:space-between;margin:24px 0 12px}
+.sec-title{font-size:12px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.7px}
+
+.hotel-list{display:flex;flex-direction:column;gap:8px;margin-bottom:4px}
+.hotel-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);transition:border-color .15s}
+.hotel-card:hover{border-color:var(--border-strong)}
+.hotel-head{display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;user-select:none}
+.hotel-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot-clear{background:var(--green)}.dot-unclear{background:var(--amber)}.dot-invoiced{background:var(--blue)}.dot-pending{background:var(--ink3)}.dot-error{background:var(--red)}
+.hotel-name{font-weight:600;font-size:14px;flex:1}
+.hotel-meta{font-size:12px;color:var(--ink3);margin-right:4px}
+.hotel-badge{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px}
+.badge-clear{background:var(--green-bg);color:var(--green)}
+.badge-unclear{background:var(--amber-bg);color:var(--amber)}
+.badge-invoiced{background:var(--blue-bg);color:var(--blue)}
+.badge-pending{background:var(--bg);color:var(--ink3);border:1px solid var(--border)}
+.badge-error{background:var(--red-bg);color:var(--red)}
+.chevron{color:var(--ink3);font-size:16px;transition:transform .2s;flex-shrink:0}
+.chevron.open{transform:rotate(180deg)}
+.hotel-body{border-top:1px solid var(--border);background:var(--bg);display:none;padding:16px}
+.hotel-body.open{display:block}
+
+.items-tbl{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px}
+.items-tbl th{font-size:11px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px;padding:7px 10px;text-align:left;border-bottom:1px solid var(--border-strong)}
+.items-tbl td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.items-tbl tr:last-child td{border-bottom:none}
+.items-tbl .nr td{background:var(--amber-bg)}
+.review-label{font-size:11px;color:var(--amber);margin-top:2px}
+.qty-row{display:flex;align-items:center;gap:6px}
+.qty-inp{width:72px;padding:5px 8px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;text-align:right;background:var(--surface)}
+.qty-inp:focus{outline:none;border-color:var(--green)}
+.conf-btn{font-size:12px;font-weight:600;padding:5px 11px;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer}
+.check-tag{font-size:12px;color:var(--green);font-weight:500}
+
+.unmatched-head{font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;display:flex;align-items:center;gap:5px}
+.unmatched-block{background:var(--red-bg);border:1px solid var(--red-border);border-radius:8px;padding:12px 14px;margin-bottom:8px}
+.unmatched-raw{font-family:monospace;font-size:12px;font-weight:600;color:var(--red);margin-bottom:4px}
+.unmatched-reason{font-size:11px;color:var(--ink2);margin-bottom:10px}
+.resolve-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.resolve-row input,.resolve-row select{padding:5px 9px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px;background:var(--surface)}
+.resolve-row input.r-name{width:150px}
+.resolve-row input.r-qty{width:65px}
+.resolve-btn{font-size:12px;font-weight:600;padding:5px 12px;background:var(--red);color:#fff;border:none;border-radius:6px;cursor:pointer}
+
+.inv-area{display:flex;align-items:center;gap:10px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap}
+.phone-inp{padding:7px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:13px;width:160px;background:var(--surface)}
+.phone-inp:focus{outline:none;border-color:var(--green)}
+.gen-btn{padding:8px 18px;background:var(--green);color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer}
+.gen-btn:hover{opacity:.88}
+.inv-success{font-size:13px;color:var(--green);font-weight:600;display:flex;align-items:center;gap:5px}
+.inv-error{font-size:13px;color:var(--red)}
+.pdf-link{font-size:13px;font-weight:600;padding:7px 14px;border:1px solid var(--border-strong);border-radius:7px;color:var(--ink);text-decoration:none;background:var(--surface);display:inline-flex;align-items:center;gap:5px}
+.pdf-link:hover{background:var(--bg)}
+
+.pending-items{font-size:13px;color:var(--ink3)}
+.pending-items table{width:100%;border-collapse:collapse}
+.pending-items td{padding:7px 10px;border-bottom:1px solid var(--border)}
+.pending-items tr:last-child td{border-bottom:none}
+
+.drop-zone{border:2px dashed var(--border-strong);border-radius:10px;padding:40px 20px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg)}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--green);background:var(--green-bg)}
+.drop-zone .dz-icon{font-size:32px;color:var(--green);display:block;margin-bottom:10px}
+.drop-label{font-size:15px;font-weight:600;color:var(--ink2);margin-bottom:4px}
+.drop-sub{font-size:12px;color:var(--ink3)}
+.drop-zone input[type=file]{display:none}
+.file-pills{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.file-pill{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:12px}
+.fp-name{flex:1;font-weight:500}
+.fp-size{color:var(--ink3)}
+.fp-rm{cursor:pointer;color:var(--ink3);font-size:16px;line-height:1}
+.fp-rm:hover{color:var(--red)}
+
+.prog-wrap{margin-bottom:20px}
+.prog-lbl{display:flex;justify-content:space-between;font-size:12px;color:var(--ink2);margin-bottom:6px}
+.prog-bg{height:6px;background:var(--border-strong);border-radius:99px;overflow:hidden}
+.prog-fill{height:100%;background:var(--green);border-radius:99px;transition:width .4s ease}
+
+.spin-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;padding:56px 0}
+.spinner{width:32px;height:32px;border:3px solid var(--border-strong);border-top-color:var(--green);border-radius:50%;animation:_spin .7s linear infinite}
+@keyframes _spin{to{transform:rotate(360deg)}}
+.spin-label{font-size:13px;color:var(--ink2)}
+
+.rates-tbl{width:100%;border-collapse:collapse}
+.rates-tbl th{font-size:11px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;padding:9px 14px;text-align:left;border-bottom:2px solid var(--border-strong)}
+.rates-tbl td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+.rates-tbl tr:last-child td{border-bottom:none}
+.product-name{font-weight:500}
+.unit-badge{font-size:11px;background:var(--bg);color:var(--ink3);border-radius:4px;padding:2px 6px;margin-left:6px}
+.stale-tag{font-size:11px;color:var(--amber);background:var(--amber-bg);border-radius:4px;padding:2px 7px;margin-left:6px}
+.rate-inp{width:105px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:14px;text-align:right;background:var(--surface)}
+.rate-inp:focus{outline:none;border-color:var(--green)}
+.rate-inp.edited{border-color:var(--green);background:var(--green-bg)}
+
+.hist-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+.hist-search{flex:1;min-width:160px;padding:8px 12px 8px 34px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;background:var(--surface) no-repeat 10px center}
+.hist-search:focus{outline:none;border-color:var(--green)}
+.hist-date{padding:8px 10px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;background:var(--surface);color:var(--ink)}
+.hist-stats{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+.hstat{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--ink2)}
+.hstat strong{color:var(--ink);font-size:16px;display:block;line-height:1.2}
+.hist-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.hist-tbl th{font-size:11px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;padding:9px 14px;text-align:left;border-bottom:2px solid var(--border-strong);white-space:nowrap;cursor:pointer;user-select:none}
+.hist-tbl th:hover{color:var(--green)}
+.hist-tbl td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+.hist-tbl tr:last-child td{border-bottom:none}
+.hist-tbl tr:hover td{background:var(--bg)}
+.inv-num{font-weight:600;font-family:monospace;font-size:12px;color:var(--blue)}
+.inv-amount{font-weight:700}
+.hist-empty{text-align:center;padding:56px 20px;color:var(--ink3);font-size:14px}
+
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--ink);color:#fff;padding:10px 22px;border-radius:8px;font-size:13px;opacity:0;transition:all .28s;pointer-events:none;z-index:999;white-space:nowrap}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media(max-width:600px){
+  .stat-row{grid-template-columns:repeat(3,1fr)}
+  main{padding:16px 12px 80px}
+  .nav-tab .tab-label{display:none}
+  .hist-toolbar{flex-direction:column;align-items:stretch}
+  .attn-actions{flex-direction:column;gap:4px}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-logo">Fluffy Billing</div>
+  <div class="nav-tabs">
+    <div class="nav-tab active" id="tab-today" onclick="goView('today')">Today</div>
+    <div class="nav-tab" id="tab-upload" onclick="goView('upload')">Confirm delivery</div>
+    <div class="nav-tab" id="tab-rates" onclick="goView('rates')">Rates</div>
+    <div class="nav-tab" id="tab-history" onclick="goView('history')">History</div>
+  </div>
+  <div class="nav-right">
+    <div class="date-chip" id="date-label">-</div>
+    <button class="btn btn-primary btn-sm" onclick="dlAllPDFs()">All PDFs</button>
+  </div>
+</nav>
+
+<main>
+
+<div class="view active" id="view-today">
+  <div class="stat-row">
+    <div class="stat-card"><div class="n" id="s-total">-</div><div class="l">Hotels</div></div>
+    <div class="stat-card s-blue"><div class="n" id="s-invoiced">-</div><div class="l">Invoiced</div></div>
+    <div class="stat-card s-green"><div class="n" id="s-clear">-</div><div class="l">Ready</div></div>
+    <div class="stat-card s-amber"><div class="n" id="s-unclear">-</div><div class="l">Attention</div></div>
+    <div class="stat-card"><div class="n" id="s-pending">-</div><div class="l">Awaiting photo</div></div>
+  </div>
+
+  <div id="attn-banner" class="attn-banner" style="display:none">
+    <span class="ab-icon">!</span>
+    <div>
+      <strong id="attn-msg">Items need attention</strong>
+      <div id="attn-sub" style="font-size:12px;margin-top:2px;opacity:.8"></div>
+    </div>
+    <div class="attn-actions">
+      <button onclick="scrollToFirst('unclear')">Review unclear</button>
+      <button class="btn-red" id="attn-err-btn" onclick="scrollToFirst('error')" style="display:none">Review errors</button>
+    </div>
+  </div>
+
+  <div id="today-sections"></div>
+
+  <div class="action-bar" style="margin-top:12px">
+    <button class="btn btn-ghost btn-sm" onclick="goView('upload')">Confirm delivery (upload photo)</button>
+    <button class="btn btn-ghost btn-sm" onclick="refreshTodayView()">Refresh</button>
+  </div>
+</div>
+
+
+<div class="view" id="view-upload">
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">Confirm delivered quantities</span>
+    </div>
+    <div class="card-body">
+
+      <div id="report-ok-banner" class="ok-banner" style="display:none"><span id="report-ok-text"></span></div>
+
+      <div id="photo-prog-wrap" style="display:none" class="prog-wrap">
+        <div class="prog-lbl"><span id="prog-txt">0 of 0 hotels confirmed</span><span id="prog-pct">0%</span></div>
+        <div class="prog-bg"><div class="prog-fill" id="prog-bar" style="width:0%"></div></div>
+      </div>
+
+      <div class="drop-zone" id="photo-zone"
+           onclick="document.getElementById('photo-files-inp').click()"
+           ondragover="onDrag(event,'photo-zone',true)"
+           ondragleave="onDrag(event,'photo-zone',false)"
+           ondrop="onDropFile(event)">
+        <span class="dz-icon">+</span>
+        <div class="drop-label">Tap to choose photos</div>
+        <div class="drop-sub">Photo of today's dispatch/delivery sheet - JPG, PNG or PDF - Multiple pages OK</div>
+        <input type="file" id="photo-files-inp" accept="image/*,.pdf" multiple onchange="onFileSelect(event)">
+      </div>
+      <div class="file-pills" id="photo-pill-list"></div>
+      <div id="photo-err" class="err-banner" style="display:none;margin-top:14px"></div>
+      <div class="action-bar">
+        <button class="btn btn-primary" id="btn-upload-photos" onclick="doPhotosUpload()" disabled>Read photos and update</button>
+      </div>
+
+      <div id="upload-spinner" style="display:none">
+        <div class="spin-wrap">
+          <div class="spinner"></div>
+          <div class="spin-label" id="spin-msg">Processing...</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<div class="view" id="view-rates">
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title" id="rates-card-title">Today's product rates</span>
+      <span id="rates-saved-chip" style="display:none;font-size:12px;color:var(--green);font-weight:600">Saved</span>
+    </div>
+    <div class="card-body" style="padding-top:14px;padding-bottom:0">
+      <div style="margin-bottom:14px">
+        <label for="cust-select" style="font-size:12px;font-weight:600;color:var(--ink2);margin-right:8px">Edit rates for customer:</label>
+        <select id="cust-select"
+                style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:13px;background:var(--surface)"
+                onchange="rerenderRates()">
+          <option value="">- all customers (default rates) -</option>
+        </select>
+      </div>
+      <div id="rates-scope-note" style="font-size:12px;color:var(--ink3);margin-bottom:10px"></div>
+    </div>
+    <div style="padding:0">
+      <table class="rates-tbl">
+        <thead><tr>
+          <th>Product</th>
+          <th style="text-align:right">Rate</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="rates-tbody">
+          <tr><td colspan="3" style="padding:24px;text-align:center;color:var(--ink3)">Loading rates...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:16px 18px;border-top:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="saveRates()">Save rate changes</button>
+      <button class="btn btn-ghost" onclick="goView('today')">Back to today</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="view" id="view-history">
+  <div class="hist-toolbar">
+    <input class="hist-search" type="text" id="hist-q" placeholder="Search hotel, invoice no, phone..." oninput="filterHist()">
+    <input class="hist-date" type="date" id="hist-d" onchange="filterHist()" title="Filter by date">
+    <button class="btn btn-ghost btn-sm" onclick="loadHistory()">Refresh</button>
+    <button class="btn btn-primary btn-sm" id="hist-dl-btn" onclick="dlHistZip()" style="display:none">Download filtered PDFs</button>
+  </div>
+  <div class="hist-stats" id="hist-stats"></div>
+  <div class="card">
+    <div style="overflow-x:auto">
+      <table class="hist-tbl">
+        <thead><tr>
+          <th onclick="sortHist('invoice_number')">Invoice</th>
+          <th onclick="sortHist('hotel_name')">Hotel</th>
+          <th onclick="sortHist('business_date')">Date</th>
+          <th>Phone</th>
+          <th onclick="sortHist('total')" style="text-align:right">Amount</th>
+          <th style="text-align:center">PDF</th>
+        </tr></thead>
+        <tbody id="hist-tbody">
+          <tr><td colspan="6" style="padding:40px;text-align:center;color:var(--ink3)">Loading...</td></tr>
+        </tbody>
+      </table>
+      <div class="hist-empty" id="hist-empty" style="display:none">No invoices match your search.</div>
+    </div>
+  </div>
+  <div class="action-bar">
+    <button class="btn btn-ghost btn-sm" onclick="goView('today')">Back to today</button>
+  </div>
+</div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+let today     = new Date().toISOString().slice(0,10);
+let hotelResults = [];
+let rateRows  = [];
+let editedRates = {};
+let allInvoices = [];
+let sortCol   = 'business_date';
+let sortDir   = 'desc';
+let photoFiles = [];
+
+function fmt(iso){
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+}
+function fmts(iso){
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+}
+
+(async()=>{
+  document.getElementById('date-label').textContent = fmt(today);
+  await Promise.all([loadRates(), refreshTodayView()]);
+
+  // No forced tab switch -- land on Today regardless of pending status.
+  // Manual entry is available right on the Today cards, so photo upload
+  // is no longer the only way to confirm a pending hotel.
+  if(hotelResults.length > 0 && hotelResults.every(h=>h.status==='pending')){
+    showToast(hotelResults.length + ' hotel(s) ordered today - upload a photo or enter quantities manually below');
+  }
+})();
+
+function goView(v){
+  ['today','upload','rates','history'].forEach(x=>{
+    document.getElementById('view-'+x).classList.toggle('active', x===v);
+    document.getElementById('tab-'+x).classList.toggle('active',  x===v);
+  });
+  window.scrollTo({top:0,behavior:'smooth'});
+  if(v==='history') loadHistory();
+  if(v==='today')   refreshTodayView();
+  if(v==='upload'){
+    const loaded = hotelResults.filter(h=>h.status!=='error').length;
+    if(loaded > 0){
+      document.getElementById('report-ok-banner').style.display='flex';
+      document.getElementById('report-ok-text').textContent = loaded + ' hotel(s) ordered today';
+    }
+  }
+}
+
+async function refreshTodayView(){
+  try{
+    const r = await fetch('/billing/api/today-results');
+    const d = await r.json();
+    hotelResults = d.hotels || [];
+    today = d.today || today;
+    document.getElementById('date-label').textContent = fmt(today);
+  }catch(e){ console.warn('today-results failed',e); }
+  renderToday();
+}
+
+function renderToday(){
+  const inv = hotelResults.filter(h=>h.status==='invoiced');
+  const clr = hotelResults.filter(h=>h.status==='clear');
+  const unc = hotelResults.filter(h=>h.status==='unclear');
+  const err = hotelResults.filter(h=>h.status==='error');
+  const pen = hotelResults.filter(h=>h.status==='pending');
+
+  document.getElementById('s-total').textContent    = hotelResults.length;
+  document.getElementById('s-invoiced').textContent = inv.length;
+  document.getElementById('s-clear').textContent    = clr.length;
+  document.getElementById('s-unclear').textContent  = unc.length + err.length;
+  document.getElementById('s-pending').textContent  = pen.length;
+
+  const attn = document.getElementById('attn-banner');
+  if(unc.length || err.length){
+    attn.style.display = 'flex';
+    document.getElementById('attn-msg').textContent =
+      (unc.length+err.length) + ' hotel' + (unc.length+err.length>1?'s':'') + ' need attention before invoicing';
+    document.getElementById('attn-sub').textContent = unc.length + ' unclear, ' + err.length + ' errors';
+    document.getElementById('attn-err-btn').style.display = err.length ? '' : 'none';
+  } else {
+    attn.style.display = 'none';
+  }
+
+  const sec = document.getElementById('today-sections');
+  sec.innerHTML = '';
+  const addSec = (label, arr) => {
+    if(!arr.length) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = '<div class="sec-head"><span class="sec-title">' + label + ' (' + arr.length + ')</span></div>';
+    const list = document.createElement('div');
+    list.className = 'hotel-list';
+    arr.forEach(h => list.appendChild(buildHotelCard(h)));
+    wrap.appendChild(list);
+    sec.appendChild(wrap);
+  };
+
+  if(unc.length || err.length) addSec('Needs attention', [...unc,...err]);
+  if(clr.length)               addSec('Ready to invoice', clr);
+  if(inv.length)               addSec('Already invoiced', inv);
+  if(pen.length)               addSec('Awaiting delivery confirmation', pen);
+
+  if(!hotelResults.length){
+    sec.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--ink3)">' +
+      '<strong>No orders placed today yet.</strong><br>' +
+      '<span style="font-size:13px">Hotels will appear here automatically as soon as they order.</span></div>';
+  }
+}
+
+function scrollToFirst(status){
+  const el = document.querySelector('.hotel-card[data-status="'+status+'"]');
+  if(el){ el.scrollIntoView({behavior:'smooth',block:'start'}); openCard(Number(el.dataset.orderId)); }
+}
+
+function buildHotelCard(h){
+  const wrap = document.createElement('div');
+  wrap.className   = 'hotel-card';
+  wrap.dataset.status  = h.status;
+  wrap.dataset.orderId = h.order_id;
+
+  const statusLabel = {
+    clear:'Ready', invoiced:'Invoiced', unclear:'Needs attention',
+    error:'Error', pending:'Awaiting photo'
+  }[h.status] || h.status;
+
+  const head = document.createElement('div');
+  head.className = 'hotel-head';
+  head.innerHTML =
+    '<span class="hotel-dot dot-'+h.status+'"></span>' +
+    '<span class="hotel-name">'+h.hotel_name+'</span>' +
+    (h.invoice_number ? '<span class="hotel-meta">'+h.invoice_number+' - Rs.'+h.invoice_total?.toFixed(2)+'</span>' : '') +
+    '<span class="hotel-badge badge-'+h.status+'">'+statusLabel+'</span>' +
+    '<span class="chevron" id="chev-'+h.order_id+'">v</span>';
+  head.onclick = ()=> toggleCard(h.order_id);
+  wrap.appendChild(head);
+
+  const body = document.createElement('div');
+  body.className = 'hotel-body';
+  body.id = 'body-' + h.order_id;
+
+  if(h.status === 'pending'){
+    body.appendChild(buildPendingBody(h));
+  } else if(h.error){
+    body.innerHTML = '<div class="err-banner">Error: '+h.error+'</div>';
+  } else {
+    body.appendChild(buildItemsTable(h));
+    if(h.unmatched && h.unmatched.length) body.appendChild(buildUnmatched(h));
+    body.appendChild(buildInvArea(h));
+  }
+  wrap.appendChild(body);
+
+  if(h.status === 'unclear' || h.status === 'error'){
+    body.classList.add('open');
+    const ch = head.querySelector('.chevron');
+    if(ch) ch.style.transform = 'rotate(180deg)';
+  }
+  return wrap;
+}
+
+function openCard(orderId){
+  const body = document.getElementById('body-'+orderId);
+  const ch   = document.getElementById('chev-'+orderId);
+  if(body && !body.classList.contains('open')){
+    body.classList.add('open');
+    if(ch) ch.style.transform = 'rotate(180deg)';
+  }
+}
+
+function toggleCard(orderId){
+  const body = document.getElementById('body-'+orderId);
+  const ch   = document.getElementById('chev-'+orderId);
+  body.classList.toggle('open');
+  ch.style.transform = body.classList.contains('open') ? 'rotate(180deg)' : '';
+}
+
+function buildPendingBody(h){
+  // Manual fallback: pending items already have actual_id seeded by the
+  // backend (_ensure_order_seeded), so the same /billing/api/fix-item
+  // endpoint used for "needs review" rows works here too -- no photo required.
+  const wrap = document.createElement('div');
+  let rows = '';
+  (h.items||[]).forEach(it=>{
+    const qid = 'qi-'+h.order_id+'-'+it.actual_id;
+    rows += '<tr>' +
+      '<td><strong>'+it.product+'</strong></td>' +
+      '<td style="text-align:right">'+(it.ordered_qty!=null?it.ordered_qty:'-')+'</td>' +
+      '<td style="text-align:right">' +
+      '<div class="qty-row">' +
+      '<input class="qty-inp" id="'+qid+'" type="number" step="0.001" min="0" placeholder="qty" ' +
+      'onkeydown="if(event.key===\'Enter\'){event.preventDefault();confirmItem('+h.order_id+','+it.actual_id+',\''+qid+'\')}" ' +
+      'aria-label="Delivered quantity for '+it.product+'">' +
+      '<button class="conf-btn" onclick="confirmItem('+h.order_id+','+it.actual_id+',\''+qid+'\')" aria-label="Confirm quantity for '+it.product+'">Confirm</button>' +
+      '</div>' +
+      '</td>' +
+      '<td>'+it.unit+'</td>' +
+      '</tr>';
+  });
+  wrap.innerHTML = '<div class="unmatched-head" style="color:var(--blue)">Enter delivered quantities manually</div>' +
+    '<table class="items-tbl"><thead><tr>' +
+    '<th>Product</th><th style="text-align:right">Ordered</th><th style="text-align:right">Delivered</th><th>Unit</th>' +
+    '</tr></thead><tbody>'+rows+'</tbody></table>' +
+    '<div style="margin-top:8px;font-size:12px;color:var(--ink3)">No photo yet — you can type quantities directly, or use "Confirm delivery (upload photo)" instead.</div>';
+  return wrap;
+}
+
+function buildItemsTable(h){
+  const wrap = document.createElement('div');
+  let rows = '';
+  (h.items||[]).forEach(it=>{
+    const nr  = it.needs_review;
+    const qid = 'qi-'+h.order_id+'-'+it.actual_id;
+    rows += '<tr class="'+(nr?'nr':'')+'">' +
+      '<td><strong>'+it.product+'</strong></td>' +
+      '<td style="text-align:right">'+(it.ordered_qty!=null?it.ordered_qty:'-')+'</td>' +
+      '<td style="text-align:right">' +
+      (nr
+        ? '<div class="qty-row">' +
+          '<input class="qty-inp" id="'+qid+'" type="number" step="0.001" min="0" value="'+(it.actual_qty??'')+'" placeholder="qty" ' +
+          'onkeydown="if(event.key===\'Enter\'){event.preventDefault();confirmItem('+h.order_id+','+it.actual_id+',\''+qid+'\')}" ' +
+          'aria-label="Delivered quantity for '+it.product+'">' +
+          '<button class="conf-btn" onclick="confirmItem('+h.order_id+','+it.actual_id+',\''+qid+'\')" aria-label="Confirm quantity for '+it.product+'">Confirm</button></div>' +
+          (it.review_reason?'<div class="review-label">'+it.review_reason+'</div>':'')
+        : (it.actual_qty!=null ? it.actual_qty : '-')
+      ) +
+      '</td>' +
+      '<td>'+it.unit+'</td>' +
+      '<td>'+(nr ? '' : '<span class="check-tag">OK</span>')+'</td>' +
+      '</tr>';
+  });
+  wrap.innerHTML = '<table class="items-tbl"><thead><tr>' +
+    '<th>Product</th><th style="text-align:right">Ordered</th><th style="text-align:right">Delivered</th><th>Unit</th><th></th>' +
+    '</tr></thead><tbody>'+rows+'</tbody></table>';
+  return wrap;
+}
+
+function buildUnmatched(h){
+  const sec = document.createElement('div');
+  let html = '<div class="unmatched-head">Needs your input ('+h.unmatched.length+')</div>';
+  h.unmatched.forEach(u=>{
+    html += '<div class="unmatched-block" id="um-'+u.id+'">' +
+      '<div class="unmatched-raw">"'+u.raw_line+'"</div>' +
+      '<div class="unmatched-reason">'+u.reason+'</div>' +
+      '<div class="resolve-row">' +
+      '<input class="r-name" type="text" placeholder="Product name" id="up-'+u.id+'" onkeydown="if(event.key===\'Enter\') resolveUnmatched('+u.id+','+h.order_id+')" aria-label="Product name for unmatched line">' +
+      '<input class="r-qty" type="number" step="0.001" min="0" placeholder="Qty" id="uq-'+u.id+'" onkeydown="if(event.key===\'Enter\') resolveUnmatched('+u.id+','+h.order_id+')" aria-label="Quantity">' +
+      '<select id="uu-'+u.id+'" aria-label="Unit"><option value="kg">kg</option><option value="nos">nos</option></select>' +
+      '<button class="resolve-btn" onclick="resolveUnmatched('+u.id+','+h.order_id+')">Add item</button>' +
+      '</div></div>';
+  });
+  sec.innerHTML = html;
+  return sec;
+}
+
+function buildInvArea(h){
+  const area = document.createElement('div');
+  area.className = 'inv-area';
+  area.id = 'ia-' + h.order_id;
+  if(h.status === 'invoiced'){
+    const invLink = h.invoice_id
+      ? '/dashboard/invoices/'+h.invoice_id
+      : '/dashboard/invoices/'+h.invoice_number;
+    area.innerHTML =
+      '<a class="inv-success" href="'+invLink+'" style="text-decoration:none" title="View invoice detail">' +
+      'OK '+h.invoice_number+' - Rs.'+h.invoice_total?.toFixed(2)+'</a>' +
+      '<a class="pdf-link" href="/billing/api/invoices/'+h.invoice_number+'/pdf" target="_blank">Download PDF</a>';
+  } else if(h.status === 'clear'){
+    area.innerHTML =
+      '<input class="phone-inp" type="text" id="ph-'+h.order_id+'" value="'+(h.customer_phone||'')+'" placeholder="Customer phone">' +
+      '<button class="gen-btn" onclick="generateInvoice('+h.order_id+')">Generate invoice</button>' +
+      '<span id="im-'+h.order_id+'" style="font-size:13px"></span>';
+  } else {
+    area.innerHTML = '<span style="font-size:12px;color:var(--ink3)">Resolve all items above to unlock invoicing.</span>';
+  }
+  return area;
+}
+
+function rebuildCard(orderId){
+  const h = hotelResults.find(x=>x.order_id===orderId);
+  if(!h){ renderToday(); return; }
+  const old = document.querySelector('.hotel-card[data-order-id="'+orderId+'"]') ||
+    (document.getElementById('body-'+orderId) ? document.getElementById('body-'+orderId).closest('.hotel-card') : null);
+  if(!old){ renderToday(); return; }
+  const oldBody = document.getElementById('body-'+orderId);
+  const wasOpen = oldBody && oldBody.classList.contains('open');
+  const newCard = buildHotelCard(h);
+  if(wasOpen){
+    newCard.querySelector('.hotel-body').classList.add('open');
+    const ch = newCard.querySelector('.chevron');
+    if(ch) ch.style.transform = 'rotate(180deg)';
+  }
+  old.replaceWith(newCard);
+  renderStatCounts();
+}
+
+function renderStatCounts(){
+  document.getElementById('s-invoiced').textContent = hotelResults.filter(h=>h.status==='invoiced').length;
+  document.getElementById('s-clear').textContent    = hotelResults.filter(h=>h.status==='clear').length;
+  document.getElementById('s-unclear').textContent  = hotelResults.filter(h=>h.status==='unclear'||h.status==='error').length;
+  document.getElementById('s-pending').textContent  = hotelResults.filter(h=>h.status==='pending').length;
+}
+
+async function confirmItem(orderId, actualId, inputId){
+  const inp = document.getElementById(inputId);
+  const qty = parseFloat(inp.value);
+  if(!qty||qty<=0){ showToast('Enter a valid quantity'); return; }
+  const r = await fetch('/billing/api/fix-item',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({actual_id:actualId, actual_qty:qty})
+  });
+  const d = await r.json();
+  if(d.ok){
+    showToast('Item confirmed');
+    const h = hotelResults.find(x=>x.order_id===orderId);
+    if(h){
+      const it = h.items.find(i=>i.actual_id===actualId);
+      if(it){ it.actual_qty=qty; it.needs_review=false; }
+      if(h.items.every(i=>!i.needs_review)&&(!h.unmatched||h.unmatched.every(u=>u._done))&&h.status!=='invoiced')
+        h.status='clear';
+    }
+    rebuildCard(orderId);
+  } else showToast('Failed: '+(d.error||'unknown'));
+}
+
+async function resolveUnmatched(lineId, orderId){
+  const productEl = document.getElementById('up-'+lineId);
+  const qtyEl = document.getElementById('uq-'+lineId);
+  const unitEl = document.getElementById('uu-'+lineId);
+  const product = (productEl?productEl.value:'').trim();
+  const qty     = parseFloat(qtyEl?qtyEl.value:'');
+  const unit    = unitEl?unitEl.value:'kg';
+  if(!product||!qty){ showToast('Enter product name and quantity'); return; }
+  const r = await fetch('/billing/api/resolve-unmatched',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({line_id:lineId, product, qty, unit, order_id:orderId})
+  });
+  const d = await r.json();
+  if(d.ok){
+    showToast('Added '+product);
+    const h = hotelResults.find(x=>x.order_id===orderId);
+    if(h){
+      const ul = h.unmatched.find(u=>u.id===lineId);
+      if(ul) ul._done=true;
+      h.items.push({product, actual_qty:qty, ordered_qty:qty, unit, needs_review:false, actual_id:null});
+      if(h.items.every(i=>!i.needs_review)&&h.unmatched.every(u=>u._done)&&h.status!=='invoiced')
+        h.status='clear';
+    }
+    rebuildCard(orderId);
+  } else showToast('Failed: '+(d.error||'unknown'));
+}
+
+async function generateInvoice(orderId){
+  const phEl = document.getElementById('ph-'+orderId);
+  const phone = (phEl?phEl.value:'').trim();
+  const msg   = document.getElementById('im-'+orderId);
+  msg.textContent='Generating...'; msg.style.color='var(--ink3)';
+  const r = await fetch('/billing/api/generate-invoice',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order_id:orderId, customer_phone:phone, business_date:today})
+  });
+  const d = await r.json();
+  if(d.ok){
+    showToast('Invoice '+d.invoice_number+' created');
+    const h = hotelResults.find(x=>x.order_id===orderId);
+    if(h){ h.status='invoiced'; h.invoice_number=d.invoice_number; h.invoice_total=d.total; h.invoice_id=d.invoice_id||null; }
+    rebuildCard(orderId);
+    renderStatCounts();
+    if(phone && d.invoice_number){
+      const ia = document.getElementById('ia-'+orderId);
+      if(ia){
+        const waText = encodeURIComponent('Invoice '+d.invoice_number+' - Rs.'+(d.total||0).toFixed(2)+'. Download PDF: /billing/api/invoices/'+d.invoice_number+'/pdf');
+        const waBtn = document.createElement('a');
+        waBtn.className = 'pdf-link';
+        waBtn.href = 'https://wa.me/'+phone.replace(/\D/g,'')+'?text='+waText;
+        waBtn.target = '_blank';
+        waBtn.innerHTML = 'WhatsApp';
+        waBtn.style.background = '#25d366'; waBtn.style.color = '#fff'; waBtn.style.borderColor = '#25d366';
+        ia.appendChild(waBtn);
+      }
+    }
+  } else {
+    msg.textContent = d.error||'Invoice failed';
+    msg.style.color = 'var(--red)';
+  }
+}
+
+async function dlAllPDFs(){
+  const btn = document.querySelector('.nav-right .btn-primary');
+  const orig = btn.textContent;
+  btn.disabled=true; btn.textContent='Preparing...';
+  try{
+    const r = await fetch('/billing/api/invoices/pdf/bulk?business_date='+today);
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.statusText);
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href=url; a.download='invoices-'+today+'.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    showToast('Downloaded all invoices');
+  } catch(e){ showToast('Download failed: '+e.message); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+
+function onDrag(e, zoneId, over){
+  e.preventDefault();
+  document.getElementById(zoneId).classList.toggle('drag', over);
+}
+function onDropFile(e){
+  e.preventDefault();
+  addPhotoFiles([...e.dataTransfer.files]);
+  onDrag(e, 'photo-zone', false);
+}
+function onFileSelect(e){
+  addPhotoFiles([...e.target.files]);
+  e.target.value='';
+}
+
+function addPhotoFiles(files){
+  files.forEach(f=>{ if(!photoFiles.find(x=>x.name===f.name&&x.size===f.size)) photoFiles.push(f); });
+  renderPhotoPills();
+}
+function renderPhotoPills(){
+  const ul = document.getElementById('photo-pill-list');
+  ul.innerHTML='';
+  photoFiles.forEach((f,i)=>{
+    const li = document.createElement('div');
+    li.className='file-pill';
+    li.innerHTML='<span style="color:var(--green)">+</span>' +
+      '<span class="fp-name">'+f.name+'</span>' +
+      '<span class="fp-size">'+(f.size/1024).toFixed(0)+' KB</span>' +
+      '<span class="fp-rm" onclick="rmPhoto('+i+')" title="Remove">x</span>';
+    ul.appendChild(li);
+  });
+  document.getElementById('btn-upload-photos').disabled = photoFiles.length===0;
+  document.getElementById('photo-err').style.display = 'none';
+}
+function rmPhoto(i){ photoFiles.splice(i,1); renderPhotoPills(); }
+
+async function doPhotosUpload(){
+  document.getElementById('upload-spinner').style.display='';
+  const labels=[
+    'Reading your photos...','Identifying hotels and quantities...',
+    "Matching against today's orders...",'Updating delivered quantities...'
+  ];
+  let li=0; document.getElementById('spin-msg').textContent=labels[0];
+  const iv = setInterval(()=>{ if(li<labels.length-1) document.getElementById('spin-msg').textContent=labels[++li]; },2400);
+  const fd = new FormData(); photoFiles.forEach(f=>fd.append('photos',f));
+  try{
+    const r = await fetch('/billing/api/upload',{method:'POST',body:fd});
+    const d = await r.json();
+    clearInterval(iv);
+    if(!r.ok) throw new Error(d.error||'Upload failed');
+    try{
+      const tr = await fetch('/billing/api/today-results');
+      const td = await tr.json();
+      hotelResults = td.hotels || d.hotels;
+      today        = td.today  || d.today || today;
+      setProgBar(td.delivered_count||0, td.total_hotels||hotelResults.length);
+    }catch(_){ hotelResults = d.hotels||[]; }
+    showToast('Upload complete');
+    photoFiles = []; renderPhotoPills();
+    goView('today');
+  }catch(e){
+    clearInterval(iv);
+    document.getElementById('photo-err').textContent = e.message;
+    document.getElementById('photo-err').style.display='';
+  }finally{
+    document.getElementById('upload-spinner').style.display='none';
+  }
+}
+
+function setProgBar(done, total){
+  if(!total) return;
+  const pct = Math.round(done/total*100);
+  document.getElementById('photo-prog-wrap').style.display='';
+  document.getElementById('prog-txt').textContent = done+' of '+total+' hotels confirmed';
+  document.getElementById('prog-pct').textContent = pct+'%';
+  document.getElementById('prog-bar').style.width  = pct+'%';
+}
+
+async function loadRates(){
+  try{
+    const r = await fetch('/billing/api/customer-rates');
+    const d = await r.json();
+    today    = d.today || today;
+    rateRows = d.products || [];
+    window._ratesData = d;
+    document.getElementById('date-label').textContent = fmt(today);
+    const sel = document.getElementById('cust-select');
+    sel.innerHTML = '<option value="">- all customers (default rates) -</option>';
+    (d.customers||[]).forEach(c=>{
+      const o=document.createElement('option');
+      o.value=c.phone; o.textContent=c.name;
+      sel.appendChild(o);
+    });
+    rerenderRates();
+  }catch(e){ console.warn('rates load failed',e); }
+}
+
+function rerenderRates(){
+  const tbody = document.getElementById('rates-tbody');
+  const sel = document.getElementById('cust-select');
+  const selectedPhone = sel.value;
+  const custName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+
+  // Make the editing scope unmistakable: which save endpoint this will hit
+  // and who it affects, since the same form now serves two purposes.
+  const titleEl = document.getElementById('rates-card-title');
+  const noteEl  = document.getElementById('rates-scope-note');
+  if(selectedPhone){
+    titleEl.textContent = 'Rates for ' + custName + ' (override)';
+    noteEl.textContent = 'Saving here creates/updates a customer-specific override for ' + custName + ' only. It will not change the rate for any other customer.';
+  } else {
+    titleEl.textContent = "Today's product rates (all customers)";
+    noteEl.textContent = 'Saving here changes the default rate for every customer who does not have their own override.';
+  }
+
+  const overrideMap = {};
+  const d = window._ratesData || {};
+  if(selectedPhone && d.customer_overrides){
+    const overrides = Array.isArray(d.customer_overrides)
+      ? d.customer_overrides.filter(o=>o.phone===selectedPhone)
+      : (d.customer_overrides[selectedPhone]||[]);
+    overrides.forEach(o=>{ overrideMap[o.product] = o.rate; });
+  }
+  tbody.innerHTML='';
+  rateRows.forEach(p=>{
+    const hasOverride = overrideMap[p.product] !== undefined;
+    const val = editedRates[p.product]!==undefined
+      ? editedRates[p.product]
+      : hasOverride
+        ? overrideMap[p.product]
+        : (p.rate!=null?p.rate:'');
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><span class="product-name">'+p.product+'</span>' +
+      '<span class="unit-badge">'+p.unit+'</span>' +
+      (p.stale ? '<span class="stale-tag">carried forward - '+p.rate_date+'</span>' : '') +
+      (hasOverride ? '<span class="stale-tag" style="background:var(--blue-bg);color:var(--blue);border:none">override Rs.'+overrideMap[p.product]+'</span>' : '') +
+      '</td>' +
+      '<td style="text-align:right"><input class="rate-inp'+(hasOverride?' edited':'')+'" type="number" step="0.01" min="0" value="'+val+'" placeholder="Rs. -" data-product="'+p.product+'" data-unit="'+p.unit+'" oninput="onRateEdit(this)"></td>' +
+      '<td style="width:48px"></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function onRateEdit(inp){
+  inp.classList.add('edited');
+  editedRates[inp.dataset.product] = parseFloat(inp.value)||'';
+}
+
+async function saveRates(){
+  const inputs = document.querySelectorAll('.rate-inp');
+  const rates  = [];
+  inputs.forEach(i=>{ const v=parseFloat(i.value); if(v>0) rates.push({product:i.dataset.product,unit:i.dataset.unit,rate:v}); });
+  if(!rates.length){ showToast('No rates to save'); return; }
+
+  const selectedPhone = document.getElementById('cust-select').value;
+  const url  = selectedPhone ? '/billing/api/save-customer-rate' : '/billing/api/save-rates';
+  const body = selectedPhone
+    ? JSON.stringify({customer_phone: selectedPhone, rates})
+    : JSON.stringify({rates});
+
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body });
+  const d = await r.json();
+  if(d.ok){
+    document.getElementById('rates-saved-chip').style.display='';
+    showToast((selectedPhone ? 'Saved override for customer: ' : 'Saved ') + d.saved.length + ' rate(s)');
+    setTimeout(()=>document.getElementById('rates-saved-chip').style.display='none',3000);
+    editedRates = {};
+    loadRates();
+  } else showToast('Save failed - please retry');
+}
+
+async function loadHistory(){
+  document.getElementById('hist-tbody').innerHTML=
+    '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--ink3)">Loading...</td></tr>';
+  document.getElementById('hist-empty').style.display='none';
+  document.getElementById('hist-stats').innerHTML='';
+  try{
+    const r = await fetch('/billing/api/invoices/all');
+    if(!r.ok) throw new Error('Failed to load');
+    const d = await r.json();
+    allInvoices = d.invoices||[];
+  }catch(e){
+    document.getElementById('hist-tbody').innerHTML=
+      '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--red)">Could not load: '+e.message+'</td></tr>';
+    return;
+  }
+  filterHist();
+}
+
+function filterHist(){
+  const qEl = document.getElementById('hist-q');
+  const dEl = document.getElementById('hist-d');
+  const q  = (qEl.value||'').toLowerCase();
+  const df = dEl.value;
+  let out  = allInvoices.filter(i=>{
+    const mq = !q||((i.invoice_number||'').toLowerCase().includes(q)||(i.hotel_name||'').toLowerCase().includes(q)||(i.customer_phone||'').toLowerCase().includes(q));
+    const md = !df||i.business_date===df;
+    return mq&&md;
+  });
+  out.sort((a,b)=>{
+    let av=a[sortCol], bv=b[sortCol];
+    if(sortCol==='total'){ av=parseFloat(av)||0; bv=parseFloat(bv)||0; }
+    if(av<bv) return sortDir==='asc'?-1:1;
+    if(av>bv) return sortDir==='asc'?1:-1;
+    return 0;
+  });
+  const empty = document.getElementById('hist-empty');
+  const tbody = document.getElementById('hist-tbody');
+  document.getElementById('hist-dl-btn').style.display = df ? '' : 'none';
+
+  const el = document.getElementById('hist-stats');
+  if(out.length){
+    const total = out.reduce((s,i)=>s+(parseFloat(i.total)||0),0);
+    const dates = [...new Set(out.map(i=>i.business_date))].length;
+    el.innerHTML =
+      '<div class="hstat"><strong>'+out.length+'</strong>invoices</div>' +
+      '<div class="hstat"><strong>'+dates+'</strong>day(s)</div>' +
+      '<div class="hstat"><strong>Rs.'+total.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong>total</div>';
+  } else { el.innerHTML=''; }
+
+  if(!out.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = out.map(i=>
+    '<tr><td><span class="inv-num">'+i.invoice_number+'</span></td>' +
+    '<td>'+(i.hotel_name||'-')+'</td>' +
+    '<td style="color:var(--ink2)">'+fmts(i.business_date)+'</td>' +
+    '<td style="color:var(--ink3);font-size:12px">'+(i.customer_phone||'-')+'</td>' +
+    '<td style="text-align:right"><span class="inv-amount">Rs.'+parseFloat(i.total).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></td>' +
+    '<td style="text-align:center"><a class="pdf-link btn-sm" href="/billing/api/invoices/'+i.invoice_number+'/pdf" target="_blank">Download</a></td></tr>'
+  ).join('');
+}
+
+function sortHist(col){
+  if(sortCol===col){ sortDir = sortDir==='asc'?'desc':'asc'; }
+  else { sortCol=col; sortDir=(col==='business_date'||col==='total')?'desc':'asc'; }
+  filterHist();
+}
+
+async function dlHistZip(){
+  const df = document.getElementById('hist-d').value;
+  if(!df){ showToast('Select a date to download'); return; }
+  const btn = document.getElementById('hist-dl-btn');
+  const orig = btn.textContent;
+  btn.disabled=true; btn.textContent='Preparing...';
+  try{
+    const r = await fetch('/billing/api/invoices/pdf/bulk?business_date='+df);
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.statusText);
+    const blob=await r.blob(); const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='invoices-'+df+'.zip';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    showToast('Downloaded');
+  }catch(e){ showToast('Download failed: '+e.message); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+
+let toastT;
+function showToast(msg){
+  const el = document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(()=>el.classList.remove('show'), 2800);
+}
+</script>
+</body>
+</html>

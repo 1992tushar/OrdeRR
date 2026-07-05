@@ -6,3 +6,4 @@ orderr.db
 repomix-output.xml
 check_db.py
 orderr_core.egg-info/
+.idea/

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rate Unclear Queue</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    margin: 0; padding: 12px; background: #f4f4f5; color: #18181b;
+  }
+  h1 { font-size: 18px; margin: 4px 0 14px; }
+  a.back { font-size: 13px; color: #18181b; text-decoration: none; display: inline-block; margin-bottom: 14px; }
+  .card {
+    background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 12px;
+    border: 1px solid #e4e4e7;
+  }
+  .raw { font-family: monospace; font-size: 14px; background: #fafafa; padding: 8px; border-radius: 6px; margin-bottom: 6px; }
+  .reason { font-size: 12px; color: #b91c1c; margin-bottom: 10px; }
+  .date { font-size: 11px; color: #71717a; margin-bottom: 10px; }
+  form.resolve { display: flex; gap: 6px; flex-wrap: wrap; }
+  select, input[type=number] {
+    padding: 8px; font-size: 14px; border: 1px solid #d4d4d8; border-radius: 6px;
+  }
+  select { flex: 1 1 140px; }
+  input[type=number] { width: 80px; }
+  button {
+    padding: 8px 12px; font-size: 14px; font-weight: 600;
+    background: #18181b; color: #fff; border: none; border-radius: 6px;
+  }
+  .empty { text-align: center; color: #71717a; font-size: 14px; margin-top: 40px; }
+</style>
+</head>
+<body>
+  <a class="back" href="/dashboard/rates">← Back to rates</a>
+  <h1>Rate Unclear Queue ({{ items|length }})</h1>
+
+  {% if not items %}
+    <div class="empty">Nothing unresolved. 🎉</div>
+  {% endif %}
+
+  {% for item in items %}
+  <div class="card">
+    <div class="raw">{{ item.raw_line }}</div>
+    <div class="reason">{{ item.reason }}</div>
+    <div class="date">{{ item.business_date }}</div>
+    <form class="resolve" method="post" action="/dashboard/rates/unclear/{{ item.id }}/resolve">
+      <select name="product" required>
+        <option value="" disabled selected>Pick product</option>
+        {% for p in active_products %}
+        <option value="{{ p }}">{{ p }}</option>
+        {% endfor %}
+      </select>
+      <input type="number" step="0.01" min="0.01" name="rate" placeholder="Rate ₹" required>
+      <select name="unit">
+        <option value="kg">kg</option>
+        <option value="nos">nos</option>
+      </select>
+      <button type="submit">Resolve</button>
+    </form>
+  </div>
+  {% endfor %}
+</body>
+</html>
