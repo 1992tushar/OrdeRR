@@ -5,3 +5,4 @@ __pycache__/
 orderr.db
 repomix-output.xml
 check_db.py
+.idea/
