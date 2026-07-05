@@ -28,7 +28,7 @@ from orderr_core.services.rate_parser import parse_rate_message, ACTIVE_PRODUCTS
 from orderr_core.services.rate_lookup import get_rate
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory="orderr_core/templates")
 
 
 def _today() -> date:

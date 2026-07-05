@@ -58,7 +58,7 @@ from orderr_core.models.rate_override import CustomerRateOverride
 import json
 logger = logging.getLogger(__name__)
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory="orderr_core/templates")
 
 _today = date.today
 
