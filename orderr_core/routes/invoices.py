@@ -63,7 +63,7 @@ from orderr_core.services.invoice_pdf import generate_invoice_pdf
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory="orderr_core/templates")
 
 _DEPRECATION_NOTICE = (
     "This page has moved. Orders now appear automatically on the Billing "
