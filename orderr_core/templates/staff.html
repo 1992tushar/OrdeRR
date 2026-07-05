@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Staff Ledger</title>
+<style>
+:root {
+  --ink: #16233b; --ink-soft: #445069; --paper: #eef1f4; --paper-card: #ffffff;
+  --line: #d7dce3; --brass: #a9812b; --brass-soft: #f3e9d2;
+  --debit: #8c3b3b; --debit-soft: #f6e6e6; --credit: #2f6b4f; --credit-soft: #e4f0ea;
+  --radius: 6px;
+  --serif: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 14.5px; line-height: 1.5; }
+.app { max-width: 1080px; margin: 0 auto; padding: 0 24px 64px; }
+.backbar { padding: 14px 0 0; }
+.backbar a { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); text-decoration: none; }
+.backbar a:hover { color: var(--brass); }
+.topbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; padding: 14px 0 0; border-bottom: 3px double var(--ink); }
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand-mark { font-family: var(--serif); font-weight: 700; font-size: 22px; width: 46px; height: 46px; border: 2px solid var(--ink); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--ink); flex-shrink: 0; }
+.brand-text h1 { font-family: var(--serif); font-size: 26px; margin: 0; letter-spacing: 0.3px; }
+.brand-text p { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-soft); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.06em; }
+.tabs { display: flex; gap: 2px; margin-bottom: -3px; }
+.tab { font-family: var(--serif); font-size: 14.5px; background: #dfe4ea; color: var(--ink-soft); border: 1px solid var(--line); border-bottom: none; padding: 10px 18px; border-radius: 8px 8px 0 0; cursor: pointer; position: relative; top: 3px; }
+.tab:hover { background: #e8ebef; }
+.tab.active { background: var(--paper); color: var(--ink); border-bottom: 3px solid var(--paper); font-weight: 700; }
+main { padding-top: 28px; }
+.card { background: var(--paper-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 20px; }
+.card h2 { font-family: var(--serif); font-size: 18px; margin: 0 0 16px; display: flex; align-items: center; gap: 8px; }
+.card h2 .eyebrow { font-family: var(--mono); font-size: 11px; color: var(--brass); border: 1px solid var(--brass); border-radius: 4px; padding: 2px 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+.row { display: flex; gap: 14px; flex-wrap: wrap; }
+.row > * { flex: 1; min-width: 160px; }
+label { display: block; font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.04em; }
+input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; font-size: 14px; font-family: var(--sans); background: #fff; color: var(--ink); margin-bottom: 14px; }
+input:focus, select:focus, button:focus { outline: 2px solid var(--brass); outline-offset: 1px; }
+button { cursor: pointer; border: none; border-radius: 4px; padding: 9px 16px; font-size: 13.5px; font-weight: 600; font-family: var(--sans); background: var(--ink); color: #fff; }
+button:hover { background: #223255; }
+button.danger { background: var(--debit); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+thead th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); border-bottom: 2px solid var(--ink); padding: 8px 10px; }
+tbody td { padding: 9px 10px; border-bottom: 1px solid var(--line); }
+tbody tr:nth-child(even) { background: #f7f8fa; }
+tbody tr:hover { background: var(--brass-soft); }
+.num { font-family: var(--mono); text-align: right; }
+.pill { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.pill.debit { background: var(--debit-soft); color: var(--debit); }
+.pill.credit { background: var(--credit-soft); color: var(--credit); }
+.empty { text-align: center; padding: 30px 10px; color: var(--ink-soft); font-family: var(--mono); font-size: 13px; }
+.icon-btn { background: transparent; border: none; color: var(--ink-soft); padding: 2px 6px; font-size: 13px; }
+.icon-btn:hover { color: var(--debit); background: none; }
+.toast { position: fixed; bottom: 24px; right: 24px; background: var(--ink); color: #fff; padding: 12px 18px; border-radius: 4px; font-size: 13.5px; opacity: 0; transform: translateY(8px); transition: all 0.25s ease; pointer-events: none; }
+.toast.show { opacity: 1; transform: translateY(0); }
+.form-actions { display: flex; gap: 10px; margin-top: 4px; }
+.label { font-size: 11px; text-transform: uppercase; color: #8a8f98; }
+@media (max-width: 640px) { .topbar { flex-direction: column; align-items: flex-start; } .tabs { width: 100%; overflow-x: auto; } }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="backbar"><a href="/dashboard/">&larr; OrdeRR Dashboard</a></div>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">SL</span>
+        <div class="brand-text">
+          <h1>Staff Ledger</h1>
+          <p id="today"></p>
+        </div>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="dashboard">Dashboard</button>
+        <button class="tab" data-tab="employees">Employees</button>
+        <button class="tab" data-tab="advances">Advances</button>
+        <button class="tab" data-tab="leaves">Leave &amp; Half-days</button>
+      </nav>
+    </header>
+    <main id="view"></main>
+  </div>
+  <div id="toast" class="toast"></div>
+{% raw %}
+<script>
+const view = document.getElementById('view');
+const toastEl = document.getElementById('toast');
+const tabsEl = document.getElementById('tabs');
+
+document.getElementById('today').textContent = new Date().toLocaleDateString(undefined, {
+  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+});
+
+let employeesCache = [];
+
+async function api(path, options = {}) {
+  const res = await fetch('/staff/api' + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || body.error || 'Request failed');
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toastEl.classList.remove('show'), 2400);
+}
+
+function money(n) {
+  const v = Number(n || 0);
+  return '₹' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  const dt = new Date(d + 'T00:00:00');
+  if (isNaN(dt)) return d;
+  return dt.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+async function loadEmployees() {
+  employeesCache = await api('/employees');
+  return employeesCache;
+}
+
+function employeeOptions(selectedId) {
+  return employeesCache.map(e =>
+    `<option value="${e.id}" ${String(e.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(e.name)}</option>`
+  ).join('');
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+const renderers = {
+  dashboard: renderDashboard,
+  employees: renderEmployees,
+  advances: renderAdvances,
+  leaves: renderLeaves
+};
+
+tabsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab');
+  if (!btn) return;
+  [...tabsEl.children].forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  renderers[btn.dataset.tab]();
+});
+
+let expandedEmployeeId = null;
+
+async function renderDashboard() {
+  view.innerHTML = `<div class="empty">Loading dashboard…</div>`;
+  const rows = await api('/dashboard');
+  renderDashboardTable(rows);
+}
+
+function renderDashboardTable(rows) {
+  view.innerHTML = `
+    <div class="card">
+      <h2><span class="eyebrow">Overview</span> All employees</h2>
+      ${rows.length === 0 ? `<div class="empty">No employees yet. Add one from the Employees tab.</div>` : `
+      <table>
+        <thead><tr><th>Name</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr class="emp-row" data-emp-row="${r.id}" style="cursor:pointer;">
+              <td>${escapeHtml(r.name)}</td>
+            </tr>
+            ${expandedEmployeeId === r.id ? `
+            <tr>
+              <td>${employeeDetailHtml(r)}</td>
+            </tr>` : ''}
+          `).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+  view.querySelectorAll('[data-emp-row]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const id = Number(tr.dataset.empRow);
+      expandedEmployeeId = expandedEmployeeId === id ? null : id;
+      renderDashboardTable(rows);
+    });
+  });
+}
+
+function employeeDetailHtml(r) {
+  return `
+    <div style="padding:12px 0; display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px;">
+      <div><div class="label">Phone</div>${escapeHtml(r.phone || '—')}</div>
+      <div><div class="label">Joining date</div>${fmtDate(r.join_date)}</div>
+      <div><div class="label">Monthly salary</div>${money(r.monthly_salary)}</div>
+      <div><div class="label">Leave used</div>${r.leave_used} day${r.leave_used === 1 ? '' : 's'}</div>
+      <div><div class="label">Advance given</div>
+        ${r.outstanding_advance > 0
+          ? `<span class="pill debit">${money(r.outstanding_advance)}</span>`
+          : `<span class="pill credit">Clear</span>`}
+      </div>
+      <div><div class="label">Salary payable</div>
+        ${r.salary_due
+          ? `<span class="pill debit">${money(r.pay_amount)} due ${fmtDate(r.next_pay_date)}</span>`
+          : `<span class="pill credit">${money(r.pay_amount)}${r.first_pay_date ? ` from ${fmtDate(r.first_pay_date)}` : ''}</span>`}
+      </div>
+    </div>
+    ${breakdownHtml(r)}
+  `;
+}
+
+function breakdownHtml(r) {
+  const b = r.breakdown;
+  if (!b) return '';
+  const rows = [
+    ['Gross salary', money(b.gross_salary), false],
+    [`Leave deduction — ${b.leave_days_deducted} day${b.leave_days_deducted === 1 ? '' : 's'} × ${money(b.per_day_rate)}/day (${fmtDate(b.covered_period_start)} – ${fmtDate(b.covered_period_end)})`,
+      b.leave_deduction_amount > 0 ? `− ${money(b.leave_deduction_amount)}` : money(0), true],
+    ['Advance deduction', b.advance_deduction_amount > 0 ? `− ${money(b.advance_deduction_amount)}` : money(0), true],
+  ];
+  return `
+    <div style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px;">
+      <div class="label" style="margin-bottom:8px;">Payable breakdown</div>
+      <table style="width:100%;">
+        <tbody>
+          ${rows.map(([label, val, isDeduction]) => `
+            <tr>
+              <td style="padding:4px 0; border:none; color:${isDeduction ? 'var(--debit)' : 'var(--ink)'};">${label}</td>
+              <td class="num" style="padding:4px 0; border:none; color:${isDeduction ? 'var(--debit)' : 'var(--ink)'};">${val}</td>
+            </tr>
+          `).join('')}
+          <tr>
+            <td style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">Net payable</td>
+            <td class="num" style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">${money(b.net_payable)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+</script>
+{% endraw %}
+{% raw %}
+<script>
+async function renderEmployees() {
+  view.innerHTML = `<div class="empty">Loading…</div>`;
+  await loadEmployees();
+  view.innerHTML = `
+    <div class="card">
+      <h2><span class="eyebrow">New</span> Add employee</h2>
+      <form id="emp-form">
+        <div class="row">
+          <div><label>Name</label><input name="name" required /></div>
+          <div><label>Phone</label><input name="phone" /></div>
+        </div>
+        <div class="row">
+          <div><label>Joining date</label><input type="date" name="join_date" /></div>
+          <div><label>Monthly salary</label><input type="number" step="0.01" name="monthly_salary" /></div>
+        </div>
+        <div class="form-actions"><button type="submit">Add employee</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2><span class="eyebrow">Roster</span> Employees</h2>
+      ${employeesCache.length === 0 ? `<div class="empty">No employees yet — add the first one above.</div>` : `
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th class="num">Salary</th><th></th></tr></thead>
+        <tbody>
+          ${employeesCache.map(e => `
+            <tr>
+              <td>${escapeHtml(e.name)}</td>
+              <td>${escapeHtml(e.phone || '—')}</td>
+              <td class="num">${money(e.monthly_salary)}</td>
+              <td><button class="icon-btn" data-remove="${e.id}" title="Remove employee">✕</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+  document.getElementById('emp-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      await api('/employees', { method: 'POST', body: JSON.stringify(payload) });
+      toast('Employee added');
+      renderEmployees();
+    } catch (err) { toast(err.message); }
+  });
+  view.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remove this employee? Their past records will be kept.')) return;
+      await api('/employees/' + btn.dataset.remove, { method: 'DELETE' });
+      toast('Employee removed');
+      renderEmployees();
+    });
+  });
+}
+</script>
+{% endraw %}
+{% raw %}
+<script>
+async function renderAdvances() {
+  view.innerHTML = `<div class="empty">Loading…</div>`;
+  await loadEmployees();
+  const advances = await api('/advances');
+  view.innerHTML = `
+    <div class="card">
+      <h2><span class="eyebrow">New</span> Record an advance</h2>
+      ${employeesCache.length === 0 ? `<div class="empty">Add an employee first from the Employees tab.</div>` : `
+      <form id="adv-form">
+        <div class="row">
+          <div><label>Employee</label><select name="employee_id" required>${employeeOptions()}</select></div>
+          <div><label>Date</label><input type="date" name="date" required value="${new Date().toISOString().slice(0,10)}" /></div>
+          <div><label>Amount</label><input type="number" step="0.01" name="amount" required /></div>
+        </div>
+        <div class="row">
+          <div><label>Reason</label><input name="reason" placeholder="e.g. medical, festival" /></div>
+        </div>
+        <div class="form-actions"><button type="submit">Record advance</button></div>
+      </form>`}
+    </div>
+    <div class="card">
+      <h2><span class="eyebrow">Ledger</span> All advances</h2>
+      ${advances.length === 0 ? `<div class="empty">No advances recorded yet.</div>` : `
+      <table>
+        <thead><tr><th>Date</th><th>Employee</th><th>Reason</th><th class="num">Amount</th><th class="num">Repaid</th><th class="num">Outstanding</th><th></th></tr></thead>
+        <tbody>
+          ${advances.map(a => {
+            const outstanding = a.amount - a.repaid_amount;
+            return `
+            <tr>
+              <td>${fmtDate(a.date)}</td>
+              <td>${escapeHtml(a.employee_name)}</td>
+              <td>${escapeHtml(a.reason || '—')}</td>
+              <td class="num">${money(a.amount)}</td>
+              <td class="num">${money(a.repaid_amount)}</td>
+              <td class="num">${outstanding > 0 ? `<span class="pill debit">${money(outstanding)}</span>` : `<span class="pill credit">Clear</span>`}</td>
+              <td>
+                ${outstanding > 0 ? `<button class="icon-btn" data-repay="${a.id}" title="Record repayment">↩</button>` : ''}
+                <button class="icon-btn" data-remove-adv="${a.id}" title="Delete entry">✕</button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+  const form = document.getElementById('adv-form');
+  if (form) form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      await api('/advances', { method: 'POST', body: JSON.stringify(payload) });
+      toast('Advance recorded');
+      renderAdvances();
+    } catch (err) { toast(err.message); }
+  });
+  view.querySelectorAll('[data-repay]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const amount = prompt('Repayment amount:');
+      if (!amount) return;
+      try {
+        await api(`/advances/${btn.dataset.repay}/repay`, { method: 'POST', body: JSON.stringify({ amount: Number(amount) }) });
+        toast('Repayment recorded');
+        renderAdvances();
+      } catch (err) { toast(err.message); }
+    });
+  });
+  view.querySelectorAll('[data-remove-adv]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this advance entry?')) return;
+      await api('/advances/' + btn.dataset.removeAdv, { method: 'DELETE' });
+      toast('Entry deleted');
+      renderAdvances();
+    });
+  });
+}
+</script>
+{% endraw %}
+{% raw %}
+<script>
+async function renderLeaves() {
+  view.innerHTML = `<div class="empty">Loading…</div>`;
+  await loadEmployees();
+  const leaves = await api('/leaves');
+  view.innerHTML = `
+    <div class="card">
+      <h2><span class="eyebrow">New</span> Record leave or half-day</h2>
+      ${employeesCache.length === 0 ? `<div class="empty">Add an employee first from the Employees tab.</div>` : `
+      <form id="leave-form">
+        <div class="row">
+          <div><label>Employee</label><select name="employee_id" required>${employeeOptions()}</select></div>
+          <div><label>Date</label><input type="date" name="date" required value="${new Date().toISOString().slice(0,10)}" /></div>
+          <div>
+            <label>Type</label>
+            <select name="type" required>
+              <option value="full">Full day leave</option>
+              <option value="half">Half day</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div><label>Reason</label><input name="reason" placeholder="e.g. personal, sick" /></div>
+        </div>
+        <div class="form-actions"><button type="submit">Record entry</button></div>
+      </form>`}
+    </div>
+    <div class="card">
+      <h2><span class="eyebrow">Register</span> Leave &amp; half-day entries</h2>
+      ${leaves.length === 0 ? `<div class="empty">No leave or half-day entries yet.</div>` : `
+      <table>
+        <thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Reason</th><th></th></tr></thead>
+        <tbody>
+          ${leaves.map(l => `
+            <tr>
+              <td>${fmtDate(l.date)}</td>
+              <td>${escapeHtml(l.employee_name)}</td>
+              <td>${l.type === 'half' ? `<span class="pill debit">Half day</span>` : `<span class="pill credit">Full day</span>`}</td>
+              <td>${escapeHtml(l.reason || '—')}</td>
+              <td><button class="icon-btn" data-remove-leave="${l.id}" title="Delete entry">✕</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `;
+  const form = document.getElementById('leave-form');
+  if (form) form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      await api('/leaves', { method: 'POST', body: JSON.stringify(payload) });
+      toast('Entry recorded');
+      renderLeaves();
+    } catch (err) { toast(err.message); }
+  });
+  view.querySelectorAll('[data-remove-leave]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this entry?')) return;
+      await api('/leaves/' + btn.dataset.removeLeave, { method: 'DELETE' });
+      toast('Entry deleted');
+      renderLeaves();
+    });
+  });
+}
+
+renderDashboard();
+</script>
+{% endraw %}
+</body>
+</html>
