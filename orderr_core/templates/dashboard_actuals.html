@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Enter Actuals — Order {{ order_id }}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .sub { color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .banner { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: 0.9rem; }
+    .banner.ok  { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .banner.err { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .banner.info { background: #eff6ff; color: #1e3a8a; border: 1px solid #93c5fd; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+    th { background: #f3f4f6; text-align: left; padding: 0.5rem 0.75rem; font-size: 0.82rem; color: #374151; border-bottom: 2px solid #d1d5db; }
+    td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
+    input[type=text], input[type=number], input[type=file], select {
+      width: 100%; padding: 0.35rem 0.5rem; border: 1px solid #d1d5db;
+      border-radius: 4px; font-size: 0.9rem; box-sizing: border-box;
+    }
+    .btn-add  { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 5px; padding: 0.45rem 1rem; cursor: pointer; font-size: 0.9rem; }
+    .btn-save { background: #1d4ed8; color: #fff; border: none; border-radius: 5px; padding: 0.55rem 1.4rem; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+    .btn-save:hover { background: #1e40af; }
+    .note { font-size: 0.8rem; color: #6b7280; margin-top: 0.5rem; }
+    nav a { color: #1d4ed8; text-decoration: none; font-size: 0.88rem; margin-right: 1rem; }
+    nav { margin-bottom: 1.5rem; }
+    .tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .tag-auto   { background: #d1fae5; color: #065f46; }
+    .tag-review { background: #fef3c7; color: #92400e; }
+    .upload-hint { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.85rem 1.25rem; margin-bottom: 2rem; font-size: 0.88rem; color: #374151; }
+    .upload-hint a { color: #047857; font-weight: 600; text-decoration: none; }
+    .upload-hint a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/dashboard/invoices">← Invoices</a>
+  <a href="/dashboard/actuals/upload">📷 Upload Report</a>
+  <a href="/dashboard/actuals/{{ order_id }}/review">Review queue →</a>
+</nav>
+
+<h1>Enter Actuals — Order #{{ order_id }}</h1>
+<p class="sub">Record physically weighed / dispatched quantities. These values are what gets billed.</p>
+
+{% if saved %}
+<div class="banner ok">✅ Actuals saved for Order #{{ order_id }}. You can now generate an invoice.</div>
+{% endif %}
+{% if error %}
+<div class="banner err">{{ error }}</div>
+{% endif %}
+
+<div class="upload-hint">
+  📷 To capture actuals from a dispatch sheet photo, use the
+  <a href="/dashboard/actuals/upload">Upload Daily Production Report</a> page —
+  Claude reads all hotels at once, no order ID needed.
+</div>
+
+{% if actuals %}
+<h3 style="font-size:1rem; margin-bottom:0.5rem;">Currently saved actuals</h3>
+<table>
+  <thead><tr>
+    <th>Product</th><th>Ordered Qty</th><th>Actual Qty</th><th>Unit</th><th>Confidence</th><th>Source</th>
+  </tr></thead>
+  <tbody>
+  {% for a in actuals %}
+  <tr>
+    <td>{{ a.product }}</td>
+    <td style="color:#6b7280;">{{ a.ordered_quantity }} {{ a.ordered_unit }}</td>
+    <td><strong>{{ a.actual_quantity }}</strong></td>
+    <td>{{ a.actual_unit }}</td>
+    <td>
+      {% if a.confidence == 'needs_review' %}
+        <span class="tag tag-review">Needs review</span>
+      {% else %}
+        <span class="tag tag-auto">Auto</span>
+      {% endif %}
+    </td>
+    <td>{{ a.capture_source or '—' }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="note">Submitting the manual form below will <strong>replace</strong> all rows above.</p>
+{% endif %}
+
+<h3 style="font-size:1rem; margin-bottom:0.75rem;">{{ 'Update' if actuals else 'Enter' }} Actuals Manually</h3>
+
+<form method="post" id="actualsForm">
+  <table id="actualsTable">
+    <thead><tr>
+      <th>Product *</th>
+      <th>Actual Qty *</th>
+      <th>Unit *</th>
+      <th>Ordered Qty</th>
+      <th>Ordered Unit</th>
+      <th></th>
+    </tr></thead>
+    <tbody id="rowsBody">
+      {% if actuals %}
+        {% for a in actuals %}
+        <tr>
+          <td><input type="text"   name="product_{{ loop.index0 }}"          value="{{ a.product }}"          required></td>
+          <td><input type="number" name="actual_quantity_{{ loop.index0 }}"   value="{{ a.actual_quantity }}"  step="0.001" min="0" required></td>
+          <td>
+            <select name="actual_unit_{{ loop.index0 }}">
+              <option value="kg"  {% if a.actual_unit == 'kg'  %}selected{% endif %}>kg</option>
+              <option value="nos" {% if a.actual_unit == 'nos' %}selected{% endif %}>nos</option>
+              <option value="g"   {% if a.actual_unit == 'g'   %}selected{% endif %}>g</option>
+              <option value="pcs" {% if a.actual_unit == 'pcs' %}selected{% endif %}>pcs</option>
+            </select>
+          </td>
+          <td><input type="number" name="ordered_quantity_{{ loop.index0 }}" value="{{ a.ordered_quantity }}" step="0.001" min="0"></td>
+          <td>
+            <select name="ordered_unit_{{ loop.index0 }}">
+              <option value="kg"  {% if a.ordered_unit == 'kg'  %}selected{% endif %}>kg</option>
+              <option value="nos" {% if a.ordered_unit == 'nos' %}selected{% endif %}>nos</option>
+              <option value="g"   {% if a.ordered_unit == 'g'   %}selected{% endif %}>g</option>
+              <option value="pcs" {% if a.ordered_unit == 'pcs' %}selected{% endif %}>pcs</option>
+            </select>
+          </td>
+          <td><button type="button" class="btn-add" onclick="removeRow(this)">✕</button></td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td><input type="text"   name="product_0"          placeholder="e.g. Wings" required></td>
+          <td><input type="number" name="actual_quantity_0"   placeholder="0.000" step="0.001" min="0" required></td>
+          <td><select name="actual_unit_0"><option value="kg">kg</option><option value="nos">nos</option><option value="g">g</option><option value="pcs">pcs</option></select></td>
+          <td><input type="number" name="ordered_quantity_0"  placeholder="0.000" step="0.001" min="0"></td>
+          <td><select name="ordered_unit_0"><option value="kg">kg</option><option value="nos">nos</option><option value="g">g</option><option value="pcs">pcs</option></select></td>
+          <td><button type="button" class="btn-add" onclick="removeRow(this)">✕</button></td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <button type="button" class="btn-add" onclick="addRow()" style="margin-bottom:1.25rem;">+ Add row</button>
+  <br>
+  <button type="submit" class="btn-save">Save Actuals</button>
+  <p class="note">Confidence is set to <em>auto</em> for all dashboard-entered actuals (human-typed = not an OCR legibility issue).</p>
+</form>
+
+<script>
+let rowCount = {{ actuals|length if actuals else 1 }};
+
+function addRow() {
+  const idx = rowCount++;
+  const tbody = document.getElementById('rowsBody');
+  const unitOptions = `<option value="kg">kg</option><option value="nos">nos</option><option value="g">g</option><option value="pcs">pcs</option>`;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text"   name="product_${idx}"         placeholder="Product" required></td>
+    <td><input type="number" name="actual_quantity_${idx}"  placeholder="0.000" step="0.001" min="0" required></td>
+    <td><select name="actual_unit_${idx}">${unitOptions}</select></td>
+    <td><input type="number" name="ordered_quantity_${idx}" placeholder="0.000" step="0.001" min="0"></td>
+    <td><select name="ordered_unit_${idx}">${unitOptions}</select></td>
+    <td><button type="button" class="btn-add" onclick="removeRow(this)">✕</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function removeRow(btn) {
+  const row = btn.closest('tr');
+  const tbody = document.getElementById('rowsBody');
+  if (tbody.rows.length > 1) row.remove();
+}
+</script>
+
+</body>
+</html>

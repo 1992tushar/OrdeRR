@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ invoice.invoice_number }} — Orderr Billing</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.1rem; }
+    .meta { color: #6b7280; font-size: 0.88rem; margin-bottom: 1.75rem; }
+    nav a { color: #1d4ed8; text-decoration: none; font-size: 0.88rem; }
+    nav { margin-bottom: 1.5rem; }
+    .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem; }
+    .info-block { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 7px; padding: 0.85rem 1rem; }
+    .info-block .label { font-size: 0.75rem; color: #6b7280; font-weight: 600; text-transform: uppercase; margin-bottom: 0.2rem; }
+    .info-block .val   { font-size: 1rem; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+    th { background: #f3f4f6; text-align: left; padding: 0.5rem 0.75rem; font-size: 0.82rem; color: #374151; border-bottom: 2px solid #d1d5db; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; }
+    .amount { font-variant-numeric: tabular-nums; text-align: right; }
+    .total-row td { font-weight: 700; border-top: 2px solid #d1d5db; background: #f9fafb; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+    .tag-draft { background: #e0e7ff; color: #3730a3; }
+    .tag-sent  { background: #d1fae5; color: #065f46; }
+    .tag-paid  { background: #dcfce7; color: #15803d; }
+    .tag-void  { background: #f3f4f6; color: #6b7280; }
+    .tag-override { background: #fef3c7; color: #92400e; }
+    .tag-daily    { background: #ede9fe; color: #5b21b6; }
+    .tag-carried  { background: #fef3c7; color: #92400e; }
+    .notice { font-size: 0.8rem; color: #6b7280; margin-top: 0.75rem; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<nav><a href="/dashboard/invoices">← All Invoices</a></nav>
+
+<h1>{{ invoice.invoice_number }}</h1>
+<p class="meta">
+  Order #{{ invoice.order_id }} &nbsp;·&nbsp;
+  {{ invoice.business_date }} &nbsp;·&nbsp;
+  <span class="tag tag-{{ invoice.status }}">{{ invoice.status }}</span> &nbsp;·&nbsp;
+  Generated {{ invoice.created_at.strftime('%d %b %Y at %H:%M') if invoice.created_at else '—' }}
+</p>
+
+<div class="info-grid">
+  <div class="info-block">
+    <div class="label">Customer</div>
+    <div class="val">{{ invoice.customer_phone }}</div>
+  </div>
+  <div class="info-block">
+    <div class="label">Subtotal</div>
+    <div class="val">₹{{ "%.2f"|format(invoice.subtotal|float) }}</div>
+  </div>
+  <div class="info-block">
+    <div class="label">Total (Phase 1 — no GST)</div>
+    <div class="val">₹{{ "%.2f"|format(invoice.total|float) }}</div>
+  </div>
+</div>
+
+<h2 style="font-size:1rem;margin-bottom:0.75rem;">Line Items</h2>
+
+{% if items %}
+<table>
+  <thead><tr>
+    <th>Product</th>
+    <th>Quantity</th>
+    <th>Unit</th>
+    <th>Rate (₹)</th>
+    <th>Rate Source</th>
+    <th class="amount">Amount (₹)</th>
+  </tr></thead>
+  <tbody>
+  {% for item in items %}
+  <tr>
+    <td>{{ item.product }}</td>
+    <td>{{ item.quantity }}</td>
+    <td>{{ item.unit }}</td>
+    <td class="amount">{{ "%.4f"|format(item.rate_used|float) }}</td>
+    <td>
+      {% if item.rate_source == 'customer_override' %}
+        <span class="tag tag-override">Override</span>
+      {% elif item.rate_source == 'carried_forward_rate' %}
+        <span class="tag tag-carried">Carried Forward</span>
+      {% else %}
+        <span class="tag tag-daily">Daily Rate</span>
+      {% endif %}
+    </td>
+    <td class="amount">₹{{ "%.2f"|format(item.amount|float) }}</td>
+  </tr>
+  {% endfor %}
+  <tr class="total-row">
+    <td colspan="5" style="text-align:right;">Total</td>
+    <td class="amount">₹{{ "%.2f"|format(invoice.total|float) }}</td>
+  </tr>
+  </tbody>
+</table>
+{% else %}
+<p style="color:#9ca3af;">No line items found.</p>
+{% endif %}
+
+<p class="notice">
+  Rates are snapshotted at generation time and will never be recalculated retroactively.
+  Amount = quantity × rate_used (full precision, no rounding).
+</p>
+
+</body>
+</html>

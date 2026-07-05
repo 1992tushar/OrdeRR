@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Rate Overrides — Orderr Billing</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .sub { color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .banner { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: 0.9rem; }
+    .banner.ok  { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .banner.err { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem; }
+    .card h2 { font-size: 1rem; margin: 0 0 0.75rem; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; }
+    .form-group { display: flex; flex-direction: column; gap: 0.3rem; }
+    label { font-size: 0.8rem; color: #374151; font-weight: 600; }
+    input[type=text], input[type=number], input[type=date], select {
+      padding: 0.4rem 0.6rem; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.9rem; width: 100%; box-sizing: border-box;
+    }
+    .btn { background: #1d4ed8; color: #fff; border: none; border-radius: 5px; padding: 0.5rem 1.2rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
+    .btn:hover { background: #1e40af; }
+    .btn-del { background: #fff; color: #dc2626; border: 1px solid #fca5a5; border-radius: 5px; padding: 0.3rem 0.7rem; cursor: pointer; font-size: 0.82rem; }
+    .btn-del:hover { background: #fee2e2; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f3f4f6; text-align: left; padding: 0.5rem 0.75rem; font-size: 0.82rem; color: #374151; border-bottom: 2px solid #d1d5db; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; vertical-align: middle; }
+    tr:hover td { background: #f9fafb; }
+    .expired { color: #9ca3af; }
+    .active-row td:first-child { border-left: 3px solid #22c55e; }
+    .expired-row td:first-child { border-left: 3px solid #e5e7eb; }
+    nav a { color: #1d4ed8; text-decoration: none; font-size: 0.88rem; margin-right: 1rem; }
+    nav { margin-bottom: 1.5rem; }
+    .empty { color: #9ca3af; font-size: 0.9rem; padding: 1.5rem 0; text-align: center; }
+    .note { font-size: 0.8rem; color: #6b7280; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/dashboard/invoices">← Invoices</a>
+  <a href="/dashboard/rates">Rates</a>
+  <a href="/dashboard/rates/unclear">Unclear Rates</a>
+</nav>
+
+<h1>Customer Rate Overrides</h1>
+<p class="sub">
+  Per-customer price exceptions. Lookup order: <strong>override → today's daily rate → most recent prior rate</strong>.
+  Deactivating an override sets its end date to today — it is never deleted (audit trail).
+</p>
+
+{% if success %}
+<div class="banner ok">{{ success }}</div>
+{% endif %}
+{% if error %}
+<div class="banner err">{{ error }}</div>
+{% endif %}
+
+<!-- Create form -->
+<div class="card">
+  <h2>Add Override</h2>
+  <form method="post" action="/dashboard/invoices/overrides">
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="customer_phone">Customer Phone *</label>
+        <input type="text" id="customer_phone" name="customer_phone" placeholder="9876543210" required>
+      </div>
+      <div class="form-group">
+        <label for="product">Product *</label>
+        <input type="text" id="product" name="product" placeholder="e.g. Wings" required>
+      </div>
+      <div class="form-group">
+        <label for="rate_per_unit">Rate per Unit (₹) *</label>
+        <input type="number" id="rate_per_unit" name="rate_per_unit" placeholder="0.0000" step="0.0001" min="0.0001" required>
+      </div>
+      <div class="form-group">
+        <label for="unit">Unit *</label>
+        <select id="unit" name="unit">
+          <option value="kg">kg</option>
+          <option value="nos">nos</option>
+          <option value="g">g</option>
+          <option value="pcs">pcs</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="effective_from">Effective From *</label>
+        <input type="date" id="effective_from" name="effective_from" required>
+      </div>
+      <div class="form-group">
+        <label for="effective_to">Effective To (blank = open-ended)</label>
+        <input type="date" id="effective_to" name="effective_to">
+      </div>
+    </div>
+    <div class="form-group" style="max-width:400px; margin-bottom:0.75rem;">
+      <label for="note">Note (optional)</label>
+      <input type="text" id="note" name="note" placeholder="Reason or context">
+    </div>
+    <button type="submit" class="btn">Add Override</button>
+    <p class="note">If multiple active overrides exist for the same customer+product, the one with the latest effective_from date is used.</p>
+  </form>
+</div>
+
+<!-- Override list -->
+{% set today_str = today %}
+{% if overrides %}
+<table>
+  <thead><tr>
+    <th>Customer</th>
+    <th>Product</th>
+    <th>Rate (₹)</th>
+    <th>Unit</th>
+    <th>From</th>
+    <th>To</th>
+    <th>Note</th>
+    <th></th>
+  </tr></thead>
+  <tbody>
+  {% for ov in overrides %}
+  {% set is_active = ov.effective_to is none %}
+  <tr class="{{ 'active-row' if is_active else 'expired-row expired' }}">
+    <td>{{ ov.customer_phone }}</td>
+    <td>{{ ov.product }}</td>
+    <td>₹{{ "%.4f"|format(ov.rate_per_unit|float) }}</td>
+    <td>{{ ov.unit }}</td>
+    <td>{{ ov.effective_from }}</td>
+    <td>{{ ov.effective_to if ov.effective_to else '—' }}</td>
+    <td style="color:#6b7280;font-size:0.82rem;">{{ ov.note or '—' }}</td>
+    <td>
+      {% if is_active %}
+      <form method="post" action="/dashboard/invoices/overrides/{{ ov.id }}/delete"
+            onsubmit="return confirm('Deactivate this override? It will no longer apply from today.')">
+        <button type="submit" class="btn-del">Deactivate</button>
+      </form>
+      {% else %}
+      <span style="font-size:0.78rem;color:#9ca3af;">Expired</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No overrides yet. All customers billed at daily rates.</p>
+{% endif %}
+
+<script>
+  // Pre-fill effective_from to today
+  const ef = document.getElementById('effective_from');
+  if (!ef.value) ef.value = new Date().toISOString().slice(0, 10);
+</script>
+
+</body>
+</html>

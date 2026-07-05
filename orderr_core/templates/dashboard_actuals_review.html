@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  {% if needs_review|length == 0 and unmatched|length == 0 %}
+  <meta http-equiv="refresh" content="2;url=/dashboard/actuals/upload">
+  {% endif %}
+  <title>Review Queue — Order {{ order_id }}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.1rem; margin: 2rem 0 0.75rem; }
+    .sub { color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .banner { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: 0.9rem; }
+    .banner.ok   { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .banner.err  { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .banner.info { background: #eff6ff; color: #1e3a8a; border: 1px solid #93c5fd; }
+    .empty { color: #6b7280; font-size: 0.9rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 1rem 1.25rem; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+    th { background: #f3f4f6; text-align: left; padding: 0.5rem 0.75rem; font-size: 0.82rem; color: #374151; border-bottom: 2px solid #d1d5db; }
+    td { padding: 0.55rem 0.5rem; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    input[type=text], input[type=number], select {
+      width: 100%; padding: 0.35rem 0.5rem; border: 1px solid #d1d5db;
+      border-radius: 4px; font-size: 0.88rem; box-sizing: border-box;
+    }
+    .btn { border-radius: 5px; cursor: pointer; font-size: 0.88rem; font-weight: 600; border: none; padding: 0.4rem 1rem; }
+    .btn-confirm  { background: #1d4ed8; color: #fff; }
+    .btn-confirm:hover { background: #1e40af; }
+    .btn-resolve  { background: #047857; color: #fff; }
+    .btn-resolve:hover { background: #065f46; }
+    .raw-line { font-family: monospace; font-size: 0.82rem; background: #f3f4f6; padding: 2px 6px; border-radius: 3px; white-space: pre-wrap; word-break: break-all; }
+    .reason-tag { font-size: 0.75rem; color: #92400e; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 4px; padding: 1px 6px; display: inline-block; margin-top: 4px; }
+    nav a { color: #1d4ed8; text-decoration: none; font-size: 0.88rem; margin-right: 1rem; }
+    nav { margin-bottom: 1.5rem; }
+    .section-box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 2rem; }
+    label { font-size: 0.82rem; color: #374151; display: block; margin-bottom: 2px; }
+    .field-group { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .field-group > div { flex: 1; min-width: 120px; }
+    .field-group > div.narrow { flex: 0 0 90px; }
+    .field-group > div.name-field { flex: 2; }
+    .count-badge { display: inline-block; background: #fef3c7; color: #92400e; border-radius: 10px; font-size: 0.75rem; font-weight: 700; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
+    .count-badge.zero { background: #d1fae5; color: #065f46; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/dashboard/invoices">← Invoices</a>
+  <a href="/dashboard/actuals/upload">← Upload Report</a>
+  <a href="/dashboard/actuals/{{ order_id }}">← Actuals #{{ order_id }}</a>
+</nav>
+
+<h1>Review Queue — Order #{{ order_id }}</h1>
+<p class="sub">Resolve OCR lines that couldn't be matched or had low-confidence reads before generating an invoice.</p>
+
+{% if success %}
+<div class="banner ok">{{ success }}</div>
+{% endif %}
+{% if error %}
+<div class="banner err">{{ error }}</div>
+{% endif %}
+
+<!-- SECTION 1: needs_review actuals -->
+<h2>
+  Needs Review — quantity uncertain
+  <span class="count-badge {% if not needs_review %}zero{% endif %}">{{ needs_review | length }}</span>
+</h2>
+
+{% if needs_review %}
+<div class="section-box">
+  <table>
+    <thead>
+      <tr>
+        <th>Product (matched)</th>
+        <th>OCR Read</th>
+        <th>Correct Values</th>
+        <th>Confirmed by</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for a in needs_review %}
+    <tr>
+      <td><strong>{{ a.product }}</strong></td>
+      <td>
+        <span style="font-size:0.88rem;">
+          Qty: <strong>{{ a.actual_quantity if a.actual_quantity is not none else '?' }}</strong>
+          {{ a.actual_unit }}
+        </span>
+        <br><span style="color:#6b7280;font-size:0.8rem;">Ordered: {{ a.ordered_quantity }} {{ a.ordered_unit }}</span>
+      </td>
+      <td>
+        <form method="post" action="/dashboard/actuals/{{ order_id }}/review/{{ a.id }}/confirm">
+          <div class="field-group">
+            <div class="name-field">
+              <label>Product</label>
+              <input type="text" name="product" value="{{ a.product }}">
+            </div>
+            <div>
+              <label>Actual Qty</label>
+              <input type="number" name="actual_quantity" value="{{ a.actual_quantity or '' }}" step="0.001" min="0" placeholder="e.g. 12.5">
+            </div>
+            <div class="narrow">
+              <label>Unit</label>
+              <select name="actual_unit">
+                <option value="kg"  {% if a.actual_unit == 'kg'  %}selected{% endif %}>kg</option>
+                <option value="nos" {% if a.actual_unit == 'nos' %}selected{% endif %}>nos</option>
+                <option value="g"   {% if a.actual_unit == 'g'   %}selected{% endif %}>g</option>
+                <option value="pcs" {% if a.actual_unit == 'pcs' %}selected{% endif %}>pcs</option>
+              </select>
+            </div>
+          </div>
+      </td>
+      <td>
+          <div style="margin-top:0.5rem;">
+            <label>Your name</label>
+            <input type="text" name="confirmed_by" placeholder="staff" style="max-width:120px;">
+          </div>
+      </td>
+      <td style="vertical-align:middle; padding-top:1.1rem;">
+          <button type="submit" class="btn btn-confirm">Confirm</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="empty">✅ No needs-review actuals for this order.</p>
+{% endif %}
+
+
+<!-- SECTION 2: unmatched lines -->
+<h2>
+  Unmatched Lines — product not recognised
+  <span class="count-badge {% if not unmatched %}zero{% endif %}">{{ unmatched | length }}</span>
+</h2>
+
+{% if unmatched %}
+<div class="section-box">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:35%">Raw OCR text</th>
+        <th>Map to product</th>
+        <th>Resolved by</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for line in unmatched %}
+    <tr>
+      <td>
+        <span class="raw-line">{{ line.raw_line }}</span>
+        {% if line.reason %}
+        <br><span class="reason-tag">{{ line.reason }}</span>
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="/dashboard/actuals/{{ order_id }}/review/unmatched/{{ line.id }}/resolve">
+          <div class="field-group">
+            <div class="name-field">
+              <label>Product name</label>
+              <input type="text" name="resolved_product" placeholder="e.g. Chicken Drumstick" required>
+            </div>
+            <div>
+              <label>Qty</label>
+              <input type="number" name="resolved_quantity" placeholder="0.000" step="0.001" min="0" required>
+            </div>
+            <div class="narrow">
+              <label>Unit</label>
+              <select name="resolved_unit">
+                <option value="kg">kg</option>
+                <option value="nos">nos</option>
+                <option value="g">g</option>
+                <option value="pcs">pcs</option>
+              </select>
+            </div>
+          </div>
+      </td>
+      <td>
+          <div style="margin-top:0.5rem;">
+            <label>Your name</label>
+            <input type="text" name="resolved_by" placeholder="staff" style="max-width:120px;">
+          </div>
+      </td>
+      <td style="vertical-align:middle; padding-top:1.1rem;">
+          <button type="submit" class="btn btn-resolve">Save</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="empty">✅ No unmatched lines for this order.</p>
+{% endif %}
+
+<div style="margin-top:2rem; padding-top:1rem; border-top:1px solid #e5e7eb; font-size:0.85rem; color:#6b7280;">
+  {% if needs_review|length == 0 and unmatched|length == 0 %}
+  <span style="color:#065f46; font-weight:600;">✅ All clear — redirecting back to upload page in 2 seconds...</span>
+  {% else %}
+  Once all items above are resolved, <a href="/dashboard/actuals/upload">go back to Upload page</a> to review other hotels or generate invoices.
+  {% endif %}
+</div>
+
+</body>
+</html>
