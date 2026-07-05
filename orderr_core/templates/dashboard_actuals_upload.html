@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Upload Production Report</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .sub { color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .banner { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: 0.9rem; }
+    .banner.ok   { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .banner.err  { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .banner.warn { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    nav a { color: #1d4ed8; text-decoration: none; font-size: 0.88rem; margin-right: 1rem; }
+    nav { margin-bottom: 1.5rem; }
+    .ocr-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 2rem; }
+    .ocr-box h3 { margin-top: 0; font-size: 1rem; }
+    .note { font-size: 0.8rem; color: #6b7280; margin-top: 0.5rem; }
+    .btn-ocr { background: #047857; color: #fff; border: none; border-radius: 5px; padding: 0.55rem 1.4rem; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+    .btn-ocr:hover { background: #065f46; }
+    input[type=file] { font-size: 0.9rem; }
+
+    /* Hotel result cards */
+    .hotel-card { border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 1.25rem; overflow: hidden; }
+    .hotel-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 0.65rem 1rem; }
+    .hotel-header.ok   { background: #d1fae5; border-bottom: 1px solid #6ee7b7; }
+    .hotel-header.warn { background: #fef3c7; border-bottom: 1px solid #fde68a; }
+    .hotel-header.err  { background: #fee2e2; border-bottom: 1px solid #fca5a5; }
+    .hotel-title { font-weight: 700; font-size: 1rem; }
+    .hotel-order { color: #6b7280; font-size: 0.8rem; margin-left: 6px; }
+    .hotel-links a { color: #1d4ed8; text-decoration: none; font-size: 0.82rem; border: 1px solid #bfdbfe; border-radius: 4px; padding: 3px 10px; background: #fff; margin-left: 6px; }
+    .hotel-links a.review-link { color: #92400e; border-color: #fde68a; }
+    .hotel-body { padding: 0.85rem 1rem; }
+    .hotel-error { padding: 0.75rem 1rem; color: #991b1b; font-size: 0.875rem; }
+
+    /* Stat pills */
+    .stats { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center; }
+    .stat { text-align: center; min-width: 55px; }
+    .stat-num { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+    .stat-lbl { font-size: 0.72rem; color: #6b7280; margin-top: 3px; }
+    .stat-num.green  { color: #16a34a; }
+    .stat-num.blue   { color: #2563eb; }
+    .stat-num.gray   { color: #9ca3af; }
+    .stat-num.amber  { color: #d97706; }
+    .stat-num.red    { color: #dc2626; }
+    .all-clear { color: #16a34a; font-size: 0.875rem; font-weight: 500; align-self: center; }
+
+    /* Summary table */
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.88rem; }
+    th { background: #f3f4f6; text-align: left; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: #374151; border-bottom: 2px solid #d1d5db; }
+    td { padding: 0.4rem 0.75rem; border-bottom: 1px solid #e5e7eb; }
+
+    /* Bottom action bar */
+    .action-bar { margin-top: 0.5rem; padding-top: 1.25rem; border-top: 1px solid #e5e7eb; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .btn-primary { background: #1d4ed8; color: #fff; text-decoration: none; border-radius: 5px; padding: 0.55rem 1.25rem; font-size: 0.9rem; font-weight: 600; }
+    .btn-secondary { color: #1d4ed8; text-decoration: none; font-size: 0.875rem; }
+    .action-sep { color: #d1d5db; font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/dashboard/invoices">← Invoices</a>
+</nav>
+
+<h1>Upload Daily Production Report</h1>
+<p class="sub">
+  Photo is read automatically — no order ID needed. Claude extracts each hotel's
+  delivered quantities and saves actuals against today's orders.
+</p>
+
+{% if error %}
+<div class="banner err">⚠️ {{ error }}</div>
+{% endif %}
+
+{# ── Upload form (always visible) ── #}
+<div class="ocr-box">
+  <h3>📷 &nbsp;Capture from dispatch sheet photo</h3>
+  <form method="post" action="/dashboard/actuals/upload" enctype="multipart/form-data">
+    <input type="file" name="photo" accept="image/*" required>
+    <br><br>
+    <button type="submit" class="btn-ocr">Upload &amp; Run OCR</button>
+  </form>
+  <p class="note">
+    Claude reads the <strong>Hotel-wise Orders</strong> section only.
+    Each hotel is matched to today's order by name automatically.
+    Existing <strong>manual</strong> entries are never overwritten by OCR.
+    Illegible or unmatched product lines go to each hotel's review queue.
+  </p>
+</div>
+
+{# ── Per-hotel results ── #}
+{% if hotel_summaries %}
+
+<h3 style="font-size:1rem; margin-bottom:0.75rem;">
+  Results for {{ today }}
+  <span style="font-weight:400; color:#6b7280; font-size:0.875rem;">
+    — {{ hotel_summaries | length }} hotel(s) processed
+  </span>
+</h3>
+
+{% for h in hotel_summaries %}
+
+{% if h.error %}
+  {% set hclass = "err" %}
+  {% set icon   = "⚠️" %}
+{% elif h.needs_review > 0 or h.unmatched > 0 %}
+  {% set hclass = "warn" %}
+  {% set icon   = "🟡" %}
+{% else %}
+  {% set hclass = "ok" %}
+  {% set icon   = "✅" %}
+{% endif %}
+
+<div class="hotel-card">
+
+  <div class="hotel-header {{ hclass }}">
+    <div>
+      <span class="hotel-title">{{ icon }} &nbsp;{{ h.hotel_name }}</span>
+      {% if h.order_id %}
+        <span class="hotel-order">Order #{{ h.order_id }}</span>
+      {% endif %}
+    </div>
+    {% if not h.error %}
+    <div class="hotel-links">
+      <a href="/dashboard/actuals/{{ h.order_id }}">View Actuals</a>
+      {% if h.needs_review > 0 or h.unmatched > 0 %}
+        <a href="/dashboard/actuals/{{ h.order_id }}/review" class="review-link">Review Queue →</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if h.error %}
+    <div class="hotel-error">{{ h.error }}</div>
+  {% else %}
+    <div class="hotel-body">
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-num green">{{ h.added }}</div>
+          <div class="stat-lbl">Added</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num blue">{{ h.replaced }}</div>
+          <div class="stat-lbl">Replaced</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num gray">{{ h.skipped_manual }}</div>
+          <div class="stat-lbl">Manual (kept)</div>
+        </div>
+        {% if h.needs_review > 0 %}
+        <div class="stat">
+          <div class="stat-num amber">{{ h.needs_review }}</div>
+          <div class="stat-lbl">Needs Review</div>
+        </div>
+        {% endif %}
+        {% if h.unmatched > 0 %}
+        <div class="stat">
+          <div class="stat-num red">{{ h.unmatched }}</div>
+          <div class="stat-lbl">Unmatched</div>
+        </div>
+        {% endif %}
+        {% if h.needs_review == 0 and h.unmatched == 0 %}
+        <div class="all-clear">All rows matched — ready to invoice.</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+</div>
+{% endfor %}
+
+{# ── Action bar ── #}
+<div class="action-bar">
+  <span style="font-size:0.875rem; color:#6b7280;">Next step:</span>
+  <a href="/dashboard/invoices" class="btn-primary">Generate Invoices →</a>
+  <span class="action-sep">or</span>
+  <a href="/dashboard/actuals/upload" class="btn-secondary">Upload another photo</a>
+</div>
+
+{% endif %}{# /hotel_summaries #}
+
+</body>
+</html>

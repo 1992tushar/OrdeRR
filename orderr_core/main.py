@@ -15,6 +15,10 @@ from orderr_core.database import engine, Base, SessionLocal
 from orderr_core.routes import webhook, dashboard
 from orderr_core.routes.admin import router as admin_router
 from orderr_core.routes.ledger import router as ledger_router          # ← ADD
+# Billing module routers (absolute paths: /billing/*, /dashboard/*, /webhook/rates)
+from orderr_core.routes.invoices import router as invoices_router
+from orderr_core.routes.rates import router as rates_router
+from orderr_core.routes.billing import router as billing_router
 from orderr_core.services.reporter import send_daily_report
 from orderr_core.services.pending_notifier import (
     send_customer_reminders,
@@ -31,6 +35,14 @@ from orderr_core.models.order import Order
 from orderr_core.models.inbound_message import InboundMessage  # ← reliability layer
 from orderr_core.models.customer_product_alias import CustomerProductAlias  # noqa: F401
 from orderr_core.models.customer_product_stats import CustomerProductStats  # noqa: F401  ← unit inference (FRD §5.1)
+
+# Billing module models — billing owns these tables; shares OrdeRR's Base/metadata
+from orderr_core.models.daily_rate import DailyRate                # noqa: F401
+from orderr_core.models.rate_override import CustomerRateOverride  # noqa: F401
+from orderr_core.models.actuals import OrderItemActual             # noqa: F401
+from orderr_core.models.invoice import Invoice, InvoiceItem        # noqa: F401
+from orderr_core.models.rate_unclear import RateUnclearItem        # noqa: F401
+from orderr_core.models.ocr_unmatched import OcrUnmatchedLine      # noqa: F401
 
 
 Base.metadata.create_all(bind=engine)
@@ -179,6 +191,11 @@ app.include_router(webhook.router,   prefix="/webhook",   tags=["Webhook"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 app.include_router(admin_router,     prefix="/admin",     tags=["Admin"])
 app.include_router(ledger_router,    prefix="/ledger",    tags=["Ledger"])   # ← ADD
+
+# ── Billing module (merged) — routers carry their own absolute paths ──────────
+app.include_router(invoices_router, tags=["Billing"])
+app.include_router(rates_router,    tags=["Billing"])
+app.include_router(billing_router,  tags=["Billing"])
 
 
 @app.get("/")
