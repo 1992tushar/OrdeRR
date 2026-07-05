@@ -18,6 +18,8 @@
 body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
 
 .nav{display:flex;align-items:center;gap:0;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px;white-space:nowrap}
+.nav-back:hover{color:var(--green);background:var(--bg)}
 .nav-logo{font-weight:700;font-size:15px;color:var(--green);margin-right:20px;display:flex;align-items:center;gap:6px;letter-spacing:-.2px}
 .nav-tabs{display:flex;height:100%;gap:2px}
 .nav-tab{display:flex;align-items:center;gap:6px;padding:0 14px;font-size:13px;font-weight:500;color:var(--ink3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;user-select:none}
@@ -188,6 +190,7 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 <body>
 
 <nav class="nav">
+  <a href="/dashboard/" class="nav-back" title="Back to OrdeRR dashboard">← Dashboard</a>
   <div class="nav-logo">Fluffy Billing</div>
   <div class="nav-tabs">
     <div class="nav-tab active" id="tab-today" onclick="goView('today')">Today</div>
