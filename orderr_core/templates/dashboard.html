@@ -1761,7 +1761,10 @@ async function loadCustomerAliases() {
                     <tbody>
                         ${aliases.map(a => `
                             <tr id="ca-row-${a.id}">
-                                <td style="font-size:12px;color:#718096;">${esc(a.customer_phone)}</td>
+                                <td>
+                                    <div style="font-weight:600;color:#2d3748;">${esc(a.customer_name || a.customer_phone)}</div>
+                                    ${a.customer_name ? `<div style="font-size:11px;color:#a0aec0;">${esc(a.customer_phone)}</div>` : ''}
+                                </td>
                                 <td class="alias-raw">${esc(a.raw_text)}</td>
                                 <td style="color:#2d3748;font-weight:600;">${esc(a.canonical_product_name)}</td>
                                 <td style="color:#aaa;font-size:12px;">${a.created_at ? a.created_at.substring(0,10) : '—'}</td>

@@ -1528,10 +1528,17 @@ def list_customer_aliases(db: Session = Depends(get_db), username: str = Depends
         .order_by(CustomerProductAlias.customer_phone, CustomerProductAlias.raw_text)
         .all()
     )
+    # Resolve each alias's phone → restaurant name in one query.
+    phones = {a.customer_phone for a in aliases}
+    name_map = {
+        c.phone_number: c.restaurant_name
+        for c in db.query(Customer).filter(Customer.phone_number.in_(phones)).all()
+    } if phones else {}
     return [
         {
             "id":                     a.id,
             "customer_phone":         a.customer_phone,
+            "customer_name":          name_map.get(a.customer_phone) or None,
             "raw_text":               a.raw_text,
             "canonical_product_name": a.canonical_product_name,
             "created_at":             a.created_at.isoformat() if a.created_at else None,
