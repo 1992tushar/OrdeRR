@@ -317,15 +317,15 @@
 </div>
 
 <div class="tab-nav">
-    <button class="tab-btn active" onclick="switchTab('orders',this)">📦 Orders</button>
-    <button class="tab-btn" onclick="switchTab('pending',this)">⏳ Pending</button>
-    <button class="tab-btn" onclick="switchTab('unclear',this)" id="unclear-tab-btn">⚠️ Unclear</button>
-    <button class="tab-btn" onclick="switchTab('customers',this)">👥 Customers</button>
-    <button class="tab-btn" onclick="switchTab('salespersons',this)">🧑 Sales</button>
-    <button class="tab-btn" onclick="switchTab('window',this)" id="window-tab-btn">📡 Windows</button>
+    <button class="tab-btn active" data-tab="orders" onclick="onTabClick('orders',this)">📦 Orders</button>
+    <button class="tab-btn" data-tab="pending" onclick="onTabClick('pending',this)">⏳ Pending</button>
+    <button class="tab-btn" data-tab="unclear" onclick="onTabClick('unclear',this)" id="unclear-tab-btn">⚠️ Unclear</button>
+    <button class="tab-btn" data-tab="customers" onclick="onTabClick('customers',this)">👥 Customers</button>
+    <button class="tab-btn" data-tab="salespersons" onclick="onTabClick('salespersons',this)">🧑 Sales</button>
+    <button class="tab-btn" data-tab="window" onclick="onTabClick('window',this)" id="window-tab-btn">📡 Windows</button>
     <button class="tab-btn" onclick="location.href='/billing'" id="billing-tab-btn">💰 Billing</button>
     <button class="tab-btn" onclick="location.href='/staff'" id="staff-tab-btn">🧑‍💼 Staff</button>
-    <button class="tab-btn {% if not reliability_stats.has_issues %}hidden{% endif %}" onclick="switchTab('failed',this)" id="failed-tab-btn">⚠️ Failed<span class="tab-dot"></span></button>
+    <button class="tab-btn {% if not reliability_stats.has_issues %}hidden{% endif %}" data-tab="failed" onclick="onTabClick('failed',this)" id="failed-tab-btn">⚠️ Failed<span class="tab-dot"></span></button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════
@@ -353,7 +353,7 @@
 
 
         <h2>📊 Product Summary
-          <a href="/admin/download-production-report" download>
+          <a href="/admin/download-production-report?view_date={{ target_date }}" download>
             <button class="section-btn">📥 Download Report</button>
           </a>
         </h2>
@@ -831,6 +831,18 @@ let productNames = [];
 let _editCustomerId = null;
 
 // ── Core ────────────────────────────────────────────────────────────────────
+
+function onTabClick(name, btn) {
+    // If Orders is currently showing a specific (non-today) date, a tab switch
+    // should reset back to today with a clean URL, then open the clicked tab —
+    // otherwise the stale ?view_date lingers and a later refresh reopens the old
+    // date. When no date is set, switch client-side (no reload) for speed.
+    if (new URLSearchParams(location.search).has('view_date')) {
+        location.href = '/dashboard/?tab=' + encodeURIComponent(name);
+        return;
+    }
+    switchTab(name, btn);
+}
 
 function switchTab(name, btn) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
@@ -1931,6 +1943,15 @@ function checkEmptyFailed() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+
+// After a date-reset reload (onTabClick → /dashboard/?tab=<name>), open the tab
+// the user clicked instead of defaulting to Orders. 'orders' is already active.
+(function honorTabParam() {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (!tab || tab === 'orders') return;
+    const btn = document.querySelector('.tab-btn[data-tab="' + tab + '"]');
+    if (btn) switchTab(tab, btn);
+})();
 
 (async function initUnclearBadge() {
     try {

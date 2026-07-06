@@ -69,12 +69,12 @@ def merge_items(items: list) -> list:
     return list(merged.values())
 
 
-def get_todays_customer_notes(db: Session) -> list[dict]:
-    today = datetime.now(IST).date()
+def get_todays_customer_notes(db: Session, target_date: date | None = None) -> list[dict]:
+    day = target_date if target_date is not None else datetime.now(IST).date()
     note_messages = (
         db.query(InboundMessage)
         .filter(
-            func.date(InboundMessage.received_at) == today,
+            func.date(InboundMessage.received_at) == day,
             InboundMessage.processing_status == "NOTE",
             InboundMessage.is_duplicate == False,
         )
@@ -97,13 +97,17 @@ def get_todays_customer_notes(db: Session) -> list[dict]:
     return notes
 
 
-def generate_daily_report(db: Session) -> dict:
+def generate_daily_report(db: Session, target_date: date | None = None) -> dict:
     now_ist   = datetime.now(IST)
-    today_str = get_current_business_date_str()
-    date_str  = now_ist.strftime("%d %B %Y")
+    if target_date is None:
+        business_date_str = get_current_business_date_str()
+        date_str          = now_ist.strftime("%d %B %Y")
+    else:
+        business_date_str = target_date.strftime("%Y-%m-%d")
+        date_str          = target_date.strftime("%d %B %Y")
 
     orders = db.query(Order).filter(
-        Order.business_date == today_str,
+        Order.business_date == business_date_str,
         Order.is_cancelled  == False,
     ).all()
 

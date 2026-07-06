@@ -1628,11 +1628,20 @@ def test_daily_report(db: Session = Depends(get_db), username: str = Depends(req
 
 @router.get("/download-production-report")
 def download_production_report(
+    view_date: Optional[str] = None,
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    data  = generate_daily_report(db)
-    notes = get_todays_customer_notes(db)
+    # Honor the dashboard's selected date; fall back to today on missing/bad input.
+    target_date = None
+    if view_date:
+        try:
+            target_date = date.fromisoformat(view_date)
+        except ValueError:
+            target_date = None
+
+    data  = generate_daily_report(db, target_date=target_date)
+    notes = get_todays_customer_notes(db, target_date=target_date)
     html  = _build_print_html(data, notes)
     date_slug = data["date_str"].replace(" ", "_")
     filename  = f"production_report_{date_slug}.html"
