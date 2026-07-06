@@ -54,6 +54,30 @@ from orderr_core.models.leave import Leave                         # noqa: F401
 
 Base.metadata.create_all(bind=engine)
 
+
+def _ensure_leaves_paid_column():
+    """
+    Lightweight migration: add leaves.paid to a pre-existing table.
+    create_all() only creates missing tables, never alters existing ones, so
+    the complementary-leave column must be added explicitly on older DBs.
+    Idempotent and safe on both SQLite (local) and PostgreSQL (prod).
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "leaves" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the column
+    cols = {c["name"] for c in insp.get_columns("leaves")}
+    if "paid" in cols:
+        return
+    default = "false" if engine.dialect.name == "postgresql" else "0"
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE leaves ADD COLUMN paid BOOLEAN NOT NULL DEFAULT {default}"))
+    print("✅ Migration: added leaves.paid column")
+
+
+_ensure_leaves_paid_column()
+
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # Track last report time for health check

@@ -205,6 +205,7 @@ function employeeDetailHtml(r) {
       <div><div class="label">Joining date</div>${fmtDate(r.join_date)}</div>
       <div><div class="label">Monthly salary</div>${money(r.monthly_salary)}</div>
       <div><div class="label">Leave used</div>${r.leave_used} day${r.leave_used === 1 ? '' : 's'}</div>
+      <div><div class="label">Complementary</div>${r.complementary_used || 0} day${(r.complementary_used || 0) === 1 ? '' : 's'}</div>
       <div><div class="label">Advance given</div>
         ${r.outstanding_advance > 0
           ? `<span class="pill debit">${money(r.outstanding_advance)}</span>`
@@ -227,8 +228,11 @@ function breakdownHtml(r) {
     ['Gross salary', money(b.gross_salary), false],
     [`Leave deduction — ${b.leave_days_deducted} day${b.leave_days_deducted === 1 ? '' : 's'} × ${money(b.per_day_rate)}/day (${fmtDate(b.covered_period_start)} – ${fmtDate(b.covered_period_end)})`,
       b.leave_deduction_amount > 0 ? `− ${money(b.leave_deduction_amount)}` : money(0), true],
-    ['Advance deduction', b.advance_deduction_amount > 0 ? `− ${money(b.advance_deduction_amount)}` : money(0), true],
   ];
+  if (b.complementary_leave_days > 0) {
+    rows.push([`Complementary leave — ${b.complementary_leave_days} day${b.complementary_leave_days === 1 ? '' : 's'} (no salary cut)`, money(0), false]);
+  }
+  rows.push(['Advance deduction', b.advance_deduction_amount > 0 ? `− ${money(b.advance_deduction_amount)}` : money(0), true]);
   return `
     <div style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px;">
       <div class="label" style="margin-bottom:8px;">Payable breakdown</div>
@@ -413,6 +417,12 @@ async function renderLeaves() {
         </div>
         <div class="row">
           <div><label>Reason</label><input name="reason" placeholder="e.g. personal, sick" /></div>
+          <div style="display:flex; align-items:flex-end;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:400;">
+              <input type="checkbox" name="paid" style="width:auto; margin:0;" />
+              Complementary (no salary deduction)
+            </label>
+          </div>
         </div>
         <div class="form-actions"><button type="submit">Record entry</button></div>
       </form>`}
@@ -427,7 +437,7 @@ async function renderLeaves() {
             <tr>
               <td>${fmtDate(l.date)}</td>
               <td>${escapeHtml(l.employee_name)}</td>
-              <td>${l.type === 'half' ? `<span class="pill debit">Half day</span>` : `<span class="pill credit">Full day</span>`}</td>
+              <td>${l.type === 'half' ? `<span class="pill debit">Half day</span>` : `<span class="pill credit">Full day</span>`}${l.paid ? ` <span class="pill" style="background:#e6f0ff; color:#1a56db;">Complementary</span>` : ''}</td>
               <td>${escapeHtml(l.reason || '—')}</td>
               <td><button class="icon-btn" data-remove-leave="${l.id}" title="Delete entry">✕</button></td>
             </tr>
@@ -440,6 +450,7 @@ async function renderLeaves() {
   if (form) form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = Object.fromEntries(new FormData(e.target).entries());
+    payload.paid = e.target.paid.checked;   // real boolean, not "on"/undefined
     try {
       await api('/leaves', { method: 'POST', body: JSON.stringify(payload) });
       toast('Entry recorded');

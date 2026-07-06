@@ -44,7 +44,7 @@ def _adv(a: Advance, employee_name: Optional[str] = None) -> dict:
 
 def _lv(l: Leave, employee_name: Optional[str] = None) -> dict:
     d = {"id": l.id, "employee_id": l.employee_id, "date": l.date,
-         "type": l.type, "reason": l.reason}
+         "type": l.type, "paid": bool(l.paid), "reason": l.reason}
     if employee_name is not None:
         d["employee_name"] = employee_name
     return d
@@ -76,6 +76,7 @@ class LeaveIn(BaseModel):
     employee_id: Optional[int] = None
     date: Optional[str] = None
     type: Optional[str] = None
+    paid: Optional[bool] = False   # complementary leave — no salary deduction
     reason: Optional[str] = None
 
 
@@ -196,7 +197,8 @@ def create_leave(body: LeaveIn, db: Session = Depends(get_db), username: str = D
         raise HTTPException(status_code=400, detail="employee_id, date and type are required")
     if body.type not in ("full", "half"):
         raise HTTPException(status_code=400, detail="type must be 'full' or 'half'")
-    l = Leave(employee_id=body.employee_id, date=body.date, type=body.type, reason=body.reason or None)
+    l = Leave(employee_id=body.employee_id, date=body.date, type=body.type,
+              paid=bool(body.paid), reason=body.reason or None)
     db.add(l)
     db.commit()
     db.refresh(l)

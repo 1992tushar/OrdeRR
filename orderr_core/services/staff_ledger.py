@@ -72,20 +72,26 @@ def covered_month_range(pay_date: date) -> tuple[date, date, int]:
     return date(cy, cm, 1), date(cy, cm, days), days
 
 
-def _leave_days(db: Session, employee_id: int, start: str, end: str) -> float:
-    """Sum leave days in [start, end]: full = 1, half = 0.5."""
-    rows = (
-        db.query(Leave.type, func.count().label("cnt"))
-        .filter(
-            Leave.employee_id == employee_id,
-            Leave.date >= start,
-            Leave.date <= end,
-        )
-        .group_by(Leave.type)
-        .all()
+def _leave_days(
+    db: Session,
+    employee_id: int,
+    start: str,
+    end: str,
+    paid: Optional[bool] = None,
+) -> float:
+    """
+    Sum leave days in [start, end]: full = 1, half = 0.5.
+    paid=None  → all leaves; paid=False → chargeable only; paid=True → complementary only.
+    """
+    q = db.query(Leave.type, func.count().label("cnt")).filter(
+        Leave.employee_id == employee_id,
+        Leave.date >= start,
+        Leave.date <= end,
     )
+    if paid is not None:
+        q = q.filter(Leave.paid == paid)
     total = 0.0
-    for typ, cnt in rows:
+    for typ, cnt in q.group_by(Leave.type).all():
         total += cnt * 0.5 if typ == "half" else cnt
     return total
 
@@ -107,7 +113,10 @@ def employee_summary(db: Session, employee: Employee) -> dict:
     start, end = current_year_range()
     next_pay = next_salary_day()
 
-    used_leave = _leave_days(db, employee.id, start, end)
+    # Chargeable (unpaid) vs complementary (paid) leave — complementary is
+    # recorded and shown but never deducted from salary.
+    used_leave = _leave_days(db, employee.id, start, end, paid=False)
+    comp_leave = _leave_days(db, employee.id, start, end, paid=True)
     total_adv, total_repaid = _advance_totals(db, employee.id)
     outstanding = total_adv - total_repaid
 
@@ -120,7 +129,8 @@ def employee_summary(db: Session, employee: Employee) -> dict:
     cov_start, cov_end, days_in_month = covered_month_range(employee_pay_date)
     cov_start_s, cov_end_s = cov_start.isoformat(), cov_end.isoformat()
 
-    cov_leave_days = _leave_days(db, employee.id, cov_start_s, cov_end_s)
+    cov_leave_days = _leave_days(db, employee.id, cov_start_s, cov_end_s, paid=False)
+    cov_comp_days  = _leave_days(db, employee.id, cov_start_s, cov_end_s, paid=True)
     per_day_rate = (employee.monthly_salary / days_in_month) if days_in_month else 0
     leave_deduction = cov_leave_days * per_day_rate
     net_pay = max(0.0, employee.monthly_salary - leave_deduction - outstanding)
@@ -135,6 +145,7 @@ def employee_summary(db: Session, employee: Employee) -> dict:
         "monthly_salary":     employee.monthly_salary,
         "annual_leave_quota": employee.annual_leave_quota,
         "leave_used":         used_leave,
+        "complementary_used": comp_leave,
         "leave_remaining":    max(0.0, employee.annual_leave_quota - used_leave),
         "outstanding_advance": outstanding,
         "next_pay_date":      employee_pay_date.isoformat(),
@@ -149,6 +160,7 @@ def employee_summary(db: Session, employee: Employee) -> dict:
             "days_in_covered_month":    days_in_month,
             "per_day_rate":             per_day_rate,
             "leave_days_deducted":      cov_leave_days,
+            "complementary_leave_days": cov_comp_days,
             "leave_deduction_amount":   leave_deduction,
             "advance_deduction_amount": outstanding,
             "net_payable":              net_pay,
@@ -159,7 +171,8 @@ def employee_summary(db: Session, employee: Employee) -> dict:
 def single_summary(db: Session, employee: Employee) -> dict:
     """The GET /summary/{id} shape (year-to-date leave + advance totals)."""
     start, end = current_year_range()
-    used_leave = _leave_days(db, employee.id, start, end)
+    used_leave = _leave_days(db, employee.id, start, end, paid=False)
+    comp_leave = _leave_days(db, employee.id, start, end, paid=True)
     total_adv, total_repaid = _advance_totals(db, employee.id)
     return {
         "employee": {
@@ -170,6 +183,7 @@ def single_summary(db: Session, employee: Employee) -> dict:
         },
         "leave_quota":         employee.annual_leave_quota,
         "leave_used":          used_leave,
+        "complementary_used":  comp_leave,
         "leave_remaining":     max(0.0, employee.annual_leave_quota - used_leave),
         "total_advances":      total_adv,
         "total_repaid":        total_repaid,
