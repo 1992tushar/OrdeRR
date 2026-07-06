@@ -267,10 +267,10 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
 
   body {{
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 13px;
+    font-size: 12px;
     color: #1a1a1a;
     background: #fff;
-    padding: 24px 32px;
+    padding: 18px 22px;
   }}
 
   /* ── Header ── */
@@ -299,7 +299,7 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   }}
 
   /* ── Sections ── */
-  .section {{ margin-bottom: 28px; }}
+  .section {{ margin-bottom: 16px; }}
   .section-title {{
     font-size: 12px;
     font-weight: 700;
@@ -335,26 +335,37 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   .data-table tr:last-child td {{ border-bottom: none; }}
 
   /* ── Column widths ── */
-  .product-name   {{ padding: 8px 8px; width: 55%; }}
-  .qty-ordered    {{ padding: 8px 8px; width: 20%; font-weight: 600; }}
-  .qty-delivered  {{ padding: 6px 8px; width: 25%; }}
+  .product-name   {{ padding: 3px 8px; width: 55%; }}
+  .qty-ordered    {{ padding: 3px 8px; width: 20%; font-weight: 600; }}
+  .qty-delivered  {{ padding: 3px 8px; width: 25%; }}
 
-  /* ── Write box (blank for pen) ── */
+  /* ── Write box (blank for pen — kept generous so the photo/OCR stays legible) ── */
   .write-box {{
     border-bottom: 1.5px solid #333;
-    height: 22px;
+    height: 18px;
     width: 90%;
   }}
 
-  /* ── Hotel blocks ── */
-  .hotel-block {{ margin-bottom: 18px; }}
+  /* ── Hotel blocks — 2-column grid for print density (≈18-22 hotels/page) ── */
+  /* Each block is self-contained (name + its items) and never splits across a  */
+  /* column or page break, so the photograph→OCR→billing flow is unaffected.    */
+  .hotel-grid {{
+    column-count: 2;
+    column-gap: 18px;
+  }}
+  .hotel-block {{
+    margin: 0 0 8px;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    page-break-inside: avoid;
+  }}
   .hotel-name {{
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     background: #f5f5f5;
-    padding: 6px 8px;
+    padding: 3px 7px;
     border-left: 4px solid #1a1a1a;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
   }}
 
   /* ── Footer ── */
@@ -372,7 +383,9 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   .sign-row {{
     display: flex;
     gap: 40px;
-    margin-top: 40px;
+    margin-top: 24px;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }}
   .sign-box {{
     flex: 1;
@@ -429,10 +442,10 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   </table>
 </div>
 
-<!-- Section 2: Hotel-wise Orders -->
+<!-- Section 2: Hotel-wise Orders (2-column grid — see .hotel-grid) -->
 <div class="section">
   <div class="section-title">Hotel-wise Orders</div>
-  {hotel_sections}
+  <div class="hotel-grid">{hotel_sections}</div>
 </div>
 
 {unclear_section}
