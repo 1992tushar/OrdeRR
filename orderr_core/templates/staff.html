@@ -217,6 +217,12 @@ function employeeDetailHtml(r) {
           : `<span class="pill credit">${money(r.pay_amount)}${r.first_pay_date ? ` from ${fmtDate(r.first_pay_date)}` : ''}</span>`}
       </div>
     </div>
+    ${(r.show_current_month && ((r.current_month_leave_days || 0) + (r.current_month_complementary_days || 0)) > 0) ? `
+      <div style="margin-top:4px; padding:8px 12px; background:#fff8e6; border:1px solid #e8d38a; border-radius:6px; font-size:13px; color:#5a4a12;">
+        <b>${escapeHtml(r.current_month_label)} so far:</b>
+        ${r.current_month_leave_days} chargeable day${r.current_month_leave_days === 1 ? '' : 's'}${(r.current_month_complementary_days || 0) > 0 ? ` + ${r.current_month_complementary_days} complementary` : ''}
+        — not in the payslip above; will apply on the ${fmtDate(r.current_month_applies_on)} payslip.
+      </div>` : ''}
     ${breakdownHtml(r)}
   `;
 }
@@ -232,7 +238,21 @@ function breakdownHtml(r) {
   if (b.complementary_leave_days > 0) {
     rows.push([`Complementary leave — ${b.complementary_leave_days} day${b.complementary_leave_days === 1 ? '' : 's'} (no salary cut)`, money(0), false]);
   }
-  rows.push(['Advance deduction', b.advance_deduction_amount > 0 ? `− ${money(b.advance_deduction_amount)}` : money(0), true]);
+
+  const recovered      = b.recovered_this_month || 0;
+  const balanceRemain  = b.advance_outstanding || 0;      // after this month's recovery
+  const balanceBefore  = balanceRemain + recovered;        // before it
+  const hasAdvance     = balanceBefore > 0;
+
+  if (hasAdvance) {
+    rows.push(['Salary payable (gross − leave)', money(b.salary_payable), false]);
+    rows.push(['Advance balance before recovery', money(balanceBefore), false]);
+    rows.push(['Recovered this month', recovered > 0 ? `− ${money(recovered)}` : money(0), true]);
+  }
+
+  const finalLabel = hasAdvance ? 'Take-home this month' : 'Net payable';
+  const finalVal   = money(hasAdvance ? b.take_home : b.salary_payable);
+
   return `
     <div style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px;">
       <div class="label" style="margin-bottom:8px;">Payable breakdown</div>
@@ -245,9 +265,14 @@ function breakdownHtml(r) {
             </tr>
           `).join('')}
           <tr>
-            <td style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">Net payable</td>
-            <td class="num" style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">${money(b.net_payable)}</td>
+            <td style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">${finalLabel}</td>
+            <td class="num" style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">${finalVal}</td>
           </tr>
+          ${hasAdvance ? `
+          <tr>
+            <td style="padding:4px 0 0; color:var(--muted); font-size:12px;">Advance balance remaining</td>
+            <td class="num" style="padding:4px 0 0; color:var(--muted); font-size:12px;">${money(balanceRemain)}</td>
+          </tr>` : ''}
         </tbody>
       </table>
     </div>
@@ -349,10 +374,10 @@ async function renderAdvances() {
               <td>${escapeHtml(a.employee_name)}</td>
               <td>${escapeHtml(a.reason || '—')}</td>
               <td class="num">${money(a.amount)}</td>
-              <td class="num">${money(a.repaid_amount)}</td>
+              <td class="num">${money(a.repaid_amount)}${(a.repayments && a.repayments.length) ? `<div style="font-size:11px; color:var(--muted); font-weight:400; margin-top:2px;">${a.repayments.map(r => `${fmtDate(r.date)}: ${money(r.amount)}`).join('<br>')}</div>` : ''}</td>
               <td class="num">${outstanding > 0 ? `<span class="pill debit">${money(outstanding)}</span>` : `<span class="pill credit">Clear</span>`}</td>
               <td>
-                ${outstanding > 0 ? `<button class="icon-btn" data-repay="${a.id}" title="Record repayment">↩</button>` : ''}
+                ${outstanding > 0 ? `<button class="icon-btn" data-repay="${a.id}" data-outstanding="${outstanding}" title="Record this month's recovery">↩</button>` : ''}
                 <button class="icon-btn" data-remove-adv="${a.id}" title="Delete entry">✕</button>
               </td>
             </tr>`;
@@ -373,10 +398,15 @@ async function renderAdvances() {
   });
   view.querySelectorAll('[data-repay]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const amount = prompt('Repayment amount:');
-      if (!amount) return;
+      const amount = prompt(
+        "Recover how much this month? (pre-filled with the full balance — edit down to whatever the employee is paying)",
+        btn.dataset.outstanding || ''
+      );
+      if (amount === null || amount.trim() === '') return;
+      const val = Number(amount);
+      if (!(val > 0)) { toast('Enter a positive amount'); return; }
       try {
-        await api(`/advances/${btn.dataset.repay}/repay`, { method: 'POST', body: JSON.stringify({ amount: Number(amount) }) });
+        await api(`/advances/${btn.dataset.repay}/repay`, { method: 'POST', body: JSON.stringify({ amount: val }) });
         toast('Repayment recorded');
         renderAdvances();
       } catch (err) { toast(err.message); }

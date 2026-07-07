@@ -49,6 +49,7 @@ from orderr_core.models.ocr_unmatched import OcrUnmatchedLine      # noqa: F401
 # Staff Ledger module models — owns employees/advances/leaves; shares Base/metadata
 from orderr_core.models.employee import Employee                   # noqa: F401
 from orderr_core.models.advance import Advance                     # noqa: F401
+from orderr_core.models.advance_repayment import AdvanceRepayment   # noqa: F401
 from orderr_core.models.leave import Leave                         # noqa: F401
 
 

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from orderr_core.models.employee import Employee
 from orderr_core.models.advance import Advance
+from orderr_core.models.advance_repayment import AdvanceRepayment
 from orderr_core.models.leave import Leave
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -96,6 +97,20 @@ def _leave_days(
     return total
 
 
+def _repaid_in_range(db: Session, employee_id: int, start: str, end: str) -> float:
+    """Sum of advance repayments recorded in [start, end] for this employee."""
+    total = (
+        db.query(func.coalesce(func.sum(AdvanceRepayment.amount), 0))
+        .filter(
+            AdvanceRepayment.employee_id == employee_id,
+            AdvanceRepayment.date >= start,
+            AdvanceRepayment.date <= end,
+        )
+        .scalar()
+    )
+    return float(total or 0)
+
+
 def _advance_totals(db: Session, employee_id: int) -> tuple[float, float]:
     total_adv, total_repaid = (
         db.query(
@@ -133,7 +148,26 @@ def employee_summary(db: Session, employee: Employee) -> dict:
     cov_comp_days  = _leave_days(db, employee.id, cov_start_s, cov_end_s, paid=True)
     per_day_rate = (employee.monthly_salary / days_in_month) if days_in_month else 0
     leave_deduction = cov_leave_days * per_day_rate
-    net_pay = max(0.0, employee.monthly_salary - leave_deduction - outstanding)
+    # Salary payable for the covered month is gross minus leave only. Advances
+    # are NOT force-deducted in full — they're recovered by variable monthly
+    # repayments the accountant records (see recovered_this_month below).
+    salary_payable = max(0.0, employee.monthly_salary - leave_deduction)
+
+    # Current-month window (today's calendar month) — used both for upcoming
+    # leave info and for the advance amount recovered this pay cycle.
+    today = today_ist()
+    tm_start = date(today.year, today.month, 1)
+    tm_end   = date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+    tm_charge = _leave_days(db, employee.id, tm_start.isoformat(), tm_end.isoformat(), paid=False)
+    tm_comp   = _leave_days(db, employee.id, tm_start.isoformat(), tm_end.isoformat(), paid=True)
+    tm_applies_on = _add_month_keep_day10(date(today.year, today.month, 10))
+    # "current month leave" line only matters when it isn't the covered month.
+    show_current_month = cov_end < tm_start
+
+    # Advance recovered this pay cycle = repayments dated in the current month
+    # (salaries are paid on the 10th, so the payday and its recovery share a month).
+    recovered_this_month = _repaid_in_range(db, employee.id, tm_start.isoformat(), tm_end.isoformat())
+    take_home = max(0.0, salary_payable - recovered_this_month)
 
     return {
         "id":                 employee.id,
@@ -152,7 +186,14 @@ def employee_summary(db: Session, employee: Employee) -> dict:
         "first_pay_date":     fpd.isoformat() if fpd else None,
         "salary_due":         salary_due,
         "leave_deduction":    leave_deduction,
-        "pay_amount":         net_pay,
+        "pay_amount":         salary_payable,
+        "recovered_this_month": recovered_this_month,
+        "take_home":            take_home,
+        "current_month_label":              today.strftime("%B"),
+        "current_month_leave_days":         tm_charge,
+        "current_month_complementary_days": tm_comp,
+        "current_month_applies_on":         tm_applies_on.isoformat(),
+        "show_current_month":               show_current_month,
         "breakdown": {
             "gross_salary":             employee.monthly_salary,
             "covered_period_start":     cov_start_s,
@@ -162,8 +203,11 @@ def employee_summary(db: Session, employee: Employee) -> dict:
             "leave_days_deducted":      cov_leave_days,
             "complementary_leave_days": cov_comp_days,
             "leave_deduction_amount":   leave_deduction,
-            "advance_deduction_amount": outstanding,
-            "net_payable":              net_pay,
+            "salary_payable":           salary_payable,
+            "advance_outstanding":      outstanding,
+            "recovered_this_month":     recovered_this_month,
+            "take_home":                take_home,
+            "net_payable":              salary_payable,
         },
     }
 
