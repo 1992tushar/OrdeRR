@@ -17,6 +17,7 @@ amount = actual_quantity × rate_used  (full Decimal precision, no rounding).
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -28,7 +29,10 @@ from sqlalchemy.orm import Session
 from orderr_core.models.invoice import Invoice, InvoiceItem
 from orderr_core.models.actuals import OrderItemActual
 from orderr_core.models.rate_unclear import RateUnclearItem
+from orderr_core.models.order import Order
 from orderr_core.services.rate_lookup import get_rate
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +69,23 @@ def generate_invoice(
         raise InvoiceAlreadyExistsError(
             f"Invoice {existing.invoice_number} already exists for order {order_id}."
         )
+
+    # ── 0b. Authoritative customer ──────────────────────────────────────────
+    # The invoice belongs to the order's customer — that is the single source of
+    # truth. Callers pass a customer_phone, but fuzzy name-based lookups upstream
+    # can resolve the wrong customer when two names collide (e.g. "SAIRAT BIRYANI"
+    # vs "Sairat Biryani Ravet"). Always take the phone from the order itself so
+    # the invoice record — and the per-customer rate lookup below — can never be
+    # stamped with a different customer than the order.
+    order = db.scalar(select(Order).where(Order.id == order_id))
+    if order and order.customer_phone:
+        if customer_phone and customer_phone != order.customer_phone:
+            logger.warning(
+                "generate_invoice: passed customer_phone %r != order.customer_phone %r "
+                "for order %s — using the order's phone.",
+                customer_phone, order.customer_phone, order_id,
+            )
+        customer_phone = order.customer_phone
 
     # ── 1. Load actuals ─────────────────────────────────────────────────────
     actuals: list[OrderItemActual] = db.scalars(

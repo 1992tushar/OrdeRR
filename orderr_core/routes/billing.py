@@ -493,17 +493,25 @@ def _build_hotel_record(db: Session, hotel_name: str, order_id: int) -> dict:
         select(Invoice).where(Invoice.order_id == order_id)
     ).first()
 
-    customer_row = db.execute(
-        text("""
-            SELECT phone_number FROM customers
-            WHERE LOWER(restaurant_name) LIKE LOWER(:pattern)
-              AND is_active = TRUE
-            ORDER BY id DESC
-            LIMIT 1
-        """),
-        {"pattern": f"%{hotel_name}%"},
-    ).fetchone()
-    customer_phone = customer_row[0] if customer_row else (order_phone or "")
+    # The order already knows its customer — that is authoritative. Only fall
+    # back to a name lookup if the order somehow has no phone on record. The old
+    # code did the reverse (name LIKE first), which picked the wrong customer
+    # when two restaurant names collided (e.g. "SAIRAT BIRYANI" also matched
+    # "Sairat Biryani Ravet", and ORDER BY id DESC chose the wrong one).
+    if order_phone:
+        customer_phone = order_phone
+    else:
+        customer_row = db.execute(
+            text("""
+                SELECT phone_number FROM customers
+                WHERE LOWER(restaurant_name) = LOWER(:name)
+                  AND is_active = TRUE
+                ORDER BY id DESC
+                LIMIT 1
+            """),
+            {"name": hotel_name},
+        ).fetchone()
+        customer_phone = customer_row[0] if customer_row else ""
 
     actuals = db.scalars(
         select(OrderItemActual).where(OrderItemActual.order_id == order_id)
