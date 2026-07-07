@@ -49,6 +49,7 @@ from orderr_core.services.invoice_generator import (
     generate_invoice,
 )
 from orderr_core.services.invoice_pdf import generate_invoice_pdf
+from orderr_core.services.order_service import get_current_business_date_str
 from orderr_core.services.ocr_actuals_parser import parse_claude_hotel_rows
 from orderr_core.services.ocr_engine import OCREngineError, get_production_report_engine
 from orderr_core.services.rate_lookup import get_rate
@@ -60,7 +61,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 templates = Jinja2Templates(directory="orderr_core/templates")
 
-_today = date.today
+def _today() -> date:
+    """Billing 'today' = the current BUSINESS date (rolls over at the 8 PM
+    cutoff), matching the Orders/Rates tabs. Using the plain calendar date here
+    made Billing lag Orders by a day after the cutoff."""
+    return date.fromisoformat(get_current_business_date_str())
 
 ORDER_TIME_UNCLEAR_REASON = "Unclear at order time (could not parse product/quantity)"
 
@@ -715,7 +720,7 @@ async def api_generate_invoice(request: Request, db: Session = Depends(get_db)):
     body              = await request.json()
     order_id          = body.get("order_id")
     customer_phone    = (body.get("customer_phone") or "").strip()
-    business_date_str = body.get("business_date") or date.today().isoformat()
+    business_date_str = body.get("business_date") or _today().isoformat()
 
     try:
         business_date = date.fromisoformat(business_date_str)
