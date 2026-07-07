@@ -53,9 +53,19 @@ PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 _MULTI_ITEM_RE = re.compile(
     r"([A-Za-z\u0900-\u097F][A-Za-z\u0900-\u097F\s/\.]*?)\s*[-:]?\s*"
     r"(\d+(?:\.\d+)?)\s*"
-    r"(kg|kgs|kilo|kilos|kilogram|kilograms|pies|nos|no|nos\.|pcs|psc|pc|pis|pieces|piece|k)?",
+    r"(kg|kgs|kilo|kilos|kilogram|kilograms|grams|gram|gms|gm|g|pies|nos|no|nos\.|pcs|psc|pc|pis|pieces|piece|k)?",
     re.IGNORECASE,
 )
+
+
+def _split_on_connectors(line: str) -> list:
+    """Split a line on item connectors \u2014 commas, '+', '&', and the word 'and'
+    (surrounded by spaces so 'sandwich'/'grand' are never split). Lets
+    'breast 2 kg and curry 3 kg' or '2 kg wings, 3 kg breast' resolve as
+    separate items. Returns [line] unchanged when no connector is present."""
+    parts = re.split(r"\s*,\s*|\s*\+\s*|\s*&\s*|\s+and\s+", line, flags=re.IGNORECASE)
+    parts = [p.strip() for p in parts if p and p.strip()]
+    return parts if len(parts) > 1 else [line]
 
 
 def _split_multi_item_line(line: str) -> list:
@@ -443,6 +453,19 @@ def _normalize_unit(raw: str) -> str | None:
     return UNIT_ALIASES.get(raw.lower().strip().rstrip("."), None)
 
 
+# Gram units are handled specially: the quantity is divided by 1000 and the
+# unit becomes kg (e.g. "500 g" / "500 gm" → 0.5 kg). Longest-first ordering
+# matters inside regex alternations (grams|gram|gms|gm|g).
+GRAM_UNITS = {"g", "gm", "gms", "gram", "grams"}
+
+# Leading unit token in a quantity-first line, e.g. "5 kg breast" → unit "kg",
+# name "breast".  Includes gram units so "500 g breast" is handled too.
+_LEADING_UNIT_RE = re.compile(
+    r"^(kg|kgs|kilo|kilos|kilogram|kilograms|grams|gram|gms|gm|g|nos|no|pcs|psc|pc|pis|pieces|piece)\b\s*(.+)$",
+    re.IGNORECASE,
+)
+
+
 def _parse_quantity(raw: str):
     try:
         qty = float(raw.strip())
@@ -634,7 +657,10 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
     # the whole line being dumped into unclear_items as one blob.
     expanded_lines = []
     for raw_line in lines:
-        expanded_lines.extend(_split_multi_item_line(raw_line))
+        # First split on item connectors (comma / + / & / "and"), then split
+        # any remaining multi-run segment ("wings 2kg curry 3kg") individually.
+        for part in _split_on_connectors(raw_line):
+            expanded_lines.extend(_split_multi_item_line(part))
     lines = expanded_lines
 
     for raw_line in lines:
@@ -686,8 +712,19 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
         # Handle "3k" style
         line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
 
-        # Strip leading list markers: "1)", "1.", "1-", "•", "-", "*"
-        line_clean = re.sub(r'^[\d]+[)\.\-]\s*', '', line_clean).strip()
+        # Convert simple single-digit fractions to decimals: "1/2"→"0.5",
+        # "3/4"→"0.75". Lookarounds keep multi-digit dates (10/06, 1/2/2026)
+        # untouched — only an isolated n/m with single digits is converted.
+        line_clean = re.sub(
+            r'(?<!\d)([1-9])\s*/\s*([1-9])(?!\d)',
+            lambda m: ("%g" % (int(m.group(1)) / int(m.group(2)))),
+            line_clean,
+        )
+
+        # Strip leading list markers: "1)", "1.", "1-", "•", "-", "*".
+        # The (?!\d) guard stops a leading decimal quantity ("1.5 kg", "0.5 kg")
+        # from being mistaken for a "1." list marker and mangled into "5 kg".
+        line_clean = re.sub(r'^[\d]+[)\.\-](?!\d)\s*', '', line_clean).strip()
         line_clean = re.sub(r'^[•\-\*]\s*', '', line_clean).strip()
 
         # ── Word-quantity path (no ASCII digit in line) ───────────────────────
@@ -759,33 +796,66 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
             continue
         # ── End word-quantity path ────────────────────────────────────────────
 
-        # ── Primary regex, then qty-first fallback ────────────────────────────
-        # Pattern: <product name> <separator?> <quantity> [unit]
+        # ── Parse "<name> <qty> [unit]" via a fallback ladder ─────────────────
+        # Shared unit alternation (kg / gram / nos families). kg variants come
+        # before the bare "g" so "kg" is never mis-read as grams; gram units
+        # are converted to kg further below.
+        _units = (r"kg|kgs|kilo|kilos|kilogram|kilograms|grams|gram|gms|gm|g"
+                  r"|pies|nos|no|nos\.|pcs|psc|pc|pis|pieces|piece|k")
+
+        # 1. Anchored: quantity (+ optional unit) at the END of the line.
         split_match = re.match(
-            r"^(.+?)\s*[-:]?\s*([\d\.]+)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|pies|nos|no|nos\.|pcs|psc|pc|pis|pieces|piece|k)?\s*$",
-            line_clean,
-            re.IGNORECASE,
+            rf"^(.+?)\s*[-:]?\s*([\d\.]+)\s*({_units})?\s*$",
+            line_clean, re.IGNORECASE,
         )
 
+        # 2. Tolerant: trailing words AFTER an explicit unit, e.g.
+        #    "chicken drumsticks 3 kg pathva", "wings 2 nos please". Name must
+        #    start non-digit so leading-number names ("1.5kg chicken") are left
+        #    to the normal path; a unit is required before the trailing text.
+        if not split_match:
+            split_match = re.match(
+                rf"^(\D.*?)\s*[-:]?\s*([\d\.]+)\s*({_units})\s+\S.*$",
+                line_clean, re.IGNORECASE,
+            )
+
+        raw_unit_str = ""
         if split_match:
             raw_name     = split_match.group(1).strip()
             raw_qty      = split_match.group(2).strip()
             raw_unit_str = (split_match.group(3) or "").strip()
-            raw_unit     = _normalize_unit(raw_unit_str) if raw_unit_str else None
         else:
-            # Fallback: quantity-first format e.g. "3 तंदूर", "4 Leg piece"
-            qty_first_match = _QTY_FIRST_RE.match(line_clean)
-            if qty_first_match:
-                raw_qty      = qty_first_match.group(1).strip()
-                raw_name     = qty_first_match.group(2).strip()
-                raw_unit_str = ""
-                raw_unit     = None
+            # 3. Unrecognized / mistyped unit after the number ("curry cut 3 kig",
+            #    "wings 2 kgg"): still capture the quantity instead of defaulting
+            #    to 1. Name must start non-digit; unit stays unknown → inference.
+            junk_match = re.match(r"^(\D.*?)\s*[-:]?\s*([\d\.]+)\b.*$", line_clean, re.IGNORECASE)
+            if junk_match:
+                raw_name = junk_match.group(1).strip()
+                raw_qty  = junk_match.group(2).strip()
             else:
-                # No quantity found at all — treat whole line as product name, qty=1
-                raw_name     = line_clean
-                raw_qty      = "1"
-                raw_unit_str = ""
-                raw_unit     = None
+                # 4. Quantity-first, e.g. "3 तंदूर", "4 Leg piece", "5 kg breast".
+                qty_first_match = _QTY_FIRST_RE.match(line_clean)
+                if qty_first_match:
+                    raw_qty  = qty_first_match.group(1).strip()
+                    raw_name = qty_first_match.group(2).strip()
+                    # Strip a leading unit word: "kg breast" → unit "kg", "breast".
+                    lead = _LEADING_UNIT_RE.match(raw_name)
+                    if lead:
+                        raw_unit_str = lead.group(1).strip()
+                        raw_name     = lead.group(2).strip()
+                else:
+                    # 5. No quantity at all — whole line is the name, qty=1.
+                    raw_name = line_clean
+                    raw_qty  = "1"
+
+        # Resolve unit, converting grams → kg (÷1000): "500 g" / "500gm" → 0.5 kg.
+        if raw_unit_str.lower().strip().rstrip(".") in GRAM_UNITS:
+            _q = _parse_quantity(raw_qty)
+            if _q is not None:
+                raw_qty = "%g" % (_q / 1000.0)
+            raw_unit = "kg"
+        else:
+            raw_unit = _normalize_unit(raw_unit_str) if raw_unit_str else None
         # ─────────────────────────────────────────────────────────────────────
 
         if raw_qty in ("__", "0", ""):
