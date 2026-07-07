@@ -196,6 +196,23 @@ function renderDashboardTable(rows) {
       renderDashboardTable(rows);
     });
   });
+  view.querySelectorAll('[data-recover-emp]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();   // don't collapse the row
+      const amount = prompt(
+        "Recover how much this month? (pre-filled with the balance — edit down to whatever they're paying)",
+        btn.dataset.outstanding || ''
+      );
+      if (amount === null || amount.trim() === '') return;
+      const val = Number(amount);
+      if (!(val > 0)) { toast('Enter a positive amount'); return; }
+      try {
+        await api(`/employees/${btn.dataset.recoverEmp}/recover-advance`, { method: 'POST', body: JSON.stringify({ amount: val }) });
+        toast('Advance recovery recorded');
+        renderDashboard();   // re-fetch; employee stays expanded
+      } catch (err) { toast(err.message); }
+    });
+  });
 }
 
 function employeeDetailHtml(r) {
@@ -275,6 +292,13 @@ function breakdownHtml(r) {
           </tr>` : ''}
         </tbody>
       </table>
+      ${balanceRemain > 0 ? `
+      <div style="margin-top:10px;">
+        <button data-recover-emp="${r.id}" data-outstanding="${balanceRemain}"
+          style="padding:6px 14px; background:var(--ink); color:#fff; border:none; border-radius:6px; font-size:13px; cursor:pointer;">
+          ↩ Recover advance this month
+        </button>
+      </div>` : ''}
     </div>
   `;
 }

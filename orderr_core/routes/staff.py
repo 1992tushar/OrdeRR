@@ -211,6 +211,46 @@ def repay_advance(adv_id: int, body: RepayIn, db: Session = Depends(get_db), use
     return _adv(a, repayments=[{"date": r.date, "amount": r.amount} for r in reps])
 
 
+@router.post("/staff/api/employees/{emp_id}/recover-advance")
+def recover_employee_advance(emp_id: int, body: RepayIn, db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    """
+    Recover a variable amount this month against an employee's advances,
+    applied oldest-first across their outstanding advances (capped at the
+    total outstanding). Lets the dashboard record recovery in place.
+    """
+    if not body.amount or body.amount <= 0:
+        raise HTTPException(status_code=400, detail="A positive amount is required")
+    emp = db.get(Employee, emp_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    advances = (
+        db.query(Advance)
+        .filter(Advance.employee_id == emp_id)
+        .order_by(Advance.date.asc(), Advance.id.asc())
+        .all()
+    )
+    remaining = float(body.amount)
+    rep_date = (body.date or staff_ledger.today_ist().isoformat())[:10]
+    applied_total = 0.0
+    for a in advances:
+        if remaining <= 0:
+            break
+        out = a.amount - a.repaid_amount
+        if out <= 0:
+            continue
+        take = min(out, remaining)
+        a.repaid_amount += take
+        db.add(AdvanceRepayment(advance_id=a.id, employee_id=emp_id, date=rep_date, amount=take))
+        remaining -= take
+        applied_total += take
+
+    if applied_total <= 0:
+        raise HTTPException(status_code=400, detail="No outstanding advance to recover")
+    db.commit()
+    return {"ok": True, "recovered": applied_total}
+
+
 @router.delete("/staff/api/advances/{adv_id}")
 def delete_advance(adv_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
     a = db.get(Advance, adv_id)
