@@ -570,10 +570,13 @@
         <div class="desktop-only">
             <div class="summary-table">
                 <table>
-                    <thead><tr><th>Restaurant</th><th>Phone</th><th>Outstanding</th><th>Area</th><th>Salesperson</th><th>Today</th><th>Status</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>Restaurant</th><th>Phone</th><th style="cursor:pointer;user-select:none" onclick="toggleOutstandingSort()" title="Click to sort by outstanding">Outstanding <span id="sort-arrow-out" style="color:#075e54"></span></th><th>Area</th><th>Salesperson</th><th>Today</th><th>Status</th><th>Actions</th></tr></thead>
                     <tbody id="customer-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
                 </table>
             </div>
+        </div>
+        <div class="mobile-only" style="margin-bottom:10px">
+            <button class="section-btn" id="mobile-sort-btn" onclick="toggleOutstandingSort()">↕ Sort by Outstanding</button>
         </div>
         <div class="mobile-only" id="customer-cards"><div class="empty">Loading...</div></div>
     </div>
@@ -1093,7 +1096,44 @@ async function importCustomers(input) {
     }
 }
 
+// ── Customer sort (by outstanding) ─────────────────────────────────────────
+// key: 'name' (default = backend name order) | 'outstanding'; dir: 'desc'|'asc'
+let _customerSort = { key: 'name', dir: 'desc' };
+
+function sortCustomersForDisplay(list) {
+    if (_customerSort.key !== 'outstanding') return list;
+    const arr = list.slice();
+    arr.sort((a, b) => {
+        const av = Number(a.outstanding || 0), bv = Number(b.outstanding || 0);
+        return _customerSort.dir === 'desc' ? bv - av : av - bv;
+    });
+    return arr;
+}
+
+// Cycle: default → outstanding high→low → outstanding low→high → default
+function toggleOutstandingSort() {
+    if (_customerSort.key !== 'outstanding')      _customerSort = { key: 'outstanding', dir: 'desc' };
+    else if (_customerSort.dir === 'desc')        _customerSort.dir = 'asc';
+    else                                          _customerSort = { key: 'name', dir: 'desc' };
+    updateSortIndicators();
+    // Re-render, respecting any active search term
+    const term = (document.getElementById('customer-search-input') || {}).value || '';
+    if (term.trim()) applyCustomerFilter(term);
+    else             renderCustomerRows(window._allCustomers || []);
+}
+
+function updateSortIndicators() {
+    const on = _customerSort.key === 'outstanding';
+    const arrowEl = document.getElementById('sort-arrow-out');
+    if (arrowEl) arrowEl.textContent = on ? (_customerSort.dir === 'desc' ? '▼' : '▲') : '';
+    const mb = document.getElementById('mobile-sort-btn');
+    if (mb) mb.textContent = on
+        ? (_customerSort.dir === 'desc' ? 'Outstanding ↓ (high→low)' : 'Outstanding ↑ (low→high)')
+        : '↕ Sort by Outstanding';
+}
+
 function renderCustomerRows(customers) {
+    customers = sortCustomersForDisplay(customers);
     const tbody = document.getElementById('customer-tbody');
     if (!customers.length) {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';
