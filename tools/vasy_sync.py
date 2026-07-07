@@ -1,287 +1,175 @@
 """
-vasy_sync.py — nightly bridge that re-creates OrdeRR invoices in Vasy ERP.
+vasy_sync.py — standalone bot that types already-generated invoices into Vasy ERP.
 
-Vasy has no import/API, so this drives the Vasy *web* app with Playwright:
-log in (reusing a saved session), read every invoice OrdeRR marked
-`vasy_status='pending'`, create each as a sales voucher in Vasy, write the Vasy
-voucher number back, and email a reconciliation report.
+Fully self-contained. It does NOT import OrdeRR, touch its database, or write
+anything back into the app. You give it two things:
 
-RUNS ON AN OFFICE PC (not Render) via Windows Task Scheduler — it needs a real
-browser and your normal office IP. It talks to the SAME database as OrdeRR
-(point DATABASE_URL at the production Postgres in this machine's .env).
+    1. the invoices (a folder / file you point it at)
+    2. your Vasy username + password
 
-────────────────────────────────────────────────────────────────────────────
-STATUS: Phase 0 skeleton. The DB pull, session reuse, idempotent write-back and
-reconciliation email are complete and runnable TODAY (great for validating the
-Vasy login). The Vasy-specific bits — the login selectors and the sales-invoice
-form-filling — are STUBBED and marked `# TODO(phase-1)`. They get wired once we
-have a screen recording of one invoice being entered in Vasy.
+...and it logs into the Vasy web app and creates each invoice as a sales
+voucher. It keeps its own little "already pushed" ledger file so re-running
+never double-posts — no app database involved.
 
-Usage (from the repo root):
-    python tools/vasy_sync.py              # dry-run: logs in + lists what it WOULD post
-    python tools/vasy_sync.py --live       # actually creates vouchers (Phase 1+)
-    python tools/vasy_sync.py --date 2026-07-07 --headed
-────────────────────────────────────────────────────────────────────────────
+Runs on an office PC (needs a real browser + your normal office IP).
+
+    python tools/vasy_sync.py --invoices ./invoices                 # dry-run
+    python tools/vasy_sync.py --invoices ./invoices --live          # do it
+    VASY_USERNAME=... VASY_PASSWORD=... python tools/vasy_sync.py --invoices ./invoices --headed
+
+Credentials (any of):
+    --user / --password / --url   CLI flags, or
+    VASY_USERNAME / VASY_PASSWORD / VASY_URL   environment variables.
+
+STATUS: the plumbing — reading the invoices folder, the local pushed-ledger,
+login + session reuse, the per-invoice loop and summary — is done. The two
+Vasy-specific pieces (login selectors + the sales-invoice form-filling) and the
+invoice parser are marked `# TODO(phase-1)`; they get finalised once we have the
+exact invoice format and a screen recording of one entry in Vasy.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
-import smtplib
-from datetime import datetime, timezone, timedelta
-from email.mime.text import MIMEText
 from pathlib import Path
 
-# Make `import orderr_core...` work when run as `python tools/vasy_sync.py`.
-REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-from dotenv import load_dotenv
-load_dotenv()
+# ── Local "already pushed" ledger (idempotency, no database) ─────────────────
 
-from sqlalchemy import select
-from orderr_core.database import SessionLocal
-
-# Register the FULL ORM model registry. Querying any mapped class configures all
-# mappers, so every model referenced by a relationship (e.g. Customer→Salesperson)
-# must be imported first — otherwise SQLAlchemy can't resolve the name. This
-# mirrors the import block in orderr_core/main.py.
-from orderr_core.models.salesperson import Salesperson              # noqa: F401
-from orderr_core.models.customer import Customer
-from orderr_core.models.order import Order
-from orderr_core.models.invoice import Invoice, InvoiceItem         # noqa: F401
-from orderr_core.models.inbound_message import InboundMessage       # noqa: F401
-from orderr_core.models.customer_product_alias import CustomerProductAlias    # noqa: F401
-from orderr_core.models.customer_product_stats import CustomerProductStats    # noqa: F401
-from orderr_core.models.daily_rate import DailyRate                 # noqa: F401
-from orderr_core.models.rate_override import CustomerRateOverride   # noqa: F401
-from orderr_core.models.actuals import OrderItemActual              # noqa: F401
-from orderr_core.models.rate_unclear import RateUnclearItem         # noqa: F401
-from orderr_core.models.ocr_unmatched import OcrUnmatchedLine       # noqa: F401
-from orderr_core.models.employee import Employee                    # noqa: F401
-from orderr_core.models.advance import Advance                      # noqa: F401
-from orderr_core.models.advance_repayment import AdvanceRepayment   # noqa: F401
-from orderr_core.models.leave import Leave                          # noqa: F401
-
-from orderr_core.services.invoice_pdf import _product_info, _buyer_phone
-
-IST = timezone(timedelta(hours=5, minutes=30))
-
-# ── Config (env, with sensible defaults) ─────────────────────────────────────
-VASY_URL          = os.getenv("VASY_URL", "")                       # login page URL
-VASY_HOME_URL     = os.getenv("VASY_HOME_URL", VASY_URL)            # a post-login URL
-VASY_USERNAME     = os.getenv("VASY_USERNAME", "")
-VASY_PASSWORD     = os.getenv("VASY_PASSWORD", "")
-VASY_SESSION_FILE = os.getenv("VASY_SESSION_FILE", str(REPO_ROOT / "tools" / ".vasy_session.json"))
-# Login selectors — placeholders; confirm against the real Vasy login page.
-SEL_USERNAME = os.getenv("VASY_SEL_USERNAME", "input[type='text'], input[name*='user' i], input[type='email']")
-SEL_PASSWORD = os.getenv("VASY_SEL_PASSWORD", "input[type='password']")
-SEL_SUBMIT   = os.getenv("VASY_SEL_SUBMIT",   "button[type='submit'], button:has-text('Login'), input[type='submit']")
-
-# Reconciliation email reuses OrdeRR's SMTP config.
-SMTP_HOST     = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER     = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-REPORT_EMAIL  = os.getenv("REPORT_EMAIL", "")
+def load_ledger(path: Path) -> set[str]:
+    if path.exists():
+        try:
+            return set(json.loads(path.read_text(encoding="utf-8")))
+        except Exception:
+            return set()
+    return set()
 
 
-# ── Data layer ───────────────────────────────────────────────────────────────
-
-def fetch_pending(db, business_date: str | None):
-    """Pending invoices (optionally for one business_date), with the data the
-    Vasy voucher needs: buyer name, party details, and line items."""
-    q = select(Invoice).where(Invoice.vasy_status == "pending")
-    if business_date:
-        q = q.where(Invoice.business_date == business_date)
-    q = q.order_by(Invoice.invoice_number)
-    invoices = db.scalars(q).all()
-
-    payloads = []
-    for inv in invoices:
-        order = db.scalar(select(Order).where(Order.id == inv.order_id))
-        hotel_name = (order.customer_name if order else None) or inv.customer_phone
-        cust = db.scalar(select(Customer).where(Customer.phone_number == inv.customer_phone))
-        items = [
-            {
-                "product":   it.product,
-                "item_code": _product_info(it.product)[0],
-                "erp_name":  _product_info(it.product)[1],
-                "qty":       float(it.quantity),
-                "unit":      it.unit,
-                "rate":      float(it.rate_used),
-                "amount":    float(it.amount),
-            }
-            for it in inv.items
-        ]
-        payloads.append({
-            "invoice": inv,
-            "invoice_number": inv.invoice_number,
-            "business_date":  str(inv.business_date),
-            "buyer_name":     hotel_name,
-            "buyer_phone":    _buyer_phone(inv.customer_phone),
-            "party": {
-                "name":    (cust.restaurant_name if cust else hotel_name),
-                "phone":   (cust.phone_number if cust else inv.customer_phone),
-                "address": (cust.address if cust else "") or "",
-                "city":    (cust.city if cust else "") or "",
-            } if cust else None,
-            "total": float(inv.total),
-            "items": items,
-        })
-    return payloads
+def save_ledger(path: Path, done: set[str]) -> None:
+    path.write_text(json.dumps(sorted(done), indent=1), encoding="utf-8")
 
 
-def mark(db, invoice: Invoice, status: str, voucher_no: str | None = None, error: str | None = None):
-    invoice.vasy_status = status
-    invoice.vasy_voucher_no = voucher_no
-    invoice.vasy_error = (error or "")[:1000] or None
-    invoice.vasy_pushed_at = datetime.now(IST)
-    db.commit()
+# ── Read the invoices you supply ─────────────────────────────────────────────
+
+def load_invoices(invoices_path: Path) -> list[dict]:
+    """
+    Turn the invoices you hand the bot into a list of dicts:
+        {invoice_number, date, party_name, party_phone, total,
+         items: [{code, name, qty, unit, rate, amount}, ...]}
+
+    TODO(phase-1): implement the parser for the agreed input format
+    (folder of generated invoice PDFs, or a CSV/Excel you provide). Kept as a
+    single seam so the rest of the bot doesn't care what the source is.
+    """
+    if not invoices_path.exists():
+        raise FileNotFoundError(f"--invoices path not found: {invoices_path}")
+    # Enumerate what's there so a dry-run is useful even before parsing is wired.
+    if invoices_path.is_dir():
+        files = sorted(p for p in invoices_path.glob("*.pdf"))
+    else:
+        files = [invoices_path]
+    print(f"Found {len(files)} invoice file(s) in {invoices_path}")
+    sys.exit(
+        "\nParser not wired yet (Phase 1). Confirm how invoices will be supplied "
+        "(folder of generated PDFs, or a CSV/Excel) and send one sample — then "
+        "load_invoices() gets finalised and this bot is ready to run."
+    )
 
 
 # ── Vasy web automation (Playwright) ─────────────────────────────────────────
 
-def ensure_logged_in(context):
-    """Reuse a saved session if valid, otherwise log in and persist it."""
+def ensure_logged_in(context, url: str, username: str, password: str, session_file: str):
     page = context.new_page()
-    page.goto(VASY_HOME_URL or VASY_URL, wait_until="domcontentloaded")
-
-    # Heuristic: if we can see a password field / the URL says login, we're out.
-    logged_out = "login" in page.url.lower() or page.locator(SEL_PASSWORD).count() > 0
-    if not logged_out:
-        return page
-
-    # TODO(phase-1): confirm these selectors + the submit/redirect flow against
-    # the real Vasy login page (from the screen recording).
-    if not (VASY_URL and VASY_USERNAME and VASY_PASSWORD):
-        raise RuntimeError("VASY_URL / VASY_USERNAME / VASY_PASSWORD must be set in .env")
-    page.goto(VASY_URL, wait_until="domcontentloaded")
-    page.locator(SEL_USERNAME).first.fill(VASY_USERNAME)
-    page.locator(SEL_PASSWORD).first.fill(VASY_PASSWORD)
-    page.locator(SEL_SUBMIT).first.click()
+    page.goto(url, wait_until="domcontentloaded")
+    if "login" not in page.url.lower() and page.locator("input[type='password']").count() == 0:
+        return page  # already logged in via the reused session
+    # TODO(phase-1): confirm the real login selectors + submit/redirect flow.
+    page.locator("input[type='text'], input[name*='user' i], input[type='email']").first.fill(username)
+    page.locator("input[type='password']").first.fill(password)
+    page.locator("button[type='submit'], button:has-text('Login'), input[type='submit']").first.click()
     page.wait_for_load_state("networkidle")
     if "login" in page.url.lower():
-        raise RuntimeError("Vasy login appears to have failed (still on a login URL).")
-    context.storage_state(path=VASY_SESSION_FILE)   # persist session for next run
+        raise RuntimeError("Vasy login failed (still on a login URL). Check credentials/selectors.")
+    context.storage_state(path=session_file)
     return page
 
 
-def post_invoice_to_vasy(page, payload: dict, dry_run: bool) -> str | None:
-    """
-    Create ONE sales voucher in Vasy and return its voucher number.
-
-    Phase 0: form-filling is not wired yet. In dry-run we only report what we
-    WOULD enter; in live mode we refuse rather than guess at the form.
-    """
+def post_invoice_to_vasy(page, inv: dict, dry_run: bool) -> str | None:
+    """Create ONE sales voucher in Vasy; return its voucher number."""
     if dry_run:
-        it = ", ".join(f"{i['item_code']} {i['qty']}{i['unit']}@{i['rate']}" for i in payload["items"])
-        print(f"   [dry-run] {payload['invoice_number']}  {payload['buyer_name']}  "
-              f"₹{payload['total']:.2f}  [{it}]")
+        items = ", ".join(f"{i.get('code','?')} {i.get('qty')}{i.get('unit','')}@{i.get('rate')}" for i in inv["items"])
+        print(f"   [dry-run] {inv['invoice_number']}  {inv.get('party_name')}  ₹{inv.get('total')}  [{items}]")
         return None
-    # TODO(phase-1): navigate to New Sales Invoice → fill party (create if
-    # missing) → add each line (item_code, qty, rate) → Save → read back the
-    # voucher number. Wire this from the screen recording.
-    raise NotImplementedError(
-        "Vasy sales-invoice form-filling is not wired yet (Phase 1). "
-        "Run with --dry-run, or provide the invoice-entry screen recording."
-    )
-
-
-# ── Reconciliation email ─────────────────────────────────────────────────────
-
-def send_report(subject: str, body: str):
-    if not (SMTP_USER and SMTP_PASSWORD and REPORT_EMAIL):
-        print("   (reconciliation email skipped — SMTP/REPORT_EMAIL not configured)")
-        return
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = SMTP_USER
-    msg["To"] = REPORT_EMAIL
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as s:
-            s.starttls()
-            s.login(SMTP_USER, SMTP_PASSWORD)
-            s.sendmail(SMTP_USER, [e.strip() for e in REPORT_EMAIL.split(",")], msg.as_string())
-        print("   reconciliation email sent")
-    except Exception as e:
-        print(f"   reconciliation email FAILED: {e}")
+    # TODO(phase-1): new sales invoice → party (create if missing) → line items
+    # → save → read back voucher number. Wire from the screen recording.
+    raise NotImplementedError("Vasy form-filling not wired yet (Phase 1). Use --dry-run.")
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
 
-def run(dry_run: bool, business_date: str | None, headed: bool, limit: int | None):
-    db = SessionLocal()
-    try:
-        payloads = fetch_pending(db, business_date)
-        if limit:
-            payloads = payloads[:limit]
-        scope = f"for {business_date}" if business_date else "(all dates)"
-        print(f"Vasy sync {scope} — {len(payloads)} pending invoice(s). "
-              f"{'DRY-RUN' if dry_run else 'LIVE'}.")
-        if not payloads:
-            send_report("Vasy sync: nothing to push", "No pending invoices.")
-            return
+def run(args):
+    url      = args.url      or os.getenv("VASY_URL", "")
+    username = args.user     or os.getenv("VASY_USERNAME", "")
+    password = args.password or os.getenv("VASY_PASSWORD", "")
+    dry_run  = not args.live
 
-        results = {"posted": [], "failed": [], "dry": 0}
+    invoices_path = Path(args.invoices).expanduser().resolve()
+    ledger_path   = Path(args.ledger).expanduser().resolve()
+    session_file  = str(Path(args.session).expanduser().resolve())
 
-        from playwright.sync_api import sync_playwright  # local import (office PC only)
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=not headed)
-            ctx_kwargs = {}
-            if os.path.exists(VASY_SESSION_FILE):
-                ctx_kwargs["storage_state"] = VASY_SESSION_FILE
-            context = browser.new_context(**ctx_kwargs)
-            page = ensure_logged_in(context)
-            print("Logged in to Vasy ✓")
+    invoices = load_invoices(invoices_path)          # raises until Phase 1 parser is wired
+    done = load_ledger(ledger_path)
+    pending = [i for i in invoices if i["invoice_number"] not in done]
+    if args.limit:
+        pending = pending[: args.limit]
 
-            for p in payloads:
-                try:
-                    voucher = post_invoice_to_vasy(page, p, dry_run)
-                    if dry_run:
-                        results["dry"] += 1
-                    else:
-                        mark(db, p["invoice"], "posted", voucher_no=voucher)
-                        results["posted"].append(f"{p['invoice_number']} → {voucher}")
-                        print(f"   posted {p['invoice_number']} → {voucher}")
-                except Exception as e:
-                    if not dry_run:
-                        mark(db, p["invoice"], "failed", error=str(e))
-                    results["failed"].append(f"{p['invoice_number']}: {e}")
-                    print(f"   FAILED {p['invoice_number']}: {e}")
+    print(f"{len(invoices)} invoice(s) supplied, {len(done)} already pushed, "
+          f"{len(pending)} to process. {'DRY-RUN' if dry_run else 'LIVE'}.")
+    if not pending:
+        return
 
-            context.close()
-            browser.close()
+    if not dry_run and not (url and username and password):
+        sys.exit("Vasy URL/username/password required for --live (flags or VASY_* env).")
 
-        total = float(sum(p["total"] for p in payloads))
-        lines = [
-            f"Vasy sync {scope} — {'DRY-RUN' if dry_run else 'LIVE'}",
-            f"Pending processed : {len(payloads)}  (₹{total:,.2f})",
-            f"Posted            : {len(results['posted'])}",
-            f"Failed            : {len(results['failed'])}",
-        ]
-        if results["failed"]:
-            lines += ["", "FAILURES:"] + [f"  - {f}" for f in results["failed"]]
-        body = "\n".join(lines)
-        print("\n" + body)
-        send_report(
-            f"Vasy sync: {len(results['posted'])} posted, {len(results['failed'])} failed",
-            body,
-        )
-    finally:
-        db.close()
+    from playwright.sync_api import sync_playwright  # office-PC only
+    posted, failed = [], []
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=not args.headed)
+        ctx = browser.new_context(storage_state=session_file) if os.path.exists(session_file) else browser.new_context()
+        page = ensure_logged_in(ctx, url, username, password, session_file)
+        print("Logged in to Vasy ✓")
+        for inv in pending:
+            try:
+                voucher = post_invoice_to_vasy(page, inv, dry_run)
+                if not dry_run:
+                    done.add(inv["invoice_number"])
+                    save_ledger(ledger_path, done)     # persist after each success
+                    posted.append(f"{inv['invoice_number']} → {voucher}")
+                    print(f"   posted {inv['invoice_number']} → {voucher}")
+            except Exception as e:
+                failed.append(f"{inv['invoice_number']}: {e}")
+                print(f"   FAILED {inv['invoice_number']}: {e}")
+        ctx.close(); browser.close()
+
+    print(f"\nDone. posted={len(posted)} failed={len(failed)}")
+    for f in failed:
+        print(f"  - {f}")
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Push OrdeRR invoices into Vasy ERP.")
-    ap.add_argument("--live", action="store_true", help="actually create vouchers (default: dry-run)")
-    ap.add_argument("--date", help="only this business_date (YYYY-MM-DD); default: all pending")
-    ap.add_argument("--headed", action="store_true", help="show the browser window")
-    ap.add_argument("--limit", type=int, help="cap number of invoices (testing)")
-    args = ap.parse_args()
-    run(dry_run=not args.live, business_date=args.date, headed=args.headed, limit=args.limit)
+    ap = argparse.ArgumentParser(description="Type generated invoices into Vasy ERP.")
+    ap.add_argument("--invoices", required=True, help="folder/file of invoices to push")
+    ap.add_argument("--user",     help="Vasy username (or VASY_USERNAME env)")
+    ap.add_argument("--password", help="Vasy password (or VASY_PASSWORD env)")
+    ap.add_argument("--url",      help="Vasy login URL (or VASY_URL env)")
+    ap.add_argument("--ledger",   default="tools/pushed_invoices.json", help="local already-pushed ledger")
+    ap.add_argument("--session",  default="tools/.vasy_session.json", help="saved browser session")
+    ap.add_argument("--live",     action="store_true", help="actually create vouchers (default: dry-run)")
+    ap.add_argument("--headed",   action="store_true", help="show the browser window")
+    ap.add_argument("--limit",    type=int, help="cap number of invoices (testing)")
+    run(ap.parse_args())
 
 
 if __name__ == "__main__":

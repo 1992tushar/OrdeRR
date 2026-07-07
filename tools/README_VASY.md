@@ -1,73 +1,57 @@
-# Vasy ERP sync bot
+# Vasy ERP sync bot (standalone)
 
-Re-creates OrdeRR invoices in **Vasy ERP** (which has no import/API) by driving
-the Vasy **web** app with Playwright. Reads invoices marked `vasy_status='pending'`,
-creates each as a sales voucher, writes Vasy's voucher number back (so re-runs
-never double-post), and emails a reconciliation report.
+Types your **already-generated** invoices into **Vasy ERP** (which has no
+import/API) by driving the Vasy web app with Playwright.
 
-## Where it runs
+It is completely self-contained: it does **not** import OrdeRR, use its
+database, or write anything back into the app. You give it the invoices and your
+Vasy login — that's all. It keeps its own local "already pushed" file so
+re-running never double-posts.
 
-On an **always-on office PC**, on a schedule — **not** on Render. It needs a
-real browser and your normal office IP, and it connects to the **same database**
-OrdeRR uses (point `DATABASE_URL` at the production Postgres).
+Runs on an **office PC** (needs a real browser + your normal office IP).
 
-## One-time setup (office PC)
-
-1. Install Python 3.12+, then from the repo root:
-   ```
-   pip install -r tools/requirements-vasy.txt
-   python -m playwright install chromium
-   ```
-2. Create a `.env` in the repo root (it is git-ignored):
-   ```
-   # same production DB OrdeRR uses
-   DATABASE_URL=postgresql://<prod-connection-string>
-
-   # Vasy login
-   VASY_URL=https://<your-vasy-login-url>
-   VASY_HOME_URL=https://<a-page-you-see-after-login>
-   VASY_USERNAME=<vasy user>
-   VASY_PASSWORD=<vasy pass>
-
-   # reconciliation email (reuses OrdeRR's SMTP)
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_USER=officeoffluffy@gmail.com
-   SMTP_PASSWORD=<gmail app password>
-   REPORT_EMAIL=officeoffluffy@gmail.com
-   ```
-
-## Running
+## Setup (once)
 
 ```
-python tools/vasy_sync.py                 # DRY-RUN: log in + list what it WOULD post
-python tools/vasy_sync.py --headed        # same, but watch the browser
-python tools/vasy_sync.py --date 2026-07-07 --headed
-python tools/vasy_sync.py --live          # actually create vouchers (Phase 1+)
+pip install -r tools/requirements-vasy.txt
+python -m playwright install chromium
 ```
 
-Start with a **dry-run** — it validates DB access, the Vasy login, and session
-reuse without writing anything to Vasy.
+## Run
+
+```
+# dry-run: lists what it would push, touches nothing
+python tools/vasy_sync.py --invoices ./invoices
+
+# actually create the vouchers in Vasy
+python tools/vasy_sync.py --invoices ./invoices --live --headed
+```
+
+Credentials via flags or environment variables:
+
+```
+--user / --password / --url
+VASY_USERNAME / VASY_PASSWORD / VASY_URL
+```
+
+Local state files (git-ignored, live only on this PC):
+- `tools/pushed_invoices.json` — the already-pushed ledger (idempotency)
+- `tools/.vasy_session.json` — the saved Vasy browser session
 
 ## Nightly schedule (Windows Task Scheduler)
 
-Create a Basic Task → trigger *Daily* at your post-closure time (e.g. 23:30) →
-Action *Start a program*:
+Basic Task → Daily at your post-closure time → *Start a program*:
 - Program: `python`
-- Arguments: `tools\vasy_sync.py --live`
+- Arguments: `tools\vasy_sync.py --invoices C:\path\to\invoices --live`
 - Start in: the repo folder
 
 Run it **attended** for a few nights before trusting it unattended.
 
 ## Status
 
-- ✅ DB pull, session reuse, idempotent write-back, reconciliation email — done.
-- ⏳ **Vasy login selectors** and **sales-invoice form-filling** — stubbed
-  (`# TODO(phase-1)` in `vasy_sync.py`). These get wired from a screen recording
-  of one invoice being entered in Vasy. Until then, `--live` refuses to guess at
-  the form; `--dry-run` works.
-
-## Security
-
-Vasy credentials and the saved session (`tools/.vasy_session.json`) live only on
-this PC and are git-ignored. Never commit `.env` or the session file.
+Plumbing (invoices folder, pushed-ledger, login + session reuse, per-invoice
+loop, summary) is done. Two pieces are `# TODO(phase-1)`:
+- **the invoice parser** (`load_invoices`) — finalised once the input format is
+  confirmed (folder of generated PDFs, or a CSV/Excel);
+- **the Vasy login selectors + sales-invoice form-filling** — wired from a screen
+  recording of one invoice being entered in Vasy.

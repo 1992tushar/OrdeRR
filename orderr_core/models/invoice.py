@@ -32,21 +32,6 @@ class Invoice(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    # ── Vasy ERP sync (external manual-billing bridge) ──────────────────────
-    # The nightly Vasy bot (tools/vasy_sync.py) reads invoices where
-    # vasy_status='pending' and re-creates them in Vasy ERP, then writes the
-    # Vasy voucher number back here so a re-run never double-posts.
-    #   pending → not yet pushed | posted → created in Vasy (vasy_voucher_no set)
-    #   failed  → attempted, errored (vasy_error set) | skipped → deliberately not pushed
-    vasy_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="pending", server_default="pending"
-    )
-    vasy_voucher_no: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    vasy_error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    vasy_pushed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-
     items: Mapped[list["InvoiceItem"]] = relationship(
         "InvoiceItem", back_populates="invoice", cascade="all, delete-orphan"
     )
