@@ -43,9 +43,28 @@ load_dotenv()
 
 from sqlalchemy import select
 from orderr_core.database import SessionLocal
-from orderr_core.models.invoice import Invoice
-from orderr_core.models.order import Order
+
+# Register the FULL ORM model registry. Querying any mapped class configures all
+# mappers, so every model referenced by a relationship (e.g. Customer→Salesperson)
+# must be imported first — otherwise SQLAlchemy can't resolve the name. This
+# mirrors the import block in orderr_core/main.py.
+from orderr_core.models.salesperson import Salesperson              # noqa: F401
 from orderr_core.models.customer import Customer
+from orderr_core.models.order import Order
+from orderr_core.models.invoice import Invoice, InvoiceItem         # noqa: F401
+from orderr_core.models.inbound_message import InboundMessage       # noqa: F401
+from orderr_core.models.customer_product_alias import CustomerProductAlias    # noqa: F401
+from orderr_core.models.customer_product_stats import CustomerProductStats    # noqa: F401
+from orderr_core.models.daily_rate import DailyRate                 # noqa: F401
+from orderr_core.models.rate_override import CustomerRateOverride   # noqa: F401
+from orderr_core.models.actuals import OrderItemActual              # noqa: F401
+from orderr_core.models.rate_unclear import RateUnclearItem         # noqa: F401
+from orderr_core.models.ocr_unmatched import OcrUnmatchedLine       # noqa: F401
+from orderr_core.models.employee import Employee                    # noqa: F401
+from orderr_core.models.advance import Advance                      # noqa: F401
+from orderr_core.models.advance_repayment import AdvanceRepayment   # noqa: F401
+from orderr_core.models.leave import Leave                          # noqa: F401
+
 from orderr_core.services.invoice_pdf import _product_info, _buyer_phone
 
 IST = timezone(timedelta(hours=5, minutes=30))
