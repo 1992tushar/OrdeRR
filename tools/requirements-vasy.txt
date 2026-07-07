@@ -1,0 +1,7 @@
+# Dependencies for the Vasy sync bot (runs on the office PC, NOT on Render).
+# Installs OrdeRR's own deps (so orderr_core imports work) plus Playwright.
+#
+#   pip install -r tools/requirements-vasy.txt
+#   python -m playwright install chromium
+-r ../requirements.txt
+playwright==1.48.0

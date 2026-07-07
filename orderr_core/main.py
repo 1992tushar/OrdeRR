@@ -185,6 +185,40 @@ def _ensure_customer_outstanding_and_nullable_phone():
 
 _ensure_customer_outstanding_and_nullable_phone()
 
+
+def _ensure_invoice_vasy_columns():
+    """
+    Lightweight migration: add the Vasy-ERP sync columns to `invoices` so the
+    nightly Vasy bot can mark what it has pushed (idempotency). create_all()
+    won't alter an existing table, so add them explicitly. Idempotent; safe on
+    both SQLite (local) and PostgreSQL (prod).
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "invoices" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the current schema
+
+    cols = {c["name"] for c in insp.get_columns("invoices")}
+    ts_type = "TIMESTAMPTZ" if engine.dialect.name == "postgresql" else "DATETIME"
+    additions = [
+        ("vasy_status",     "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
+        ("vasy_voucher_no", "VARCHAR(50)"),
+        ("vasy_error",      "TEXT"),
+        ("vasy_pushed_at",  ts_type),
+    ]
+    added = []
+    with engine.begin() as conn:
+        for name, ddl in additions:
+            if name not in cols:
+                conn.execute(text(f"ALTER TABLE invoices ADD COLUMN {name} {ddl}"))
+                added.append(name)
+    if added:
+        print(f"✅ Migration: added invoices columns {added}")
+
+
+_ensure_invoice_vasy_columns()
+
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # Track last report time for health check

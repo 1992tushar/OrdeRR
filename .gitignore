@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 orderr.db
 backups/
+tools/.vasy_session.json
 repomix-output.xml
 check_db.py
 orderr_core.egg-info/

@@ -767,7 +767,8 @@ def api_invoices_all(db: Session = Depends(get_db)):
                 i.business_date,
                 i.customer_phone,
                 i.total,
-                o.customer_name AS hotel_name
+                o.customer_name AS hotel_name,
+                i.vasy_status
             FROM invoices i
             LEFT JOIN orders o ON o.id = i.order_id
             ORDER BY i.business_date DESC, i.invoice_number DESC
@@ -782,6 +783,7 @@ def api_invoices_all(db: Session = Depends(get_db)):
                 "customer_phone": r[2],
                 "total":          float(r[3]),
                 "hotel_name":     r[4],
+                "vasy_status":    r[5] or "pending",
             }
             for r in rows
         ]
