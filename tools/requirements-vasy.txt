@@ -1,7 +1,0 @@
-# Dependencies for the standalone Vasy sync bot (runs on the office PC).
-# It does NOT depend on OrdeRR — just a browser driver (and, once the input
-# format is confirmed, a PDF/CSV parser will be added here).
-#
-#   pip install -r tools/requirements-vasy.txt
-#   python -m playwright install chromium
-playwright==1.48.0
