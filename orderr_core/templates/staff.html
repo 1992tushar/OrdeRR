@@ -57,7 +57,19 @@ tbody tr:hover { background: var(--brass-soft); }
 .toast.show { opacity: 1; transform: translateY(0); }
 .form-actions { display: flex; gap: 10px; margin-top: 4px; }
 .label { font-size: 11px; text-transform: uppercase; color: #8a8f98; }
-@media (max-width: 640px) { .topbar { flex-direction: column; align-items: flex-start; } .tabs { width: 100%; overflow-x: auto; } }
+@media (max-width: 640px) {
+  .app { padding: 0 12px 48px; }
+  .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .tabs { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { white-space: nowrap; }
+  .brand-text h1 { font-size: 21px; }
+  .card { padding: 16px 14px; }
+  main { padding-top: 20px; }
+  /* Wide multi-column tables scroll horizontally within their card instead of
+     overflowing the page. Single-column / detail tables are untouched. */
+  .data-tbl { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+}
 </style>
 </head>
 <body>
@@ -327,7 +339,7 @@ async function renderEmployees() {
     <div class="card">
       <h2><span class="eyebrow">Roster</span> Employees</h2>
       ${employeesCache.length === 0 ? `<div class="empty">No employees yet — add the first one above.</div>` : `
-      <table>
+      <table class="data-tbl">
         <thead><tr><th>Name</th><th>Phone</th><th class="num">Salary</th><th></th></tr></thead>
         <tbody>
           ${employeesCache.map(e => `
@@ -398,7 +410,7 @@ async function renderAdvances() {
     ${empSummary.length ? `
     <div class="card">
       <h2><span class="eyebrow">Summary</span> Outstanding by employee</h2>
-      <table>
+      <table class="data-tbl">
         <thead><tr><th>Employee</th><th class="num">Total advanced</th><th class="num">Recovered</th><th class="num">Outstanding</th></tr></thead>
         <tbody>
           ${empSummary.map(s => `
@@ -414,7 +426,7 @@ async function renderAdvances() {
     <div class="card">
       <h2><span class="eyebrow">Ledger</span> All advances</h2>
       ${advances.length === 0 ? `<div class="empty">No advances recorded yet.</div>` : `
-      <table>
+      <table class="data-tbl">
         <thead><tr><th>Date</th><th>Employee</th><th>Reason</th><th class="num">Amount</th><th class="num">Repaid</th><th class="num">Outstanding</th><th></th></tr></thead>
         <tbody>
           ${advances.map(a => {
@@ -511,7 +523,7 @@ async function renderLeaves() {
     <div class="card">
       <h2><span class="eyebrow">Register</span> Leave &amp; half-day entries</h2>
       ${leaves.length === 0 ? `<div class="empty">No leave or half-day entries yet.</div>` : `
-      <table>
+      <table class="data-tbl">
         <thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Reason</th><th></th></tr></thead>
         <tbody>
           ${leaves.map(l => `

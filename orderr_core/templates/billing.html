@@ -179,11 +179,21 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 @media(max-width:600px){
-  .stat-row{grid-template-columns:repeat(3,1fr)}
+  .stat-row{grid-template-columns:repeat(2,1fr);gap:8px}
   main{padding:16px 12px 80px}
-  .nav-tab .tab-label{display:none}
+  /* Nav bar: hide the logo, let the tab row scroll instead of overflowing */
+  .nav{padding:0 10px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav-logo{display:none}
+  .nav-back{margin-right:8px}
+  .nav-tab{padding:0 11px;white-space:nowrap}
+  .card-body{padding:14px}
   .hist-toolbar{flex-direction:column;align-items:stretch}
-  .attn-actions{flex-direction:column;gap:4px}
+  .attn-banner{flex-direction:column;align-items:flex-start}
+  .attn-actions{margin-left:0;flex-direction:column;gap:4px;align-self:stretch}
+  /* Wide tables scroll horizontally within their card rather than clipping
+     (the card is overflow:hidden) or forcing the whole page to scroll sideways. */
+  .items-tbl,.rates-tbl,.hist-tbl,.pending-items table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap}
 }
 </style>
 </head>
