@@ -161,6 +161,36 @@ def _uom(unit: str) -> str:
     return {"kg": "KGS", "kgs": "KGS", "nos": "NOS", "no": "NOS"}.get(u, (unit or "").upper())
 
 
+# ── ERP product master → (item code, full ERP description) ────────────────────
+# Source: "Fluffy Fresh Foods Private Limited" product-list export. Keys are
+# OrdeRR's canonical product names (lower-cased). Unmapped products fall back to
+# the placeholder code + OrdeRR's own name, so nothing breaks.
+PRODUCT_MAP = {
+    "w/o skin tandoor chicken": ("CH1024558", "Without Skin whole chicken Tandoor"),
+    "w/o skin regular chicken": ("CH1024559", "Without Skin whole chicken Regular"),
+    "ws regular chicken":       ("CH1024561", "With Skin whole chicken Regular"),
+    "curry cut":                ("CH1024563", "Chicken Curry Cut Without Skin"),
+    "biryani cut":              ("CH1024576", "Chicken Biryani Cut"),
+    "drumstick":                ("CH1024573", "Chicken Drumstick"),
+    "whole leg":                ("CH1024572", "Chicken Whole Leg"),
+    "liver":                    ("CH1024570", "Chicken Liver"),
+    "gizzard":                  ("CH1024569", "Chicken Gizzard"),
+    "kheema":                   ("CH1024571", "Chicken Kheema"),
+    "breast boneless":          ("CH1024574", "Chicken Breast boneless"),
+    "chicken breast":           ("CH1024574", "Chicken Breast boneless"),
+    "leg boneless":             ("CH1024557", "Chicken Leg Boneless"),
+    "wings":                    ("CH1024575", "Chicken Wings with Skin"),
+    "carcass":                  ("CH1024567", "Chicken Carcass"),
+}
+
+
+def _product_info(product: str) -> tuple[str, str]:
+    """Return (item_code, description) for a product — ERP values when mapped,
+    otherwise the placeholder code and OrdeRR's own name."""
+    info = PRODUCT_MAP.get((product or "").strip().lower())
+    return info if info else (ITEM_CODE, product)
+
+
 def _barcode_bytes(text: str) -> io.BytesIO:
     writer = ImageWriter()
     code = barcode_lib.get("code128", text, writer=writer)
@@ -349,11 +379,12 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | Non
             c.rect(ML - 2*mm, y - ROW_H, CW + 4*mm, ROW_H, fill=1, stroke=0)
             c.setFillColor(colors.black)
 
+        item_code, description = _product_info(item.product)
         c.setFont("Helvetica", 7.5)
         for col_idx, text in enumerate([
             str(idx),            # #
-            item.product,        # Description
-            ITEM_CODE,           # Itemcode
+            description,         # Description (full ERP name when mapped)
+            item_code,           # Itemcode    (real ERP code when mapped)
             _fmt(qty, 3),        # Qty
             _uom(item.unit),     # UOM  (KGS / NOS)
             _fmt(rate, 2),       # Unit Price
