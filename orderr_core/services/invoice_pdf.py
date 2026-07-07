@@ -264,10 +264,10 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | Non
             c.drawString(x + 1*mm, row_y, text)
 
     # ── 1. OUTER BORDER ───────────────────────────────────────────────────────
-    border_bot = 8*mm
+    # Top edge is fixed; the bottom is drawn in §7 once the content height is
+    # known, so the border wraps the content (compact, like the ERP) instead of
+    # boxing in the whole empty page.
     border_top = PAGE_H - 8*mm
-    c.setLineWidth(1.0)
-    c.rect(ML - 2*mm, border_bot, CW + 4*mm, border_top - border_bot)
 
     # ── 2. HEADER ─────────────────────────────────────────────────────────────
     # NOTE: must clear border_top (PAGE_H - 8mm) by more than the 14pt bold
@@ -482,9 +482,17 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | Non
     c.line(right_center - 22*mm, line_y, right_center + 22*mm, line_y)
     c.setFont("Helvetica", 8)
     c.drawCentredString(right_center, line_y - 4*mm, "Authorised Signatory")
+    sign_bottom = line_y - 4*mm
 
-    # ── 7. FOOTER ─────────────────────────────────────────────────────────────
-    footer_y = border_bot + 3*mm
+    # ── 7. FOOTER + compact outer border ──────────────────────────────────────
+    # Footer sits just below the signature; the outer border is closed here so
+    # it wraps the content rather than the whole page (no large empty box).
+    footer_y   = sign_bottom - 10*mm
+    border_bot = footer_y - 4*mm
+
+    c.setLineWidth(1.0)
+    c.rect(ML - 2*mm, border_bot, CW + 4*mm, border_top - border_bot)
+
     hline(footer_y + 4*mm, lw=0.4)
     c.setFont("Helvetica", 7)
     c.drawString(ML, footer_y, "This is a computer generated invoice.")
