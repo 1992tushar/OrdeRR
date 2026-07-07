@@ -543,14 +543,20 @@ def _build_hotel_record(db: Session, hotel_name: str, order_id: int) -> dict:
 
     has_needs_review = any(i["needs_review"] for i in items_out)
     has_unmatched     = len(unmatched_lines) > 0
+    any_actual_null   = any(i["actual_qty"] is None for i in items_out)
     all_actuals_null  = len(items_out) == 0 or all(i["actual_qty"] is None for i in items_out)
 
     if existing_invoice:
         status = "invoiced"
     elif all_actuals_null:
-        # Order exists, items seeded, but no delivery (photo) confirmation yet.
+        # Order exists, items seeded, but no delivery confirmation yet.
         status = "pending"
-    elif has_needs_review or has_unmatched:
+    elif has_needs_review or has_unmatched or any_actual_null:
+        # Partially confirmed counts as "needs attention", not "clear". Items
+        # seeded from orderr_core start with actual_qty=NULL and confidence=NULL
+        # (so they never trip needs_review); confirming ONE item must NOT flip
+        # the whole hotel to Ready while the rest have no delivered quantity —
+        # otherwise generate_invoice bills their ordered qty as if delivered.
         status = "unclear"
     else:
         status = "clear"
@@ -639,6 +645,49 @@ async def api_fix_item(request: Request, db: Session = Depends(get_db)):
     actual.confirmed_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# confirm-items — confirm every delivered quantity for one order in a single
+# atomic write. Backs the one-button-per-hotel flow: validate the whole batch
+# first, then apply, so a bad row never leaves the order half-confirmed.
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/confirm-items")
+async def api_confirm_items(request: Request, db: Session = Depends(get_db)):
+    body         = await request.json()
+    confirmed_by = (body.get("confirmed_by") or "plant_manager").strip()
+    items        = body.get("items") or []
+
+    if not items:
+        return JSONResponse(status_code=400, content={"error": "No items to confirm"})
+
+    # Pass 1: resolve + validate everything before touching any row.
+    resolved: list[tuple[OrderItemActual, Decimal]] = []
+    for entry in items:
+        actual_id = entry.get("actual_id")
+        actual    = db.get(OrderItemActual, actual_id)
+        if not actual:
+            return JSONResponse(status_code=404, content={"error": f"Item {actual_id} not found"})
+        try:
+            qty = Decimal(str(entry.get("actual_qty")))
+        except Exception:
+            return JSONResponse(status_code=400, content={"error": f"Invalid quantity for {actual.product}"})
+        if qty <= 0:
+            return JSONResponse(status_code=400, content={"error": f"Quantity for {actual.product} must be greater than 0"})
+        resolved.append((actual, qty))
+
+    # Pass 2: apply.
+    now = datetime.now(timezone.utc)
+    for actual, qty in resolved:
+        actual.actual_quantity = qty
+        actual.actual_unit     = actual.actual_unit or actual.ordered_unit
+        actual.confidence      = "auto"
+        actual.confirmed_by    = confirmed_by
+        actual.confirmed_at    = now
+
+    db.commit()
+    return {"ok": True, "confirmed": [a.id for a, _ in resolved]}
 
 
 # ---------------------------------------------------------------------------

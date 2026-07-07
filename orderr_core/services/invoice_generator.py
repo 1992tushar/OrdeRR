@@ -107,6 +107,21 @@ def generate_invoice(
             "Resolve in the Unclear Actuals queue before billing."
         )
 
+    # ── 2b. Hold: delivered quantity never confirmed ────────────────────────
+    # actual_quantity stays NULL until someone confirms what was physically
+    # delivered. Items seeded from orderr_core don't trip the needs_review
+    # check above (their confidence is NULL, not 'needs_review'), so this is
+    # the guard that stops an order being billed when only SOME items were
+    # confirmed. Billing the ordered quantity as if delivered silently
+    # over/under-bills whenever delivery differs from the order.
+    missing_actual = [a for a in actuals if a.actual_quantity is None]
+    if missing_actual:
+        products = ", ".join(a.product for a in missing_actual)
+        raise InvoiceHoldError(
+            f"Cannot generate invoice: delivered quantity not confirmed for [{products}]. "
+            "Enter the delivered quantity for every item before billing."
+        )
+
     # ── 3. Hold: unclear rates ──────────────────────────────────────────────
     # Check whether any product in this order has an unresolved entry in the
     # rate_unclear_queue. The queue uses resolved_product (nullable) to store
@@ -134,7 +149,10 @@ def generate_invoice(
     subtotal = Decimal("0")
 
     for actual in actuals:
-        qty = Decimal(str(actual.actual_quantity or actual.ordered_quantity))
+        # Guaranteed non-null by the hold above. Use it directly rather than
+        # `actual_quantity or ordered_quantity` — the `or` would fall back to
+        # the ordered qty for a legitimate 0-delivered item.
+        qty = Decimal(str(actual.actual_quantity))
         unit = actual.actual_unit or actual.ordered_unit
 
         rr = get_rate(
