@@ -534,8 +534,9 @@ function toggleCard(orderId){
 
 function buildPendingBody(h){
   // Manual fallback: pending items already have actual_id seeded by the
-  // backend (_ensure_order_seeded), so the same /billing/api/fix-item
-  // endpoint used for "needs review" rows works here too -- no photo required.
+  // backend (_ensure_order_seeded), so the operator can type every delivered
+  // quantity and confirm the whole hotel at once via confirmAllItems -- no
+  // photo required. One Confirm button per hotel, never per item.
   const wrap = document.createElement('div');
   let rows = '';
   (h.items||[]).forEach(it=>{
