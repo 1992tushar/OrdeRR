@@ -57,8 +57,16 @@ SIGNATURE_PATH   = Path("orderr_core/assets/signature.png")
 DUE_AMOUNT_PLACEHOLDER = "0.000"
 
 # ── Page geometry ─────────────────────────────────────────────────────────────
-# A4 = 595.28 × 841.89 pts.  18 mm margins → 174 mm content width.
-PAGE_W, PAGE_H = A4
+# The invoice prints on HALF an A4 sheet (A4 torn across the middle) to save
+# paper: 210 mm wide × 148.5 mm tall (landscape half). Width matches A4, so the
+# 18 mm side margins still give a 174 mm content width.
+#
+# KNOWN LIMITATION: a half-A4 sheet fits ~4-5 line items comfortably; ~6+ items
+# overflow the page and the signature/footer get clipped. There is no multi-page
+# pagination yet (the ERP spills large invoices to a second half-sheet — "Next
+# >>"). Add page-break handling here if invoices with many items become common.
+PAGE_W = A4[0]        # 210 mm
+PAGE_H = A4[1] / 2    # 148.5 mm — half of A4
 ML = 18 * mm
 MR = PAGE_W - 18 * mm
 CW = MR - ML   # exactly 174 mm
@@ -242,7 +250,7 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | Non
     safe_name = hotel_name.strip().replace(" ", "_").replace("/", "-")
     out_path = OUTPUT_DIR / f"{safe_name}_{invoice.invoice_number}.pdf"
 
-    c = canvas.Canvas(str(out_path), pagesize=A4)
+    c = canvas.Canvas(str(out_path), pagesize=(PAGE_W, PAGE_H))
 
     # ── drawing helpers ───────────────────────────────────────────────────────
     def hline(y: float, lw: float = 0.6) -> None:
