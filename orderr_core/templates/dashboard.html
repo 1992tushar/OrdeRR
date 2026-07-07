@@ -832,6 +832,11 @@ let _editCustomerId = null;
 
 // ── Core ────────────────────────────────────────────────────────────────────
 
+// Set when an Unclear-tab action patches orders server-side (resolve / word-qty
+// / qty-ambiguous / noise). The Orders tab is server-rendered, so on returning
+// to it we do a full reload to pick up the newly-parsed items.
+let ordersStale = false;
+
 function onTabClick(name, btn) {
     // If Orders is currently showing a specific (non-today) date, a tab switch
     // should reset back to today with a clean URL, then open the clicked tab —
@@ -845,6 +850,11 @@ function onTabClick(name, btn) {
 }
 
 function switchTab(name, btn) {
+    // Returning to Orders after an unclear resolution → refresh so the
+    // now-parsed items appear (Orders is rendered server-side). Navigate to a
+    // clean Orders URL rather than reload(), so a stray ?tab= doesn't reopen
+    // the previous tab.
+    if (name === 'orders' && ordersStale) { location.href = '/dashboard/'; return; }
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
@@ -1576,6 +1586,7 @@ async function resolveItem(rawText, selectId, btn, customerPhone, scopeSelectId)
             body.customer_phone = customerPhone;
         }
         const data = await api('POST', '/admin/unclear-items/resolve', body);
+        ordersStale = true;
         const scopeLabel = scope === 'global' ? '🌍 global' : '🏪 this customer';
         btn.textContent = `✅ ${data.orders_patched} order${data.orders_patched !== 1 ? 's' : ''} updated`;
         btn.classList.add('done');
@@ -1617,6 +1628,7 @@ async function resolveQtyItem(orderId, product, quantity, customerPhone, rowId) 
             confirmed_unit: unit,
             customer_phone: customerPhone,
         });
+        ordersStale = true;
         btn.textContent = `✅ ${quantity} ${unit}`;
         btn.classList.add('done');
         showToast(`✅ ${product}: confirmed as ${quantity} ${unit}`, 'success');
@@ -1681,6 +1693,7 @@ async function resolveWordQtyItem(orderId, rowId, customerPhone) {
             unit:           unit,
             customer_phone: customerPhone,
         });
+        ordersStale = true;
         btn.textContent = `✅ ${quantity} ${unit} — ${data.retro_patched} past order${data.retro_patched !== 1 ? 's' : ''} updated`;
         btn.classList.add('done');
         showToast(`✅ ${product}: ${quantity} ${unit} added to order (${data.retro_patched} past orders updated)`, 'success');
@@ -1815,6 +1828,7 @@ async function markAsNoise(rawText, btn) {
     btn.textContent = 'Saving…';
     try {
         const data = await api('POST', '/admin/noise-phrases', { raw_text: productName });
+        if (data.orders_patched) ordersStale = true;
         btn.textContent = '🚫 Ignored';
         btn.style.background = '#c53030';
         showToast(
