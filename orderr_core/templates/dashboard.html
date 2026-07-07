@@ -542,14 +542,21 @@
         <div class="card success"><div class="number" id="stat-active">—</div><div class="label">Active</div></div>
         <div class="card warning"><div class="number" id="stat-inactive">—</div><div class="label">Inactive</div></div>
         <div class="card success"><div class="number" id="stat-ordered">—</div><div class="label">Ordered</div></div>
+        <div class="card danger"><div class="number" id="stat-nophone">—</div><div class="label">No Mobile</div></div>
     </div>
     <div class="section">
         <h2>👥 Customers
           <div style="display:flex;gap:8px">
             <button class="section-btn" onclick="openAddCustomerModal()">＋ Add Customer</button>
+            <button class="section-btn" id="import-customers-btn" onclick="document.getElementById('import-customers-file').click()">⬆️ Import Customers</button>
+            <input type="file" id="import-customers-file" accept=".xlsx,.xlsm" style="display:none" onchange="importCustomers(this)"/>
             <button class="section-btn" onclick="loadCustomers()">↻</button>
           </div>
         </h2>
+        <div style="font-size:12px;color:#888;margin:-6px 0 10px">
+            Upload the <strong>Customer Outstanding</strong> Excel export to add/update customers in bulk.
+            Customers with <span style="color:#c62828;font-weight:600">no mobile number</span> are shown in red.
+        </div>
         <div class="customer-search-wrap">
             <span style="font-size:16px;color:#bbb;flex-shrink:0">🔍</span>
             <input class="customer-search-input" id="customer-search-input"
@@ -563,8 +570,8 @@
         <div class="desktop-only">
             <div class="summary-table">
                 <table>
-                    <thead><tr><th>Restaurant</th><th>Phone</th><th>Area</th><th>Salesperson</th><th>Today</th><th>Status</th><th>Actions</th></tr></thead>
-                    <tbody id="customer-tbody"><tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
+                    <thead><tr><th>Restaurant</th><th>Phone</th><th>Outstanding</th><th>Area</th><th>Salesperson</th><th>Today</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody id="customer-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
                 </table>
             </div>
         </div>
@@ -1022,7 +1029,7 @@ async function toggleSP(id,active) {
 // ── Customers ─────────────────────────────────────────────────────────────────
 
 async function loadCustomers() {
-    document.getElementById('customer-tbody').innerHTML='<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
+    document.getElementById('customer-tbody').innerHTML='<tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
     document.getElementById('customer-cards').innerHTML='<div class="empty">Loading...</div>';
     try {
         const data = await api('GET', '/admin/customers');
@@ -1031,7 +1038,7 @@ async function loadCustomers() {
         const term = document.getElementById('customer-search-input')?.value || '';
         if (term.trim()) applyCustomerFilter(term);
     } catch(e) {
-        document.getElementById('customer-tbody').innerHTML='<tr><td colspan="7" style="text-align:center;color:#e67e22;padding:24px">Failed</td></tr>';
+        document.getElementById('customer-tbody').innerHTML='<tr><td colspan="8" style="text-align:center;color:#e67e22;padding:24px">Failed</td></tr>';
         document.getElementById('customer-cards').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';
     }
 }
@@ -1043,13 +1050,53 @@ function renderCustomers(customers) {
     document.getElementById('stat-active').textContent  = customers.filter(c=>c.is_active).length;
     document.getElementById('stat-inactive').textContent= customers.filter(c=>!c.is_active).length;
     document.getElementById('stat-ordered').textContent = customers.filter(c=>c.ordered_today).length;
+    document.getElementById('stat-nophone').textContent = customers.filter(c=>!c.has_phone).length;
     renderCustomerRows(customers);
+}
+
+// Format an outstanding amount as ₹ with thousands separators (Indian-ish grouping).
+function fmtMoney(v) {
+    const n = Number(v || 0);
+    return '₹' + n.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+// Upload the Customer Outstanding .xlsx and bulk import/update customers.
+async function importCustomers(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const btn = document.getElementById('import-customers-btn');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Importing…';
+    try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const resp = await fetch('/admin/customers/import', {method: 'POST', body: fd, credentials: 'include'});
+        if (resp.status === 401) { window.location.reload(); return; }
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(data.detail || `Import failed (HTTP ${resp.status})`);
+        }
+        const s = data.summary || {};
+        showToast(`✅ Imported: ${s.created||0} new, ${s.updated||0} updated, ${s.no_phone||0} without mobile`, 'success');
+        if (s.issues && s.issues.length) {
+            console.warn('Import issues:', s.issues);
+            showToast(`⚠️ ${s.issues.length} row(s) had issues — see console`, 'warning');
+        }
+        await loadCustomers();
+    } catch (e) {
+        showToast('❌ ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+        input.value = '';   // allow re-uploading the same file
+    }
 }
 
 function renderCustomerRows(customers) {
     const tbody = document.getElementById('customer-tbody');
     if (!customers.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';
     } else {
         tbody.innerHTML = customers.map(c => {
             const sp     = c.salesperson_name ? `<span style="font-size:13px">${esc(c.salesperson_name)}</span>` : '<span class="badge unassigned">Unassigned</span>';
@@ -1057,9 +1104,15 @@ function renderCustomerRows(customers) {
             const toggle = c.is_active
                 ? `<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`
                 : `<button class="btn btn-activate"   onclick="setStatus(${c.id},true)">Activate</button>`;
-            return `<tr>
-                <td><strong>${esc(c.restaurant_name||'—')}</strong></td>
-                <td style="font-size:12px;color:#888">${esc(c.phone_number)}</td>
+            const noPhone = !c.has_phone;
+            const phoneCell = noPhone
+                ? '<span style="color:#c62828;font-weight:600">⚠️ No mobile</span>'
+                : `<span style="color:#888">${esc(c.phone_number)}</span>`;
+            const rowStyle = noPhone ? ' style="background:#fff5f5"' : '';
+            return `<tr${rowStyle}>
+                <td><strong style="${noPhone?'color:#c62828':''}">${esc(c.restaurant_name||'—')}</strong></td>
+                <td style="font-size:12px">${phoneCell}</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtMoney(c.outstanding)}</td>
                 <td>${esc(c.area||'')}</td>
                 <td>${sp}</td><td>${today}</td>
                 <td>${c.is_active?'<span class="badge active">Active</span>':'<span class="badge inactive">Inactive</span>'}</td>
@@ -1082,11 +1135,17 @@ function renderCustomerRows(customers) {
         const toggle     = c.is_active
             ? `<button class="btn btn-deactivate" onclick="setStatus(${c.id},false)">Deactivate</button>`
             : `<button class="btn btn-activate"   onclick="setStatus(${c.id},true)">Activate</button>`;
-        return `<div class="mobile-card ${!c.is_active?'inactive':''}">
+        const noPhone   = !c.has_phone;
+        const phoneText = noPhone
+            ? '<span style="color:#c62828;font-weight:600">⚠️ No mobile number</span>'
+            : esc(c.phone_number);
+        const outText   = `💰 ${fmtMoney(c.outstanding)}`;
+        return `<div class="mobile-card ${!c.is_active?'inactive':''}"${noPhone?' style="border-left:4px solid #c62828;background:#fff5f5"':''}>
             <div class="mobile-card-row">
                 <div>
-                    <div class="mobile-card-name">${esc(c.restaurant_name||'—')}</div>
-                    <div class="mobile-card-sub">${esc(c.phone_number)}${c.area?' · '+esc(c.area):''} · ${spText}</div>
+                    <div class="mobile-card-name" style="${noPhone?'color:#c62828':''}">${esc(c.restaurant_name||'—')}</div>
+                    <div class="mobile-card-sub">${phoneText}${c.area?' · '+esc(c.area):''} · ${spText}</div>
+                    <div class="mobile-card-sub">${outText}</div>
                 </div>
                 ${todayBadge}
             </div>
@@ -1133,7 +1192,7 @@ function applyCustomerFilter(term) {
     if (!filtered.length) {
         const msg = `No customers match '${esc(term)}'`;
         document.getElementById('customer-tbody').innerHTML =
-            `<tr><td colspan="7" style="text-align:center;color:#aaa;padding:24px">${msg}</td></tr>`;
+            `<tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">${msg}</td></tr>`;
         document.getElementById('customer-cards').innerHTML =
             `<div class="empty">${msg}</div>`;
     } else {

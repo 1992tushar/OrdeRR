@@ -79,6 +79,112 @@ def _ensure_leaves_paid_column():
 
 _ensure_leaves_paid_column()
 
+
+def _ensure_customer_outstanding_and_nullable_phone():
+    """
+    Lightweight migration for the customer-outstanding import feature:
+
+      1. Add `customers.outstanding` (receivables snapshot) if missing.
+      2. Drop the NOT NULL constraint on `customers.phone_number` so customers
+         imported from the outstanding sheet without a phone number can be
+         stored (they're flagged RED on the dashboard).
+
+    create_all() only creates missing tables, never alters existing ones, so
+    both changes must be applied explicitly on older DBs. Idempotent and safe
+    on both SQLite (local) and PostgreSQL (prod).
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "customers" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the current schema
+
+    dialect = engine.dialect.name
+    cols = {c["name"]: c for c in insp.get_columns("customers")}
+
+    # ── 1. add outstanding column ──────────────────────────────────────────
+    if "outstanding" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE customers ADD COLUMN outstanding "
+                "NUMERIC(12,2) NOT NULL DEFAULT 0"
+            ))
+        print("✅ Migration: added customers.outstanding column")
+
+    # ── 2. make phone_number nullable ──────────────────────────────────────
+    phone_col = cols.get("phone_number")
+    phone_is_notnull = phone_col is not None and not phone_col.get("nullable", True)
+
+    if phone_is_notnull:
+        if dialect == "postgresql":
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE customers ALTER COLUMN phone_number DROP NOT NULL"
+                ))
+            print("✅ Migration: customers.phone_number is now nullable")
+        elif dialect == "sqlite":
+            # SQLite can't ALTER a column's NOT NULL in place — rebuild the
+            # table. Batched inside one transaction; PRAGMA disables FK checks
+            # during the swap. The tiny local test DB makes this cheap.
+            with engine.begin() as conn:
+                conn.execute(text("PRAGMA foreign_keys=OFF"))
+                conn.execute(text("""
+                    CREATE TABLE customers_new (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        restaurant_name VARCHAR,
+                        owner_name VARCHAR,
+                        phone_number VARCHAR,
+                        address VARCHAR,
+                        city VARCHAR,
+                        onboarding_status VARCHAR,
+                        is_active BOOLEAN,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        area VARCHAR,
+                        salesperson_id INTEGER,
+                        is_daily_order_customer BOOLEAN,
+                        ledger_token VARCHAR,
+                        outstanding NUMERIC(12,2) NOT NULL DEFAULT 0,
+                        FOREIGN KEY(salesperson_id) REFERENCES salespersons (id)
+                    )
+                """))
+                conn.execute(text("""
+                    INSERT INTO customers_new (
+                        id, restaurant_name, owner_name, phone_number, address,
+                        city, onboarding_status, is_active, created_at, area,
+                        salesperson_id, is_daily_order_customer, ledger_token,
+                        outstanding
+                    )
+                    SELECT
+                        id, restaurant_name, owner_name, phone_number, address,
+                        city, onboarding_status, is_active, created_at, area,
+                        salesperson_id, is_daily_order_customer, ledger_token,
+                        outstanding
+                    FROM customers
+                """))
+                conn.execute(text("DROP TABLE customers"))
+                conn.execute(text("ALTER TABLE customers_new RENAME TO customers"))
+                # recreate the indexes create_all() originally made
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX ix_customers_phone_number "
+                    "ON customers (phone_number)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX ix_customers_salesperson_id "
+                    "ON customers (salesperson_id)"
+                ))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX ix_customers_ledger_token "
+                    "ON customers (ledger_token)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX ix_customers_id ON customers (id)"
+                ))
+                conn.execute(text("PRAGMA foreign_keys=ON"))
+            print("✅ Migration: rebuilt customers table (phone_number nullable)")
+
+
+_ensure_customer_outstanding_and_nullable_phone()
+
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # Track last report time for health check

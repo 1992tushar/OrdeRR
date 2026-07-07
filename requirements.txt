@@ -44,3 +44,4 @@ reportlab==4.4.1
 num2words==0.5.14
 python-barcode==0.15.1
 Pillow==11.3.0
+openpyxl==3.1.5

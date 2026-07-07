@@ -51,10 +51,13 @@ OUTPUT_DIR       = Path("invoices")
 # line automatically. Absent → just the blank line + "Authorised Signatory".
 SIGNATURE_PATH   = Path("orderr_core/assets/signature.png")
 
-# TODO: placeholder — the ERP's "Due Amount" is the customer's running
-# receivables balance. OrdeRR has no payments ledger yet, so this is a fixed
-# stand-in until that's integrated. Change here (or wire to a real source).
-DUE_AMOUNT_PLACEHOLDER = "0.000"
+# The ERP's "Due Amount" is the customer's running receivables balance. OrdeRR
+# has no live payments ledger yet, so we use the `customers.outstanding`
+# snapshot (imported from the Customer Outstanding sheet) as the prior balance
+# and add the current invoice total on top:
+#     Due Amount = customer.outstanding + invoice.total
+# Fallback when the customer/outstanding is unavailable → just the invoice total.
+# (see _lookup_outstanding + the totals section in generate_invoice_pdf)
 
 # ── Page geometry ─────────────────────────────────────────────────────────────
 # The invoice prints on HALF an A4 sheet (A4 torn across the middle) to save
@@ -233,6 +236,26 @@ def _lookup_address(customer_phone: str) -> str:
     except Exception:
         pass
     return ""
+
+
+def _lookup_outstanding(customer_phone: str) -> Decimal:
+    """Return the customer's stored outstanding balance (prior receivables) as a
+    Decimal. Best-effort — any failure or missing customer yields 0."""
+    try:
+        from orderr_core.database import SessionLocal
+        from orderr_core.models.customer import Customer
+        db = SessionLocal()
+        try:
+            cust = db.query(Customer).filter(
+                Customer.phone_number == customer_phone
+            ).first()
+        finally:
+            db.close()
+        if cust and cust.outstanding is not None:
+            return Decimal(str(cust.outstanding))
+    except Exception:
+        pass
+    return Decimal("0")
 
 
 def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | None = None) -> str:
@@ -458,11 +481,14 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | Non
         c.drawString(col_div + 1*mm, row_y, label)
         c.drawRightString(MR, row_y, value)
 
-    # Due Amount — placeholder until customer receivables are integrated
+    # Due Amount — prior outstanding balance (snapshot from the Customer
+    # Outstanding sheet) rolled up with the current invoice total.
+    prior_outstanding = _lookup_outstanding(invoice.customer_phone)
+    due_total = prior_outstanding + total_val
     due_y = section_top - 22*mm
     c.setFont("Helvetica-Bold", 8)
     c.drawString(col_div + 1*mm, due_y, "Due Amount :")
-    c.drawRightString(MR, due_y, DUE_AMOUNT_PLACEHOLDER)
+    c.drawRightString(MR, due_y, _fmt(due_total, 3))
 
     y = section_top - 26*mm
     vline(col_div, section_top, y, lw=0.5)

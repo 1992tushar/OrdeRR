@@ -4,7 +4,8 @@ from sqlalchemy import (
     String,
     Boolean,
     DateTime,
-    ForeignKey
+    ForeignKey,
+    Numeric
 )
 
 from sqlalchemy.sql import func
@@ -34,11 +35,15 @@ class Customer(Base):
         nullable=True
     )
 
+    # Nullable: customers imported from the outstanding sheet may have no phone
+    # number on record. Such customers are flagged RED on the dashboard. The
+    # unique constraint still holds for non-NULL values (SQLite & Postgres both
+    # allow multiple NULLs in a UNIQUE column).
     phone_number = Column(
         String,
         unique=True,
         index=True,
-        nullable=False
+        nullable=True
     )
 
     address = Column(
@@ -93,7 +98,18 @@ class Customer(Base):
     nullable=True,
     index=True,
     )
-    
+
+    # Current receivables balance (₹) — a snapshot imported from the customer
+    # outstanding sheet. NOT recalculated from orders/payments; refreshed only
+    # when a newer outstanding file is uploaded. Used as the invoice "Due Amount"
+    # base (outstanding + current invoice total).
+    outstanding = Column(
+        Numeric(12, 2),
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
     # Relationship
     salesperson = relationship("Salesperson", back_populates="customers")
 
