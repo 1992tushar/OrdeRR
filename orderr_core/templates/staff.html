@@ -368,6 +368,17 @@ async function renderAdvances() {
   view.innerHTML = `<div class="empty">Loading…</div>`;
   await loadEmployees();
   const advances = await api('/advances');
+
+  // Pooled per-employee balance (advances are recovered as one balance, not
+  // per-loan) — total advanced / recovered / outstanding.
+  const byEmp = {};
+  for (const a of advances) {
+    if (!byEmp[a.employee_id]) byEmp[a.employee_id] = { name: a.employee_name, advanced: 0, recovered: 0 };
+    byEmp[a.employee_id].advanced  += a.amount;
+    byEmp[a.employee_id].recovered += a.repaid_amount;
+  }
+  const empSummary = Object.values(byEmp).sort((x, y) => (y.advanced - y.recovered) - (x.advanced - x.recovered));
+
   view.innerHTML = `
     <div class="card">
       <h2><span class="eyebrow">New</span> Record an advance</h2>
@@ -384,6 +395,22 @@ async function renderAdvances() {
         <div class="form-actions"><button type="submit">Record advance</button></div>
       </form>`}
     </div>
+    ${empSummary.length ? `
+    <div class="card">
+      <h2><span class="eyebrow">Summary</span> Outstanding by employee</h2>
+      <table>
+        <thead><tr><th>Employee</th><th class="num">Total advanced</th><th class="num">Recovered</th><th class="num">Outstanding</th></tr></thead>
+        <tbody>
+          ${empSummary.map(s => `
+            <tr>
+              <td>${escapeHtml(s.name)}</td>
+              <td class="num">${money(s.advanced)}</td>
+              <td class="num">${money(s.recovered)}</td>
+              <td class="num">${(s.advanced - s.recovered) > 0 ? `<span class="pill debit">${money(s.advanced - s.recovered)}</span>` : `<span class="pill credit">Clear</span>`}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
     <div class="card">
       <h2><span class="eyebrow">Ledger</span> All advances</h2>
       ${advances.length === 0 ? `<div class="empty">No advances recorded yet.</div>` : `
