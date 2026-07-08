@@ -31,7 +31,7 @@ import re
 import json
 import logging
 from datetime import date, datetime, timezone, timedelta
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
@@ -109,6 +109,17 @@ class CustomerEdit(BaseModel):
     area:                     Optional[str]  = None
     salesperson_id:           Optional[int]  = None
     is_daily_order_customer:  Optional[bool] = None
+
+class CustomerBulkStatus(BaseModel):
+    """Bulk activate/deactivate a set of customers."""
+    customer_ids: List[int]
+    is_active: bool
+
+class CustomerBulkAssign(BaseModel):
+    """Bulk assign area and/or salesperson to a set of customers."""
+    customer_ids: List[int]
+    salesperson_id: Optional[int] = None
+    area: Optional[str] = None
 
 class NextDayOverride(BaseModel):
     is_next_day: bool
@@ -820,6 +831,59 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
         "phone_number"   : customer.phone_number,
         "total_orders"   : len(result),
         "orders"         : result,
+    }
+
+
+@router.put("/customers/bulk/status")
+def bulk_update_customer_status(
+    payload: CustomerBulkStatus,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Activate/deactivate multiple customers in one call."""
+    ids = list(dict.fromkeys(payload.customer_ids))  # de-dupe, preserve order
+    if not ids:
+        raise HTTPException(status_code=400, detail="No customers selected")
+    customers = db.query(Customer).filter(Customer.id.in_(ids)).all()
+    for c in customers:
+        c.is_active = payload.is_active
+    db.commit()
+    return {
+        "status": "updated",
+        "updated": len(customers),
+        "requested": len(ids),
+        "is_active": payload.is_active,
+    }
+
+
+@router.post("/customers/bulk/assign")
+def bulk_assign_customers(
+    payload: CustomerBulkAssign,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Assign area and/or salesperson to multiple customers in one call."""
+    ids = list(dict.fromkeys(payload.customer_ids))  # de-dupe, preserve order
+    if not ids:
+        raise HTTPException(status_code=400, detail="No customers selected")
+    area = payload.area.strip() if payload.area is not None else None
+    if not area and payload.salesperson_id is None:
+        raise HTTPException(status_code=400, detail="Provide area or salesperson_id")
+    if payload.salesperson_id is not None:
+        sp = db.query(Salesperson).filter(Salesperson.id == payload.salesperson_id).first()
+        if not sp:
+            raise HTTPException(status_code=404, detail=f"Salesperson id={payload.salesperson_id} not found")
+    customers = db.query(Customer).filter(Customer.id.in_(ids)).all()
+    for c in customers:
+        if area:
+            c.area = area
+        if payload.salesperson_id is not None:
+            c.salesperson_id = payload.salesperson_id
+    db.commit()
+    return {
+        "status": "assigned",
+        "updated": len(customers),
+        "requested": len(ids),
     }
 
 

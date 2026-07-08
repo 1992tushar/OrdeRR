@@ -567,16 +567,44 @@
                     onclick="clearCustomerSearch()" title="Clear search">✕</button>
             <span class="customer-search-count" id="customer-search-count" style="display:none"></span>
         </div>
+        <div id="bulk-bar" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;background:#e8f5e9;border:1px solid #b7e0c0;border-radius:10px;padding:10px 14px;margin-bottom:12px">
+            <span id="bulk-count" style="font-weight:700;color:#075e54;font-size:13px"></span>
+            <div style="flex:1"></div>
+            <button class="btn btn-activate"   onclick="bulkSetStatus(true)">✅ Activate</button>
+            <button class="btn btn-deactivate" onclick="bulkSetStatus(false)">🚫 Deactivate</button>
+            <button class="btn btn-assign"     onclick="openBulkAssignModal()">👤 Assign Salesperson / Area</button>
+            <button class="btn" style="background:#eee;color:#555" onclick="clearCustomerSelection()">Clear</button>
+        </div>
         <div class="desktop-only">
             <div class="summary-table">
                 <table>
-                    <thead><tr><th>Restaurant</th><th>Phone</th><th style="cursor:pointer;user-select:none" onclick="toggleOutstandingSort()" title="Click to sort by outstanding">Outstanding <span id="sort-arrow-out" style="color:#075e54"></span></th><th>Area</th><th>Salesperson</th><th>Today</th><th>Status</th><th>Actions</th></tr></thead>
-                    <tbody id="customer-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
+                    <thead><tr>
+                        <th style="width:34px;text-align:center"><input type="checkbox" id="customer-select-all" onclick="toggleSelectAll(this)" title="Select all shown"/></th>
+                        <th style="cursor:pointer;user-select:none" onclick="setSort('name')" title="Sort by restaurant name">Restaurant <span id="sort-arrow-name" style="color:#075e54"></span></th>
+                        <th style="cursor:pointer;user-select:none" onclick="setSort('phone')" title="Sort by phone (assigned / not assigned)">Phone <span id="sort-arrow-phone" style="color:#075e54"></span></th>
+                        <th style="cursor:pointer;user-select:none" onclick="setSort('outstanding')" title="Sort by outstanding">Outstanding <span id="sort-arrow-outstanding" style="color:#075e54"></span></th>
+                        <th style="cursor:pointer;user-select:none" onclick="setSort('area')" title="Sort by area">Area <span id="sort-arrow-area" style="color:#075e54"></span></th>
+                        <th style="cursor:pointer;user-select:none" onclick="setSort('salesperson')" title="Sort by salesperson (assigned / not assigned)">Salesperson <span id="sort-arrow-salesperson" style="color:#075e54"></span></th>
+                        <th>Today</th>
+                        <th style="cursor:pointer;user-select:none" onclick="setSort('status')" title="Sort by status">Status <span id="sort-arrow-status" style="color:#075e54"></span></th>
+                        <th>Actions</th>
+                    </tr></thead>
+                    <tbody id="customer-tbody"><tr><td colspan="9" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr></tbody>
                 </table>
             </div>
         </div>
-        <div class="mobile-only" style="margin-bottom:10px">
-            <button class="section-btn" id="mobile-sort-btn" onclick="toggleOutstandingSort()">↕ Sort by Outstanding</button>
+        <div class="mobile-only" style="margin-bottom:10px;display:flex;gap:8px;align-items:center">
+            <label style="font-size:12px;color:#666;flex-shrink:0">Sort:</label>
+            <select id="mobile-sort-select" onchange="setSort(this.value)"
+                    style="flex:1;padding:8px 10px;border:1px solid #ccc;border-radius:8px;background:white;font-size:13px;outline:none">
+                <option value="name">Restaurant name</option>
+                <option value="phone">Phone (assigned / not)</option>
+                <option value="outstanding">Outstanding</option>
+                <option value="area">Area</option>
+                <option value="salesperson">Salesperson (assigned / not)</option>
+                <option value="status">Status</option>
+            </select>
+            <button class="section-btn" id="mobile-sort-dir" onclick="toggleSortDir()" title="Toggle ascending / descending">▲ Asc</button>
         </div>
         <div class="mobile-only" id="customer-cards"><div class="empty">Loading...</div></div>
     </div>
@@ -704,6 +732,30 @@
             <div style="display:flex;gap:10px;justify-content:flex-end">
                 <button class="btn btn-cancel-ui" onclick="closeModal('assign-modal')">Cancel</button>
                 <button class="btn btn-save" onclick="saveAssignment()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Assign Modal -->
+<div id="bulk-assign-modal" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3>Bulk Assign</h3>
+            <button class="btn btn-cancel-ui" onclick="closeModal('bulk-assign-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <p id="bulk-assign-count" style="font-size:13px;color:#888;margin-bottom:16px"></p>
+            <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Area</label>
+            <input id="bulk-area" type="text" placeholder="Leave blank to keep unchanged" style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;margin-bottom:14px;outline:none"/>
+            <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Salesperson</label>
+            <select id="bulk-sp" style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;margin-bottom:20px;outline:none;background:white">
+                <option value="">— Leave unchanged —</option>
+            </select>
+            <div style="font-size:11px;color:#888;margin:-12px 0 16px">Only the fields you fill in are changed on the selected customers.</div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button class="btn btn-cancel-ui" onclick="closeModal('bulk-assign-modal')">Cancel</button>
+                <button class="btn btn-save" onclick="submitBulkAssign()">Apply</button>
             </div>
         </div>
     </div>
@@ -1032,7 +1084,7 @@ async function toggleSP(id,active) {
 // ── Customers ─────────────────────────────────────────────────────────────────
 
 async function loadCustomers() {
-    document.getElementById('customer-tbody').innerHTML='<tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
+    document.getElementById('customer-tbody').innerHTML='<tr><td colspan="9" style="text-align:center;color:#aaa;padding:24px">Loading...</td></tr>';
     document.getElementById('customer-cards').innerHTML='<div class="empty">Loading...</div>';
     try {
         const data = await api('GET', '/admin/customers');
@@ -1041,19 +1093,130 @@ async function loadCustomers() {
         const term = document.getElementById('customer-search-input')?.value || '';
         if (term.trim()) applyCustomerFilter(term);
     } catch(e) {
-        document.getElementById('customer-tbody').innerHTML='<tr><td colspan="8" style="text-align:center;color:#e67e22;padding:24px">Failed</td></tr>';
+        document.getElementById('customer-tbody').innerHTML='<tr><td colspan="9" style="text-align:center;color:#e67e22;padding:24px">Failed</td></tr>';
         document.getElementById('customer-cards').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';
+    }
+}
+
+// ── Bulk selection ─────────────────────────────────────────────────────────────
+// Set of selected customer ids. Persists across search filtering & re-render.
+let _selectedCustomers = new Set();
+
+// The customers currently visible (after search filter) — used by select-all.
+let _visibleCustomers = [];
+
+function onCustomerCheck(id, isChecked) {
+    if (isChecked) _selectedCustomers.add(id);
+    else           _selectedCustomers.delete(id);
+    updateBulkBar();
+    syncSelectAllCheckbox();
+}
+
+function toggleSelectAll(cb) {
+    // Select/deselect every customer currently shown (respects active search).
+    _visibleCustomers.forEach(c => {
+        if (cb.checked) _selectedCustomers.add(c.id);
+        else            _selectedCustomers.delete(c.id);
+    });
+    // Reflect in the visible checkboxes without a full re-render.
+    document.querySelectorAll('.cust-check').forEach(el => { el.checked = cb.checked; });
+    updateBulkBar();
+}
+
+function syncSelectAllCheckbox() {
+    const cb = document.getElementById('customer-select-all');
+    if (!cb) return;
+    const shown = _visibleCustomers;
+    const allSel = shown.length > 0 && shown.every(c => _selectedCustomers.has(c.id));
+    const someSel = shown.some(c => _selectedCustomers.has(c.id));
+    cb.checked = allSel;
+    cb.indeterminate = !allSel && someSel;
+}
+
+function updateBulkBar() {
+    const bar = document.getElementById('bulk-bar');
+    const n = _selectedCustomers.size;
+    if (n > 0) {
+        bar.style.display = 'flex';
+        document.getElementById('bulk-count').textContent =
+            `${n} customer${n === 1 ? '' : 's'} selected`;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+function clearCustomerSelection() {
+    _selectedCustomers.clear();
+    document.querySelectorAll('.cust-check').forEach(el => { el.checked = false; });
+    updateBulkBar();
+    syncSelectAllCheckbox();
+}
+
+async function bulkSetStatus(isActive) {
+    const ids = Array.from(_selectedCustomers);
+    if (!ids.length) return;
+    const verb = isActive ? 'Activate' : 'Deactivate';
+    if (!confirm(`${verb} ${ids.length} customer${ids.length === 1 ? '' : 's'}?`)) return;
+    try {
+        const data = await api('PUT', '/admin/customers/bulk/status', { customer_ids: ids, is_active: isActive });
+        showToast(`✅ ${data.updated} customer${data.updated === 1 ? '' : 's'} → ${isActive ? 'Active' : 'Inactive'}`, 'success');
+        _selectedCustomers.clear();
+        loadCustomers();
+    } catch (e) {
+        let msg = 'Bulk update failed';
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch (_) {}
+        showToast('❌ ' + msg, 'error');
+    }
+}
+
+function openBulkAssignModal() {
+    if (!_selectedCustomers.size) return;
+    const sel = document.getElementById('bulk-sp');
+    sel.innerHTML = '<option value="">— Leave unchanged —</option>';
+    allSalespersons.filter(s => s.active).forEach(s => {
+        sel.innerHTML += `<option value="${s.id}">${esc(s.name)}</option>`;
+    });
+    sel.value = '';
+    document.getElementById('bulk-area').value = '';
+    document.getElementById('bulk-assign-count').textContent =
+        `Applying to ${_selectedCustomers.size} selected customer${_selectedCustomers.size === 1 ? '' : 's'}`;
+    document.getElementById('bulk-assign-modal').classList.add('open');
+}
+
+async function submitBulkAssign() {
+    const ids  = Array.from(_selectedCustomers);
+    if (!ids.length) return;
+    const area = document.getElementById('bulk-area').value.trim();
+    const spId = document.getElementById('bulk-sp').value;
+    if (!area && !spId) { showToast('Enter area or select salesperson', 'error'); return; }
+    const body = { customer_ids: ids };
+    if (area) body.area = area;
+    if (spId) body.salesperson_id = parseInt(spId);
+    try {
+        const data = await api('POST', '/admin/customers/bulk/assign', body);
+        showToast(`✅ ${data.updated} customer${data.updated === 1 ? '' : 's'} updated`, 'success');
+        closeModal('bulk-assign-modal');
+        _selectedCustomers.clear();
+        loadCustomers();
+    } catch (e) {
+        let msg = 'Bulk assign failed';
+        try { msg = JSON.parse(e.message)?.detail || msg; } catch (_) {}
+        showToast('❌ ' + msg, 'error');
     }
 }
 
 function renderCustomers(customers) {
     window._allCustomers = customers;
+    // Drop any selections for customers that no longer exist in the list.
+    const ids = new Set(customers.map(c => c.id));
+    _selectedCustomers.forEach(id => { if (!ids.has(id)) _selectedCustomers.delete(id); });
     // Stat cards always reflect the FULL unfiltered list
     document.getElementById('stat-total').textContent   = customers.length;
     document.getElementById('stat-active').textContent  = customers.filter(c=>c.is_active).length;
     document.getElementById('stat-inactive').textContent= customers.filter(c=>!c.is_active).length;
     document.getElementById('stat-ordered').textContent = customers.filter(c=>c.ordered_today).length;
     document.getElementById('stat-nophone').textContent = customers.filter(c=>!c.has_phone).length;
+    updateSortIndicators();   // reflect current sort in headers + mobile controls
     renderCustomerRows(customers);
 }
 
@@ -1096,47 +1259,101 @@ async function importCustomers(input) {
     }
 }
 
-// ── Customer sort (by outstanding) ─────────────────────────────────────────
-// key: 'name' (default = backend name order) | 'outstanding'; dir: 'desc'|'asc'
-let _customerSort = { key: 'name', dir: 'desc' };
+// ── Customer sort ──────────────────────────────────────────────────────────
+// key: name | phone | outstanding | area | salesperson | status ; dir: asc|desc
+// For phone & salesperson the primary value is the assigned/unassigned flag,
+// so ascending groups the "not assigned" rows first, descending the assigned.
+let _customerSort = { key: 'name', dir: 'asc' };
+
+const _CUSTOMER_SORT_KEYS = ['name','phone','outstanding','area','salesperson','status'];
+
+// Numeric keys default to descending (high→low) on first click; the rest asc.
+function _defaultSortDir(key) {
+    return (key === 'outstanding') ? 'desc' : 'asc';
+}
+
+// Return a comparable value for a customer under the given sort key.
+// Numeric for outstanding + the boolean assigned/status flags; string otherwise.
+function _customerSortValue(c, key) {
+    switch (key) {
+        case 'name':        return (c.restaurant_name || '').toLowerCase();
+        case 'phone':       return c.has_phone ? 1 : 0;             // assigned vs not
+        case 'outstanding': return Number(c.outstanding || 0);
+        case 'area':        return (c.area || '').toLowerCase();
+        case 'salesperson': return c.salesperson_id ? 1 : 0;       // assigned vs not
+        case 'status':      return c.is_active ? 1 : 0;
+        default:            return '';
+    }
+}
 
 function sortCustomersForDisplay(list) {
-    if (_customerSort.key !== 'outstanding') return list;
+    const { key, dir } = _customerSort;
+    const mul = (dir === 'asc') ? 1 : -1;
     const arr = list.slice();
     arr.sort((a, b) => {
-        const av = Number(a.outstanding || 0), bv = Number(b.outstanding || 0);
-        return _customerSort.dir === 'desc' ? bv - av : av - bv;
+        const av = _customerSortValue(a, key), bv = _customerSortValue(b, key);
+        let cmp;
+        if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+        else cmp = String(av).localeCompare(String(bv));
+        if (cmp !== 0) return cmp * mul;
+        // Stable tie-break: salesperson name (when sorting by salesperson),
+        // then restaurant name, so grouped rows read alphabetically within a group.
+        if (key === 'salesperson') {
+            const sc = (a.salesperson_name || '').toLowerCase()
+                        .localeCompare((b.salesperson_name || '').toLowerCase());
+            if (sc !== 0) return sc;
+        }
+        return (a.restaurant_name || '').toLowerCase()
+                .localeCompare((b.restaurant_name || '').toLowerCase());
     });
     return arr;
 }
 
-// Cycle: default → outstanding high→low → outstanding low→high → default
-function toggleOutstandingSort() {
-    if (_customerSort.key !== 'outstanding')      _customerSort = { key: 'outstanding', dir: 'desc' };
-    else if (_customerSort.dir === 'desc')        _customerSort.dir = 'asc';
-    else                                          _customerSort = { key: 'name', dir: 'desc' };
+// Click a column header (or pick from the mobile dropdown) to sort by that key.
+// Clicking the active key again flips the direction.
+function setSort(key) {
+    if (_customerSort.key === key) {
+        _customerSort.dir = (_customerSort.dir === 'asc') ? 'desc' : 'asc';
+    } else {
+        _customerSort.key = key;
+        _customerSort.dir = _defaultSortDir(key);
+    }
     updateSortIndicators();
-    // Re-render, respecting any active search term
+    reRenderCustomers();
+}
+
+function toggleSortDir() {
+    _customerSort.dir = (_customerSort.dir === 'asc') ? 'desc' : 'asc';
+    updateSortIndicators();
+    reRenderCustomers();
+}
+
+// Re-render the customer list, respecting any active search term.
+function reRenderCustomers() {
     const term = (document.getElementById('customer-search-input') || {}).value || '';
     if (term.trim()) applyCustomerFilter(term);
     else             renderCustomerRows(window._allCustomers || []);
 }
 
 function updateSortIndicators() {
-    const on = _customerSort.key === 'outstanding';
-    const arrowEl = document.getElementById('sort-arrow-out');
-    if (arrowEl) arrowEl.textContent = on ? (_customerSort.dir === 'desc' ? '▼' : '▲') : '';
-    const mb = document.getElementById('mobile-sort-btn');
-    if (mb) mb.textContent = on
-        ? (_customerSort.dir === 'desc' ? 'Outstanding ↓ (high→low)' : 'Outstanding ↑ (low→high)')
-        : '↕ Sort by Outstanding';
+    const { key, dir } = _customerSort;
+    const arrow = (dir === 'asc') ? '▲' : '▼';
+    _CUSTOMER_SORT_KEYS.forEach(k => {
+        const el = document.getElementById('sort-arrow-' + k);
+        if (el) el.textContent = (k === key) ? arrow : '';
+    });
+    const sel = document.getElementById('mobile-sort-select');
+    if (sel) sel.value = key;
+    const dirBtn = document.getElementById('mobile-sort-dir');
+    if (dirBtn) dirBtn.textContent = (dir === 'asc') ? '▲ Asc' : '▼ Desc';
 }
 
 function renderCustomerRows(customers) {
     customers = sortCustomersForDisplay(customers);
+    _visibleCustomers = customers;   // what select-all operates on
     const tbody = document.getElementById('customer-tbody');
     if (!customers.length) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:24px">No customers yet</td></tr>';
     } else {
         tbody.innerHTML = customers.map(c => {
             const sp     = c.salesperson_name ? `<span style="font-size:13px">${esc(c.salesperson_name)}</span>` : '<span class="badge unassigned">Unassigned</span>';
@@ -1148,8 +1365,10 @@ function renderCustomerRows(customers) {
             const phoneCell = noPhone
                 ? '<span style="color:#c62828;font-weight:600">⚠️ No mobile</span>'
                 : `<span style="color:#888">${esc(c.phone_number)}</span>`;
+            const checked = _selectedCustomers.has(c.id) ? ' checked' : '';
             const rowStyle = noPhone ? ' style="background:#fff5f5"' : '';
             return `<tr${rowStyle}>
+                <td style="text-align:center"><input type="checkbox" class="cust-check" value="${c.id}"${checked} onclick="onCustomerCheck(${c.id},this.checked)"/></td>
                 <td><strong style="${noPhone?'color:#c62828':''}">${esc(c.restaurant_name||'—')}</strong></td>
                 <td style="font-size:12px">${phoneCell}</td>
                 <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtMoney(c.outstanding)}</td>
@@ -1180,12 +1399,16 @@ function renderCustomerRows(customers) {
             ? '<span style="color:#c62828;font-weight:600">⚠️ No mobile number</span>'
             : esc(c.phone_number);
         const outText   = `💰 ${fmtMoney(c.outstanding)}`;
+        const checked = _selectedCustomers.has(c.id) ? ' checked' : '';
         return `<div class="mobile-card ${!c.is_active?'inactive':''}"${noPhone?' style="border-left:4px solid #c62828;background:#fff5f5"':''}>
             <div class="mobile-card-row">
-                <div>
-                    <div class="mobile-card-name" style="${noPhone?'color:#c62828':''}">${esc(c.restaurant_name||'—')}</div>
-                    <div class="mobile-card-sub">${phoneText}${c.area?' · '+esc(c.area):''} · ${spText}</div>
-                    <div class="mobile-card-sub">${outText}</div>
+                <div style="display:flex;gap:10px;align-items:flex-start">
+                    <input type="checkbox" class="cust-check" value="${c.id}"${checked} onclick="onCustomerCheck(${c.id},this.checked)" style="margin-top:3px"/>
+                    <div>
+                        <div class="mobile-card-name" style="${noPhone?'color:#c62828':''}">${esc(c.restaurant_name||'—')}</div>
+                        <div class="mobile-card-sub">${phoneText}${c.area?' · '+esc(c.area):''} · ${spText}</div>
+                        <div class="mobile-card-sub">${outText}</div>
+                    </div>
                 </div>
                 ${todayBadge}
             </div>
@@ -1198,6 +1421,9 @@ function renderCustomerRows(customers) {
             </div>
         </div>`;
     }).join('');
+
+    updateBulkBar();
+    syncSelectAllCheckbox();
 }
 
 // ── Customer Search ────────────────────────────────────────────────────────────
@@ -1232,9 +1458,11 @@ function applyCustomerFilter(term) {
     if (!filtered.length) {
         const msg = `No customers match '${esc(term)}'`;
         document.getElementById('customer-tbody').innerHTML =
-            `<tr><td colspan="8" style="text-align:center;color:#aaa;padding:24px">${msg}</td></tr>`;
+            `<tr><td colspan="9" style="text-align:center;color:#aaa;padding:24px">${msg}</td></tr>`;
         document.getElementById('customer-cards').innerHTML =
             `<div class="empty">${msg}</div>`;
+        _visibleCustomers = [];
+        syncSelectAllCheckbox();
     } else {
         renderCustomerRows(filtered);
     }
