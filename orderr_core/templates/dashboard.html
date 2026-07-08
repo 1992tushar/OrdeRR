@@ -585,7 +585,7 @@
                         <th style="cursor:pointer;user-select:none" onclick="setSort('outstanding')" title="Sort by outstanding">Outstanding <span id="sort-arrow-outstanding" style="color:#075e54"></span></th>
                         <th style="cursor:pointer;user-select:none" onclick="setSort('area')" title="Sort by area">Area <span id="sort-arrow-area" style="color:#075e54"></span></th>
                         <th style="cursor:pointer;user-select:none" onclick="setSort('salesperson')" title="Sort by salesperson (assigned / not assigned)">Salesperson <span id="sort-arrow-salesperson" style="color:#075e54"></span></th>
-                        <th>Today</th>
+                        <th style="cursor:pointer;user-select:none" onclick="setSort('today')" title="Sort by today's order (ordered / pending)">Today <span id="sort-arrow-today" style="color:#075e54"></span></th>
                         <th style="cursor:pointer;user-select:none" onclick="setSort('status')" title="Sort by status">Status <span id="sort-arrow-status" style="color:#075e54"></span></th>
                         <th>Actions</th>
                     </tr></thead>
@@ -602,6 +602,7 @@
                 <option value="outstanding">Outstanding</option>
                 <option value="area">Area</option>
                 <option value="salesperson">Salesperson (assigned / not)</option>
+                <option value="today">Today (ordered / pending)</option>
                 <option value="status">Status</option>
             </select>
             <button class="section-btn" id="mobile-sort-dir" onclick="toggleSortDir()" title="Toggle ascending / descending">▲ Asc</button>
@@ -1260,12 +1261,12 @@ async function importCustomers(input) {
 }
 
 // ── Customer sort ──────────────────────────────────────────────────────────
-// key: name | phone | outstanding | area | salesperson | status ; dir: asc|desc
-// For phone & salesperson the primary value is the assigned/unassigned flag,
-// so ascending groups the "not assigned" rows first, descending the assigned.
+// key: name | phone | outstanding | area | salesperson | today | status ; dir: asc|desc
+// For phone/salesperson/today the primary value is a boolean flag, so ascending
+// groups the "no" rows first (not assigned / not ordered), descending the "yes".
 let _customerSort = { key: 'name', dir: 'asc' };
 
-const _CUSTOMER_SORT_KEYS = ['name','phone','outstanding','area','salesperson','status'];
+const _CUSTOMER_SORT_KEYS = ['name','phone','outstanding','area','salesperson','today','status'];
 
 // Numeric keys default to descending (high→low) on first click; the rest asc.
 function _defaultSortDir(key) {
@@ -1281,6 +1282,7 @@ function _customerSortValue(c, key) {
         case 'outstanding': return Number(c.outstanding || 0);
         case 'area':        return (c.area || '').toLowerCase();
         case 'salesperson': return c.salesperson_id ? 1 : 0;       // assigned vs not
+        case 'today':       return c.ordered_today ? 1 : 0;        // ordered vs not
         case 'status':      return c.is_active ? 1 : 0;
         default:            return '';
     }
