@@ -543,6 +543,7 @@
         <div class="card warning"><div class="number" id="stat-inactive">—</div><div class="label">Inactive</div></div>
         <div class="card success"><div class="number" id="stat-ordered">—</div><div class="label">Ordered</div></div>
         <div class="card danger"><div class="number" id="stat-nophone">—</div><div class="label">No Mobile</div></div>
+        <div class="card"><div class="number" id="stat-outstanding" style="color:#c62828">—</div><div class="label">Total Outstanding</div></div>
     </div>
     <div class="section">
         <h2>👥 Customers
@@ -1217,6 +1218,7 @@ function renderCustomers(customers) {
     document.getElementById('stat-inactive').textContent= customers.filter(c=>!c.is_active).length;
     document.getElementById('stat-ordered').textContent = customers.filter(c=>c.ordered_today).length;
     document.getElementById('stat-nophone').textContent = customers.filter(c=>!c.has_phone).length;
+    document.getElementById('stat-outstanding').textContent = fmtMoney(customers.reduce((sum,c)=>sum+Number(c.outstanding||0),0));
     updateSortIndicators();   // reflect current sort in headers + mobile controls
     renderCustomerRows(customers);
 }
