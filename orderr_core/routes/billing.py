@@ -226,15 +226,27 @@ async def api_save_customer_rate(request: Request, db: Session = Depends(get_db)
 # ---------------------------------------------------------------------------
 
 def _ensure_order_seeded(db: Session, order_id: int, parsed_items: list, unclear_items: list) -> None:
-    already_seeded = db.scalar(
-        select(func.count()).select_from(OrderItemActual).where(OrderItemActual.order_id == order_id)
-    )
-    if already_seeded:
-        return
-
+    """Mirror the order's CURRENT parsed_items / unclear_items into billing's
+    OrderItemActual + OcrUnmatchedLine tables. Runs on every view and is
+    idempotent, but — unlike the old seed-once version — it also *reconciles*
+    changes the order-side unclear-items flow makes after billing first saw the
+    order. Without this, a line the order has since resolved (moved into
+    parsed_items and cleared from unclear_items) would keep being demanded in
+    billing forever, because billing snapshotted it once and never looked again.
+    """
+    # ── 1. Seed parsed_items → actuals, per product. Doing this per-product
+    #       (rather than only on the very first view) means a product the order
+    #       flow adds later — e.g. when an unclear line is resolved into a real
+    #       product — is picked up on the next billing view. Existing actuals
+    #       (and their confirmed delivered quantities) are never touched.
+    existing_products = {
+        a.product for a in db.scalars(
+            select(OrderItemActual).where(OrderItemActual.order_id == order_id)
+        ).all()
+    }
     for it in (parsed_items or []):
         product = (it.get("product") or "").strip()
-        if not product:
+        if not product or product in existing_products:
             continue
         try:
             qty = Decimal(str(it.get("quantity") or 0))
@@ -254,26 +266,36 @@ def _ensure_order_seeded(db: Session, order_id: int, parsed_items: list, unclear
             confirmed_by=None,
             confirmed_at=None,
         ))
+        existing_products.add(product)
 
-    # Already-seeded check above means this only ever runs once per order,
-    # so it's safe to insert unclear_items here too without dup risk.
-    already_has_unclear = db.scalar(
-        select(func.count()).select_from(OcrUnmatchedLine).where(
+    # ── 2. Reconcile order-time unclear lines with the order's CURRENT
+    #       unclear_items. Add lines that newly appeared; auto-resolve lines the
+    #       order no longer considers unclear (the order flow already handled
+    #       them) so billing stops asking for input on an already-cleared line.
+    current_unclear = {str(r).strip() for r in (unclear_items or []) if str(r).strip()}
+    seeded_lines = db.scalars(
+        select(OcrUnmatchedLine).where(
             OcrUnmatchedLine.order_id == order_id,
             OcrUnmatchedLine.reason == ORDER_TIME_UNCLEAR_REASON,
         )
-    )
-    if not already_has_unclear:
-        for raw in (unclear_items or []):
-            raw_text = str(raw).strip()
-            if not raw_text:
-                continue
+    ).all()
+    seeded_raw = {line.raw_line.strip() for line in seeded_lines}
+
+    for raw in current_unclear:
+        if raw not in seeded_raw:
             db.add(OcrUnmatchedLine(
                 order_id=order_id,
-                raw_line=raw_text,
+                raw_line=raw,
                 reason=ORDER_TIME_UNCLEAR_REASON,
                 resolved=False,
             ))
+
+    now = datetime.now(timezone.utc)
+    for line in seeded_lines:
+        if not line.resolved and line.raw_line.strip() not in current_unclear:
+            line.resolved    = True
+            line.resolved_by = "order_flow_sync"
+            line.resolved_at = now
 
     db.commit()
 
