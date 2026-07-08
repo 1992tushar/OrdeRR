@@ -1,3 +1,7 @@
+import io
+from decimal import Decimal, InvalidOperation
+
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from orderr_core.models.customer import Customer
@@ -142,3 +146,153 @@ def create_customer_manually(
     db.commit()
     db.refresh(customer)
     return customer
+
+
+# ── Bulk import from the "Customer Outstanding" spreadsheet ──────────────────
+
+def _to_amount(value) -> Decimal:
+    """Coerce a spreadsheet cell into a Decimal amount; blanks/junk → 0."""
+    if value is None:
+        return Decimal("0")
+    try:
+        return Decimal(str(value).replace(",", "").strip() or "0")
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
+
+
+def _find_header_and_columns(ws):
+    """
+    Locate the header row and map the columns we care about by their labels,
+    so the import is resilient to column re-ordering in the ERP export.
+
+    Returns (header_row_index, {"name": idx, "phone": idx|None, "closing": idx|None}).
+    Raises ValueError if a Party Name column can't be found.
+    """
+    for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=15, values_only=True)):
+        labels = [str(c).strip().lower() if c is not None else "" for c in row]
+        name_col = phone_col = closing_col = None
+        for i, lbl in enumerate(labels):
+            if lbl in ("party name", "name", "customer name", "party"):
+                name_col = i
+            elif "contact" in lbl or "phone" in lbl or "mobile" in lbl:
+                phone_col = i
+            elif lbl in ("closing", "closing balance", "outstanding", "balance"):
+                closing_col = i
+        if name_col is not None:
+            return r_idx, {"name": name_col, "phone": phone_col, "closing": closing_col}
+    raise ValueError(
+        "Could not find a 'Party Name' column. Expected a header row with "
+        "columns like 'Party Name', 'Contact No.' and 'Closing'."
+    )
+
+
+def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
+    """
+    Import / update customers from a "Customer Outstanding" .xlsx export.
+
+    Upsert rules:
+      • Row with a valid phone → matched by normalized phone number.
+      • Row without a phone (or an invalid one) → matched by restaurant name
+        (case-insensitive). Stored with phone_number = NULL → flagged RED.
+      • Existing match → outstanding is refreshed; a missing phone is filled in.
+      • No match → a new customer is created (onboarding_status='active',
+        is_daily_order_customer=False so bulk-imported receivables customers are
+        NOT auto-chased by the daily-order reminder jobs).
+
+    Returns a summary dict: created / updated / skipped / no_phone counts +
+    per-row issues.
+    """
+    import openpyxl  # local import — only needed for imports, keeps startup lean
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+    except Exception as e:
+        raise ValueError(f"Could not read the Excel file: {e}")
+
+    ws = wb.active
+    header_idx, colmap = _find_header_and_columns(ws)
+    name_col = colmap["name"]
+    phone_col = colmap["phone"]
+    closing_col = colmap["closing"]
+
+    created = updated = skipped = no_phone = 0
+    issues: list[str] = []
+    seen_keys: set = set()   # guard against duplicate rows within one file
+
+    rows = ws.iter_rows(min_row=header_idx + 2, values_only=True)
+    for row in rows:
+        if not row:
+            continue
+        name = row[name_col] if name_col < len(row) else None
+        name = (str(name).strip() if name is not None else "")
+        if not name:
+            continue  # skip blank / separator rows silently
+
+        raw_phone = None
+        if phone_col is not None and phone_col < len(row):
+            raw_phone = row[phone_col]
+        raw_phone = (str(raw_phone).strip() if raw_phone not in (None, "") else "")
+
+        outstanding = _to_amount(row[closing_col]) if (closing_col is not None and closing_col < len(row)) else Decimal("0")
+
+        # Resolve phone → normalized or None
+        normalized = None
+        if raw_phone:
+            err = validate_phone(raw_phone)
+            if err:
+                issues.append(f"'{name}': {err} — imported without a phone number.")
+            else:
+                normalized = normalize_phone(raw_phone)
+
+        # Duplicate-within-file guard
+        key = normalized or f"name:{name.lower()}"
+        if key in seen_keys:
+            issues.append(f"'{name}': duplicate row in file — skipped.")
+            skipped += 1
+            continue
+        seen_keys.add(key)
+
+        # ── Find an existing customer to update ────────────────────────────
+        existing = None
+        if normalized:
+            existing = db.query(Customer).filter(
+                Customer.phone_number == normalized
+            ).first()
+        if existing is None:
+            # match by name (covers phone-less rows and pre-existing name-only records)
+            existing = db.query(Customer).filter(
+                func.lower(Customer.restaurant_name) == name.lower()
+            ).first()
+
+        if existing:
+            existing.outstanding = outstanding
+            if normalized and not existing.phone_number:
+                existing.phone_number = normalized
+            if not existing.restaurant_name:
+                existing.restaurant_name = name
+            updated += 1
+        else:
+            db.add(Customer(
+                restaurant_name=name,
+                phone_number=normalized,
+                outstanding=outstanding,
+                onboarding_status="active",
+                is_active=True,
+                is_daily_order_customer=False,
+            ))
+            created += 1
+
+        if not normalized:
+            no_phone += 1
+
+    db.commit()
+    wb.close()
+
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "no_phone": no_phone,
+        "total_processed": created + updated,
+        "issues": issues[:50],   # cap so a totally-wrong file doesn't flood the UI
+    }

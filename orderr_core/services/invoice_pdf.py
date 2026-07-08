@@ -46,28 +46,60 @@ PLACE_OF_SUPPLY  = "Maharashtra"
 ITEM_CODE        = "CH0000000"
 OUTPUT_DIR       = Path("invoices")
 
+# Authorised-signature image. Drop the ERP's signature here (PNG, ideally with
+# a transparent or white background) and it is embedded above the signature
+# line automatically. Absent → just the blank line + "Authorised Signatory".
+SIGNATURE_PATH   = Path("orderr_core/assets/signature.png")
+
+# The ERP's "Due Amount" is the customer's running receivables balance. OrdeRR
+# has no live payments ledger yet, so we use the `customers.outstanding`
+# snapshot (imported from the Customer Outstanding sheet) as the prior balance
+# and add the current invoice total on top:
+#     Due Amount = customer.outstanding + invoice.total
+# Fallback when the customer/outstanding is unavailable → just the invoice total.
+# (see _lookup_outstanding + the totals section in generate_invoice_pdf)
+
 # ── Page geometry ─────────────────────────────────────────────────────────────
-# A4 = 595.28 × 841.89 pts.  18 mm margins → 174 mm content width.
-PAGE_W, PAGE_H = A4
+# The invoice prints on HALF an A4 sheet (A4 torn across the middle) to save
+# paper: 210 mm wide × 148.5 mm tall (landscape half). Width matches A4, so the
+# 18 mm side margins still give a 174 mm content width.
+#
+# KNOWN LIMITATION: a half-A4 sheet fits ~4-5 line items comfortably; ~6+ items
+# overflow the page and the signature/footer get clipped. There is no multi-page
+# pagination yet (the ERP spills large invoices to a second half-sheet — "Next
+# >>"). Add page-break handling here if invoices with many items become common.
+PAGE_W = A4[0]        # 210 mm
+PAGE_H = A4[1] / 2    # 148.5 mm — half of A4
 ML = 18 * mm
 MR = PAGE_W - 18 * mm
 CW = MR - ML   # exactly 174 mm
 
-# ── 9-Column table layout (widths in mm, total = 174) ─────────────────────────
-# Format: (header, x_offset_mm, width_mm, align)
+# ── 10-Column table layout — matches the Vasy ERP paper invoice exactly ───────
+# Columns: # | Description | Itemcode | Qty | UOM | Unit Price | Discount |
+#          Discount2 | Rate | Net Amount.  Widths (mm) sum to exactly 174.
+# Format: (header, width_mm, align).  Absolute x offsets are computed below.
 _COL_DEFS = [
-    ("#",           0,   5,  "center"),
-    ("Description", 5,  51,  "left"),
-    ("Itemcode",   56,  22,  "center"),
-    ("Qty",        78,  14,  "right"),
-    ("UOM",        92,  10,  "center"),
-    ("Unit Price", 102, 20,  "right"),
-    ("Discount",   122, 15,  "right"),
-    ("Discount2",  137, 16,  "right"),
-    ("Net Amount", 153, 21,  "right"),
+    ("#",            5,  "center"),
+    ("Description", 44,  "left"),
+    ("Itemcode",    20,  "center"),
+    ("Qty",         13,  "right"),
+    ("UOM",          9,  "center"),
+    ("Unit Price",  17,  "right"),
+    ("Discount",    14,  "right"),
+    ("Discount2",   15,  "right"),
+    ("Rate",        16,  "right"),
+    ("Net Amount",  21,  "right"),
 ]
-# Convert offsets to absolute x positions in points
-COLS = [(lbl, ML + x*mm, w*mm, align) for lbl, x, w, align in _COL_DEFS]
+# Column index constants (keep row/total rendering readable & correct)
+C_NUM, C_DESC, C_CODE, C_QTY, C_UOM, C_UNIT, C_DISC, C_DISC2, C_RATE, C_NET = range(10)
+
+# Convert widths to absolute (x, width) positions in points, left-to-right.
+COLS = []
+_x_mm = 0
+for _lbl, _w, _align in _COL_DEFS:
+    COLS.append((_lbl, ML + _x_mm * mm, _w * mm, _align))
+    _x_mm += _w
+assert abs(_x_mm - 174) < 0.01, f"columns must sum to 174mm, got {_x_mm}"
 
 
 def _fmt(value, decimals: int = 3) -> str:
@@ -76,6 +108,98 @@ def _fmt(value, decimals: int = 3) -> str:
     except (TypeError, ValueError):
         v = 0.0
     return f"{v:,.{decimals}f}"
+
+
+# ── Amount in words (Indian numbering) ────────────────────────────────────────
+_ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
+         "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen",
+         "Sixteen", "Seventeen", "Eighteen", "Nineteen"]
+_TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy",
+         "Eighty", "Ninety"]
+
+
+def _two_words(n: int) -> str:
+    if n < 20:
+        return _ONES[n]
+    return (_TENS[n // 10] + ((" " + _ONES[n % 10]) if n % 10 else "")).strip()
+
+
+def _three_words(n: int) -> str:
+    """0..999 → words, with 'and' before the tens like the ERP does."""
+    hundreds, rest = n // 100, n % 100
+    parts = []
+    if hundreds:
+        parts.append(_ONES[hundreds] + " Hundred")
+    if rest:
+        parts.append(("and " if hundreds else "") + _two_words(rest))
+    return " ".join(parts).strip()
+
+
+def _amount_in_words(amount) -> str:
+    """Indian-format rupees in words, e.g. 720 → 'Rupees Seven Hundred and
+    Twenty Only'. Matches the Vasy ERP invoice wording."""
+    try:
+        rupees = int(Decimal(str(amount)))
+    except Exception:
+        rupees = 0
+    if rupees == 0:
+        return "Rupees Zero Only"
+    crore, rupees = divmod(rupees, 10000000)
+    lakh,  rupees = divmod(rupees, 100000)
+    thou,  rupees = divmod(rupees, 1000)
+    parts = []
+    if crore:
+        parts.append(_two_words(crore) + " Crore")
+    if lakh:
+        parts.append(_two_words(lakh) + " Lakh")
+    if thou:
+        parts.append(_two_words(thou) + " Thousand")
+    if rupees:
+        parts.append(_three_words(rupees))
+    return "Rupees " + " ".join(p for p in parts if p).strip() + " Only"
+
+
+def _buyer_phone(phone: str) -> str:
+    """ERP prints the local 10-digit number; strip a leading 91 country code."""
+    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    return digits
+
+
+def _uom(unit: str) -> str:
+    u = (unit or "").strip().lower()
+    return {"kg": "KGS", "kgs": "KGS", "nos": "NOS", "no": "NOS"}.get(u, (unit or "").upper())
+
+
+# ── ERP product master → (item code, full ERP description) ────────────────────
+# Source: "Fluffy Fresh Foods Private Limited" product-list export. Keys are
+# OrdeRR's canonical product names (lower-cased). Unmapped products fall back to
+# the placeholder code + OrdeRR's own name, so nothing breaks.
+PRODUCT_MAP = {
+    "w/o skin tandoor chicken": ("CH1024558", "Without Skin whole chicken Tandoor"),
+    "w/o skin regular chicken": ("CH1024559", "Without Skin whole chicken Regular"),
+    "ws regular chicken":       ("CH1024561", "With Skin whole chicken Regular"),
+    "curry cut":                ("CH1024563", "Chicken Curry Cut Without Skin"),
+    "biryani cut":              ("CH1024576", "Chicken Biryani Cut"),
+    "drumstick":                ("CH1024573", "Chicken Drumstick"),
+    "whole leg":                ("CH1024572", "Chicken Whole Leg"),
+    "liver":                    ("CH1024570", "Chicken Liver"),
+    "gizzard":                  ("CH1024569", "Chicken Gizzard"),
+    "kheema":                   ("CH1024571", "Chicken Kheema"),
+    "breast boneless":          ("CH1024574", "Chicken Breast boneless"),
+    "chicken breast":           ("CH1024574", "Chicken Breast boneless"),
+    "leg boneless":             ("CH1024557", "Chicken Leg Boneless"),
+    "wings":                    ("CH1024575", "Chicken Wings with Skin"),
+    "carcass":                  ("CH1024567", "Chicken Carcass"),
+}
+
+
+def _product_info(product: str) -> tuple[str, str]:
+    """Return (item_code, description) for a product — ERP values when mapped,
+    otherwise the placeholder code and OrdeRR's own name."""
+    info = PRODUCT_MAP.get((product or "").strip().lower())
+    return info if info else (ITEM_CODE, product)
 
 
 def _barcode_bytes(text: str) -> io.BytesIO:
@@ -93,7 +217,48 @@ def _barcode_bytes(text: str) -> io.BytesIO:
     return buf
 
 
-def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
+def _lookup_address(customer_phone: str) -> str:
+    """Return '<address>,<city>' for the customer, matching the ERP's
+    'Address : ,Pune' style (empty address → just the city). Best-effort;
+    never raises."""
+    try:
+        from orderr_core.database import SessionLocal
+        from orderr_core.models.customer import Customer
+        db = SessionLocal()
+        try:
+            cust = db.query(Customer).filter(
+                Customer.phone_number == customer_phone
+            ).first()
+        finally:
+            db.close()
+        if cust:
+            return f"{(cust.address or '').strip()},{(cust.city or '').strip()}"
+    except Exception:
+        pass
+    return ""
+
+
+def _lookup_outstanding(customer_phone: str) -> Decimal:
+    """Return the customer's stored outstanding balance (prior receivables) as a
+    Decimal. Best-effort — any failure or missing customer yields 0."""
+    try:
+        from orderr_core.database import SessionLocal
+        from orderr_core.models.customer import Customer
+        db = SessionLocal()
+        try:
+            cust = db.query(Customer).filter(
+                Customer.phone_number == customer_phone
+            ).first()
+        finally:
+            db.close()
+        if cust and cust.outstanding is not None:
+            return Decimal(str(cust.outstanding))
+    except Exception:
+        pass
+    return Decimal("0")
+
+
+def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | None = None) -> str:
     """
     Render a branded A4 invoice PDF.
 
@@ -108,7 +273,7 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
     safe_name = hotel_name.strip().replace(" ", "_").replace("/", "-")
     out_path = OUTPUT_DIR / f"{safe_name}_{invoice.invoice_number}.pdf"
 
-    c = canvas.Canvas(str(out_path), pagesize=A4)
+    c = canvas.Canvas(str(out_path), pagesize=(PAGE_W, PAGE_H))
 
     # ── drawing helpers ───────────────────────────────────────────────────────
     def hline(y: float, lw: float = 0.6) -> None:
@@ -130,10 +295,10 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
             c.drawString(x + 1*mm, row_y, text)
 
     # ── 1. OUTER BORDER ───────────────────────────────────────────────────────
-    border_bot = 8*mm
+    # Top edge is fixed; the bottom is drawn in §7 once the content height is
+    # known, so the border wraps the content (compact, like the ERP) instead of
+    # boxing in the whole empty page.
     border_top = PAGE_H - 8*mm
-    c.setLineWidth(1.0)
-    c.rect(ML - 2*mm, border_bot, CW + 4*mm, border_top - border_bot)
 
     # ── 2. HEADER ─────────────────────────────────────────────────────────────
     # NOTE: must clear border_top (PAGE_H - 8mm) by more than the 14pt bold
@@ -178,9 +343,15 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
 
     LBL_W = 30*mm
 
+    # ERP prints the buyer as "NAME-<10-digit phone>".
+    _buyer = hotel_name.upper()
+    _bp = _buyer_phone(invoice.customer_phone)
+    if _bp:
+        _buyer = f"{_buyer}-{_bp}"
+
     for label, value, dy in [
-        ("Buyer",           hotel_name.upper(), 5*mm),
-        ("Place Of Supply", PLACE_OF_SUPPLY,   10*mm),
+        ("Buyer",           _buyer,          5*mm),
+        ("Place Of Supply", PLACE_OF_SUPPLY, 10*mm),
     ]:
         row_y = row_top - dy
         c.setFont("Helvetica-Bold", 8);  c.drawString(ML + 1*mm, row_y, label)
@@ -221,6 +392,7 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
     table_top = y
 
     total_qty    = Decimal("0")
+    total_rate   = Decimal("0")
     total_amount = Decimal("0")
 
     for idx, item in enumerate(invoice.items, start=1):
@@ -228,6 +400,7 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
         rate   = Decimal(str(item.rate_used))
         amount = Decimal(str(item.amount))   # stored value — never re-multiply
         total_qty    += qty
+        total_rate   += rate
         total_amount += amount
 
         row_y = y - ROW_H + 2*mm
@@ -237,17 +410,19 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
             c.rect(ML - 2*mm, y - ROW_H, CW + 4*mm, ROW_H, fill=1, stroke=0)
             c.setFillColor(colors.black)
 
+        item_code, description = _product_info(item.product)
         c.setFont("Helvetica", 7.5)
         for col_idx, text in enumerate([
             str(idx),            # #
-            item.product,        # Description
-            ITEM_CODE,           # Itemcode
+            description,         # Description (full ERP name when mapped)
+            item_code,           # Itemcode    (real ERP code when mapped)
             _fmt(qty, 3),        # Qty
-            item.unit.upper(),   # UOM
+            _uom(item.unit),     # UOM  (KGS / NOS)
             _fmt(rate, 2),       # Unit Price
             "0.00",              # Discount
             "0.00",              # Discount2
-            _fmt(amount, 3),     # Net Amount  ← now in correct last column
+            _fmt(rate, 2),       # Rate  (unit price after discounts)
+            _fmt(amount, 3),     # Net Amount
         ]):
             cell(col_idx, text, row_y)
 
@@ -255,7 +430,7 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
         c.setLineWidth(0.2)
         c.line(ML - 2*mm, y, MR + 2*mm, y)
 
-    # Total row
+    # Total row — mirrors the ERP (sums Qty, Unit Price, Discounts, Net Amount)
     total_row_y = y - ROW_H + 2*mm
     c.setFillColor(colors.HexColor("#f0f0f0"))
     c.rect(ML - 2*mm, y - ROW_H, CW + 4*mm, ROW_H, fill=1, stroke=0)
@@ -263,13 +438,14 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
     c.setFont("Helvetica-Bold", 7.5)
 
     # "Total :" label right-aligned inside Itemcode column
-    _, x2, w2, _ = COLS[2]
+    _, x2, w2, _ = COLS[C_CODE]
     c.drawRightString(x2 + w2 - 1*mm, total_row_y, "Total :")
 
-    cell(3, _fmt(total_qty, 3),    total_row_y)   # Qty total
-    cell(6, "0.000",               total_row_y)   # Discount total
-    cell(7, "0.000",               total_row_y)   # Discount2 total
-    cell(8, _fmt(total_amount, 3), total_row_y)   # Net Amount total
+    cell(C_QTY,   _fmt(total_qty, 3),    total_row_y)   # Qty total
+    cell(C_UNIT,  _fmt(total_rate, 3),   total_row_y)   # Unit Price total
+    cell(C_DISC,  "0.000",               total_row_y)   # Discount total
+    cell(C_DISC2, "0.000",               total_row_y)   # Discount2 total
+    cell(C_NET,   _fmt(total_amount, 3), total_row_y)   # Net Amount total
 
     y -= ROW_H
 
@@ -280,44 +456,77 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str) -> str:
 
     hline(y, lw=0.8)
 
-    # ── 5. CUSTOMER DETAILS (left) + TOTALS (right) ───────────────────────────
+    # ── 5. AMOUNT-IN-WORDS + CUSTOMER DETAILS (left) + TOTALS (right) ──────────
     section_top = y
     total_val = Decimal(str(invoice.total))
 
-    # Right — financial summary
+    # Left — amount in words (aligned with the Total row), then customer details
+    if address is None:
+        address = _lookup_address(invoice.customer_phone)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(ML + 1*mm, section_top - 5*mm, _amount_in_words(total_val))
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(ML + 1*mm, section_top - 12*mm, "CUSTOMER DETAILS")
+    c.setFont("Helvetica", 8)
+    c.drawString(ML + 1*mm, section_top - 17*mm, f"Address : {address}")
+
+    # Right — financial summary (Total / Additional Charge / Round Off / Due)
     c.setFont("Helvetica", 8)
     for label, value, dy in [
-        ("Total :",             _fmt(total_val, 3), 5*mm),
-        ("Additional Charge :", "0.00",             10*mm),
-        ("Round Off :",         "0.000",            15*mm),
+        ("Total :",             _fmt(total_val, 3),       5*mm),
+        ("Additional Charge :", "0.00",                   10*mm),
+        ("Round Off :",         "0.000",                  15*mm),
     ]:
         row_y = section_top - dy
         c.drawString(col_div + 1*mm, row_y, label)
         c.drawRightString(MR, row_y, value)
 
-    # Left — customer info (name + phone separately)
+    # Due Amount — prior outstanding balance (snapshot from the Customer
+    # Outstanding sheet) rolled up with the current invoice total.
+    prior_outstanding = _lookup_outstanding(invoice.customer_phone)
+    due_total = prior_outstanding + total_val
+    due_y = section_top - 22*mm
     c.setFont("Helvetica-Bold", 8)
-    c.drawString(ML + 1*mm, section_top - 5*mm, "CUSTOMER DETAILS")
-    c.setFont("Helvetica", 8)
-    c.drawString(ML + 1*mm, section_top - 10*mm, f"Name  : {hotel_name}")
-    c.drawString(ML + 1*mm, section_top - 15*mm, f"Phone : {invoice.customer_phone}")
+    c.drawString(col_div + 1*mm, due_y, "Due Amount :")
+    c.drawRightString(MR, due_y, _fmt(due_total, 3))
 
-    y = section_top - 18*mm
+    y = section_top - 26*mm
     vline(col_div, section_top, y, lw=0.5)
     hline(y, lw=0.6)
 
-    # ── 6. SIGNATURE ──────────────────────────────────────────────────────────
-    y -= 3*mm
-    c.setFont("Helvetica", 8)
-    c.drawRightString(MR, y, "For, Fluffy Fresh Foods Private Limited")
-    y -= 18*mm
-    c.setLineWidth(0.5)
-    c.line(MR - 45*mm, y, MR, y)
-    c.setFont("Helvetica", 8)
-    c.drawRightString(MR, y - 4*mm, "Authorised Signatory")
+    # ── 6. SIGNATURE (centered in the right half, like the ERP) ───────────────
+    right_center = (col_div + MR) / 2
+    y -= 4*mm
+    c.setFont("Helvetica-Bold", 8)
+    c.drawCentredString(right_center, y, "For, Fluffy Fresh Foods Private Limited")
 
-    # ── 7. FOOTER ─────────────────────────────────────────────────────────────
-    footer_y = border_bot + 3*mm
+    line_y = y - 18*mm
+    # Embed the scanned authorised signature just above the line, if present.
+    if SIGNATURE_PATH.exists():
+        try:
+            sig_w, sig_h = 30*mm, 13*mm
+            sig = ImageReader(str(SIGNATURE_PATH))
+            c.drawImage(sig, right_center - sig_w / 2, line_y + 1*mm,
+                        width=sig_w, height=sig_h,
+                        preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+
+    c.setLineWidth(0.5)
+    c.line(right_center - 22*mm, line_y, right_center + 22*mm, line_y)
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(right_center, line_y - 4*mm, "Authorised Signatory")
+    sign_bottom = line_y - 4*mm
+
+    # ── 7. FOOTER + compact outer border ──────────────────────────────────────
+    # Footer sits just below the signature; the outer border is closed here so
+    # it wraps the content rather than the whole page (no large empty box).
+    footer_y   = sign_bottom - 10*mm
+    border_bot = footer_y - 4*mm
+
+    c.setLineWidth(1.0)
+    c.rect(ML - 2*mm, border_bot, CW + 4*mm, border_top - border_bot)
+
     hline(footer_y + 4*mm, lw=0.4)
     c.setFont("Helvetica", 7)
     c.drawString(ML, footer_y, "This is a computer generated invoice.")

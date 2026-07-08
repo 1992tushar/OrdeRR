@@ -69,12 +69,12 @@ def merge_items(items: list) -> list:
     return list(merged.values())
 
 
-def get_todays_customer_notes(db: Session) -> list[dict]:
-    today = datetime.now(IST).date()
+def get_todays_customer_notes(db: Session, target_date: date | None = None) -> list[dict]:
+    day = target_date if target_date is not None else datetime.now(IST).date()
     note_messages = (
         db.query(InboundMessage)
         .filter(
-            func.date(InboundMessage.received_at) == today,
+            func.date(InboundMessage.received_at) == day,
             InboundMessage.processing_status == "NOTE",
             InboundMessage.is_duplicate == False,
         )
@@ -97,13 +97,17 @@ def get_todays_customer_notes(db: Session) -> list[dict]:
     return notes
 
 
-def generate_daily_report(db: Session) -> dict:
+def generate_daily_report(db: Session, target_date: date | None = None) -> dict:
     now_ist   = datetime.now(IST)
-    today_str = get_current_business_date_str()
-    date_str  = now_ist.strftime("%d %B %Y")
+    if target_date is None:
+        business_date_str = get_current_business_date_str()
+        date_str          = now_ist.strftime("%d %B %Y")
+    else:
+        business_date_str = target_date.strftime("%Y-%m-%d")
+        date_str          = target_date.strftime("%d %B %Y")
 
     orders = db.query(Order).filter(
-        Order.business_date == today_str,
+        Order.business_date == business_date_str,
         Order.is_cancelled  == False,
     ).all()
 
@@ -263,10 +267,10 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
 
   body {{
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 13px;
+    font-size: 12px;
     color: #1a1a1a;
     background: #fff;
-    padding: 24px 32px;
+    padding: 18px 22px;
   }}
 
   /* ── Header ── */
@@ -295,7 +299,7 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   }}
 
   /* ── Sections ── */
-  .section {{ margin-bottom: 28px; }}
+  .section {{ margin-bottom: 16px; }}
   .section-title {{
     font-size: 12px;
     font-weight: 700;
@@ -331,26 +335,37 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   .data-table tr:last-child td {{ border-bottom: none; }}
 
   /* ── Column widths ── */
-  .product-name   {{ padding: 8px 8px; width: 55%; }}
-  .qty-ordered    {{ padding: 8px 8px; width: 20%; font-weight: 600; }}
-  .qty-delivered  {{ padding: 6px 8px; width: 25%; }}
+  .product-name   {{ padding: 3px 8px; width: 55%; }}
+  .qty-ordered    {{ padding: 3px 8px; width: 20%; font-weight: 600; }}
+  .qty-delivered  {{ padding: 3px 8px; width: 25%; }}
 
-  /* ── Write box (blank for pen) ── */
+  /* ── Write box (blank for pen — kept generous so the photo/OCR stays legible) ── */
   .write-box {{
     border-bottom: 1.5px solid #333;
-    height: 22px;
+    height: 18px;
     width: 90%;
   }}
 
-  /* ── Hotel blocks ── */
-  .hotel-block {{ margin-bottom: 18px; }}
+  /* ── Hotel blocks — 2-column grid for print density (≈18-22 hotels/page) ── */
+  /* Each block is self-contained (name + its items) and never splits across a  */
+  /* column or page break, so the photograph→OCR→billing flow is unaffected.    */
+  .hotel-grid {{
+    column-count: 2;
+    column-gap: 18px;
+  }}
+  .hotel-block {{
+    margin: 0 0 8px;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    page-break-inside: avoid;
+  }}
   .hotel-name {{
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     background: #f5f5f5;
-    padding: 6px 8px;
+    padding: 3px 7px;
     border-left: 4px solid #1a1a1a;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
   }}
 
   /* ── Footer ── */
@@ -368,7 +383,9 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   .sign-row {{
     display: flex;
     gap: 40px;
-    margin-top: 40px;
+    margin-top: 24px;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }}
   .sign-box {{
     flex: 1;
@@ -425,10 +442,10 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   </table>
 </div>
 
-<!-- Section 2: Hotel-wise Orders -->
+<!-- Section 2: Hotel-wise Orders (2-column grid — see .hotel-grid) -->
 <div class="section">
   <div class="section-title">Hotel-wise Orders</div>
-  {hotel_sections}
+  <div class="hotel-grid">{hotel_sections}</div>
 </div>
 
 {unclear_section}

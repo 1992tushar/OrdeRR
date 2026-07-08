@@ -31,9 +31,9 @@ import re
 import json
 import logging
 from datetime import date, datetime, timezone, timedelta
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -51,6 +51,7 @@ from orderr_core.services.notifier import send_whatsapp_message
 from orderr_core.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 from orderr_core.services.template_parser import PRODUCT_DEFINITIONS
 from orderr_core.services.customer_service import create_customer_manually
+from orderr_core.services.customer_service import import_customers_from_xlsx
 from orderr_core.services.order_service import process_incoming_order
 from orderr_core.services.order_service import get_current_business_date_str, RESET_HOUR
 from orderr_core.services.notifier import send_manager_alert
@@ -108,6 +109,17 @@ class CustomerEdit(BaseModel):
     area:                     Optional[str]  = None
     salesperson_id:           Optional[int]  = None
     is_daily_order_customer:  Optional[bool] = None
+
+class CustomerBulkStatus(BaseModel):
+    """Bulk activate/deactivate a set of customers."""
+    customer_ids: List[int]
+    is_active: bool
+
+class CustomerBulkAssign(BaseModel):
+    """Bulk assign area and/or salesperson to a set of customers."""
+    customer_ids: List[int]
+    salesperson_id: Optional[int] = None
+    area: Optional[str] = None
 
 class NextDayOverride(BaseModel):
     is_next_day: bool
@@ -675,6 +687,8 @@ def _customer_row(c: Customer, db: Session) -> dict:
         "is_active": c.is_active,
         "is_daily_order_customer": c.is_daily_order_customer,
         "created_at": c.created_at.isoformat() if c.created_at else None,
+        "outstanding": float(c.outstanding) if c.outstanding is not None else 0.0,
+        "has_phone": bool(c.phone_number),
     }
 
 
@@ -699,6 +713,35 @@ def list_customers(db: Session = Depends(get_db), username: str = Depends(requir
         row["ordered_today"] = c.phone_number in ordered_today
         result.append(row)
     return {"customers": result, "total": len(result)}
+
+
+@router.post("/customers/import")
+async def import_customers(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """
+    Bulk-import customers from a 'Customer Outstanding' .xlsx export.
+    Upserts by phone (or name for phone-less rows); refreshes outstanding.
+    """
+    fname = (file.filename or "").lower()
+    if not fname.endswith((".xlsx", ".xlsm")):
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload an Excel .xlsx file (the Customer Outstanding export).",
+        )
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    try:
+        summary = import_customers_from_xlsx(db, contents)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Customer import failed")
+        raise HTTPException(status_code=500, detail=f"Import failed: {e}")
+    return {"status": "ok", "summary": summary}
 
 
 @router.get("/customers/unassigned")
@@ -788,6 +831,59 @@ def get_customer_orders(customer_id: int, db: Session = Depends(get_db), usernam
         "phone_number"   : customer.phone_number,
         "total_orders"   : len(result),
         "orders"         : result,
+    }
+
+
+@router.put("/customers/bulk/status")
+def bulk_update_customer_status(
+    payload: CustomerBulkStatus,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Activate/deactivate multiple customers in one call."""
+    ids = list(dict.fromkeys(payload.customer_ids))  # de-dupe, preserve order
+    if not ids:
+        raise HTTPException(status_code=400, detail="No customers selected")
+    customers = db.query(Customer).filter(Customer.id.in_(ids)).all()
+    for c in customers:
+        c.is_active = payload.is_active
+    db.commit()
+    return {
+        "status": "updated",
+        "updated": len(customers),
+        "requested": len(ids),
+        "is_active": payload.is_active,
+    }
+
+
+@router.post("/customers/bulk/assign")
+def bulk_assign_customers(
+    payload: CustomerBulkAssign,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Assign area and/or salesperson to multiple customers in one call."""
+    ids = list(dict.fromkeys(payload.customer_ids))  # de-dupe, preserve order
+    if not ids:
+        raise HTTPException(status_code=400, detail="No customers selected")
+    area = payload.area.strip() if payload.area is not None else None
+    if not area and payload.salesperson_id is None:
+        raise HTTPException(status_code=400, detail="Provide area or salesperson_id")
+    if payload.salesperson_id is not None:
+        sp = db.query(Salesperson).filter(Salesperson.id == payload.salesperson_id).first()
+        if not sp:
+            raise HTTPException(status_code=404, detail=f"Salesperson id={payload.salesperson_id} not found")
+    customers = db.query(Customer).filter(Customer.id.in_(ids)).all()
+    for c in customers:
+        if area:
+            c.area = area
+        if payload.salesperson_id is not None:
+            c.salesperson_id = payload.salesperson_id
+    db.commit()
+    return {
+        "status": "assigned",
+        "updated": len(customers),
+        "requested": len(ids),
     }
 
 
@@ -1528,10 +1624,17 @@ def list_customer_aliases(db: Session = Depends(get_db), username: str = Depends
         .order_by(CustomerProductAlias.customer_phone, CustomerProductAlias.raw_text)
         .all()
     )
+    # Resolve each alias's phone → restaurant name in one query.
+    phones = {a.customer_phone for a in aliases}
+    name_map = {
+        c.phone_number: c.restaurant_name
+        for c in db.query(Customer).filter(Customer.phone_number.in_(phones)).all()
+    } if phones else {}
     return [
         {
             "id":                     a.id,
             "customer_phone":         a.customer_phone,
+            "customer_name":          name_map.get(a.customer_phone) or None,
             "raw_text":               a.raw_text,
             "canonical_product_name": a.canonical_product_name,
             "created_at":             a.created_at.isoformat() if a.created_at else None,
@@ -1621,11 +1724,20 @@ def test_daily_report(db: Session = Depends(get_db), username: str = Depends(req
 
 @router.get("/download-production-report")
 def download_production_report(
+    view_date: Optional[str] = None,
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    data  = generate_daily_report(db)
-    notes = get_todays_customer_notes(db)
+    # Honor the dashboard's selected date; fall back to today on missing/bad input.
+    target_date = None
+    if view_date:
+        try:
+            target_date = date.fromisoformat(view_date)
+        except ValueError:
+            target_date = None
+
+    data  = generate_daily_report(db, target_date=target_date)
+    notes = get_todays_customer_notes(db, target_date=target_date)
     html  = _build_print_html(data, notes)
     date_slug = data["date_str"].replace(" ", "_")
     filename  = f"production_report_{date_slug}.html"

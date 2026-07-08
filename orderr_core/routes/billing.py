@@ -49,6 +49,7 @@ from orderr_core.services.invoice_generator import (
     generate_invoice,
 )
 from orderr_core.services.invoice_pdf import generate_invoice_pdf
+from orderr_core.services.order_service import get_current_business_date_str
 from orderr_core.services.ocr_actuals_parser import parse_claude_hotel_rows
 from orderr_core.services.ocr_engine import OCREngineError, get_production_report_engine
 from orderr_core.services.rate_lookup import get_rate
@@ -60,7 +61,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 templates = Jinja2Templates(directory="orderr_core/templates")
 
-_today = date.today
+def _today() -> date:
+    """Billing 'today' = the current BUSINESS date (rolls over at the 8 PM
+    cutoff), matching the Orders/Rates tabs. Using the plain calendar date here
+    made Billing lag Orders by a day after the cutoff."""
+    return date.fromisoformat(get_current_business_date_str())
 
 ORDER_TIME_UNCLEAR_REASON = "Unclear at order time (could not parse product/quantity)"
 
@@ -221,15 +226,27 @@ async def api_save_customer_rate(request: Request, db: Session = Depends(get_db)
 # ---------------------------------------------------------------------------
 
 def _ensure_order_seeded(db: Session, order_id: int, parsed_items: list, unclear_items: list) -> None:
-    already_seeded = db.scalar(
-        select(func.count()).select_from(OrderItemActual).where(OrderItemActual.order_id == order_id)
-    )
-    if already_seeded:
-        return
-
+    """Mirror the order's CURRENT parsed_items / unclear_items into billing's
+    OrderItemActual + OcrUnmatchedLine tables. Runs on every view and is
+    idempotent, but — unlike the old seed-once version — it also *reconciles*
+    changes the order-side unclear-items flow makes after billing first saw the
+    order. Without this, a line the order has since resolved (moved into
+    parsed_items and cleared from unclear_items) would keep being demanded in
+    billing forever, because billing snapshotted it once and never looked again.
+    """
+    # ── 1. Seed parsed_items → actuals, per product. Doing this per-product
+    #       (rather than only on the very first view) means a product the order
+    #       flow adds later — e.g. when an unclear line is resolved into a real
+    #       product — is picked up on the next billing view. Existing actuals
+    #       (and their confirmed delivered quantities) are never touched.
+    existing_products = {
+        a.product for a in db.scalars(
+            select(OrderItemActual).where(OrderItemActual.order_id == order_id)
+        ).all()
+    }
     for it in (parsed_items or []):
         product = (it.get("product") or "").strip()
-        if not product:
+        if not product or product in existing_products:
             continue
         try:
             qty = Decimal(str(it.get("quantity") or 0))
@@ -249,26 +266,36 @@ def _ensure_order_seeded(db: Session, order_id: int, parsed_items: list, unclear
             confirmed_by=None,
             confirmed_at=None,
         ))
+        existing_products.add(product)
 
-    # Already-seeded check above means this only ever runs once per order,
-    # so it's safe to insert unclear_items here too without dup risk.
-    already_has_unclear = db.scalar(
-        select(func.count()).select_from(OcrUnmatchedLine).where(
+    # ── 2. Reconcile order-time unclear lines with the order's CURRENT
+    #       unclear_items. Add lines that newly appeared; auto-resolve lines the
+    #       order no longer considers unclear (the order flow already handled
+    #       them) so billing stops asking for input on an already-cleared line.
+    current_unclear = {str(r).strip() for r in (unclear_items or []) if str(r).strip()}
+    seeded_lines = db.scalars(
+        select(OcrUnmatchedLine).where(
             OcrUnmatchedLine.order_id == order_id,
             OcrUnmatchedLine.reason == ORDER_TIME_UNCLEAR_REASON,
         )
-    )
-    if not already_has_unclear:
-        for raw in (unclear_items or []):
-            raw_text = str(raw).strip()
-            if not raw_text:
-                continue
+    ).all()
+    seeded_raw = {line.raw_line.strip() for line in seeded_lines}
+
+    for raw in current_unclear:
+        if raw not in seeded_raw:
             db.add(OcrUnmatchedLine(
                 order_id=order_id,
-                raw_line=raw_text,
+                raw_line=raw,
                 reason=ORDER_TIME_UNCLEAR_REASON,
                 resolved=False,
             ))
+
+    now = datetime.now(timezone.utc)
+    for line in seeded_lines:
+        if not line.resolved and line.raw_line.strip() not in current_unclear:
+            line.resolved    = True
+            line.resolved_by = "order_flow_sync"
+            line.resolved_at = now
 
     db.commit()
 
@@ -493,17 +520,25 @@ def _build_hotel_record(db: Session, hotel_name: str, order_id: int) -> dict:
         select(Invoice).where(Invoice.order_id == order_id)
     ).first()
 
-    customer_row = db.execute(
-        text("""
-            SELECT phone_number FROM customers
-            WHERE LOWER(restaurant_name) LIKE LOWER(:pattern)
-              AND is_active = TRUE
-            ORDER BY id DESC
-            LIMIT 1
-        """),
-        {"pattern": f"%{hotel_name}%"},
-    ).fetchone()
-    customer_phone = customer_row[0] if customer_row else (order_phone or "")
+    # The order already knows its customer — that is authoritative. Only fall
+    # back to a name lookup if the order somehow has no phone on record. The old
+    # code did the reverse (name LIKE first), which picked the wrong customer
+    # when two restaurant names collided (e.g. "SAIRAT BIRYANI" also matched
+    # "Sairat Biryani Ravet", and ORDER BY id DESC chose the wrong one).
+    if order_phone:
+        customer_phone = order_phone
+    else:
+        customer_row = db.execute(
+            text("""
+                SELECT phone_number FROM customers
+                WHERE LOWER(restaurant_name) = LOWER(:name)
+                  AND is_active = TRUE
+                ORDER BY id DESC
+                LIMIT 1
+            """),
+            {"name": hotel_name},
+        ).fetchone()
+        customer_phone = customer_row[0] if customer_row else ""
 
     actuals = db.scalars(
         select(OrderItemActual).where(OrderItemActual.order_id == order_id)
@@ -530,14 +565,20 @@ def _build_hotel_record(db: Session, hotel_name: str, order_id: int) -> dict:
 
     has_needs_review = any(i["needs_review"] for i in items_out)
     has_unmatched     = len(unmatched_lines) > 0
+    any_actual_null   = any(i["actual_qty"] is None for i in items_out)
     all_actuals_null  = len(items_out) == 0 or all(i["actual_qty"] is None for i in items_out)
 
     if existing_invoice:
         status = "invoiced"
     elif all_actuals_null:
-        # Order exists, items seeded, but no delivery (photo) confirmation yet.
+        # Order exists, items seeded, but no delivery confirmation yet.
         status = "pending"
-    elif has_needs_review or has_unmatched:
+    elif has_needs_review or has_unmatched or any_actual_null:
+        # Partially confirmed counts as "needs attention", not "clear". Items
+        # seeded from orderr_core start with actual_qty=NULL and confidence=NULL
+        # (so they never trip needs_review); confirming ONE item must NOT flip
+        # the whole hotel to Ready while the rest have no delivered quantity —
+        # otherwise generate_invoice bills their ordered qty as if delivered.
         status = "unclear"
     else:
         status = "clear"
@@ -629,6 +670,49 @@ async def api_fix_item(request: Request, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# confirm-items — confirm every delivered quantity for one order in a single
+# atomic write. Backs the one-button-per-hotel flow: validate the whole batch
+# first, then apply, so a bad row never leaves the order half-confirmed.
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/confirm-items")
+async def api_confirm_items(request: Request, db: Session = Depends(get_db)):
+    body         = await request.json()
+    confirmed_by = (body.get("confirmed_by") or "plant_manager").strip()
+    items        = body.get("items") or []
+
+    if not items:
+        return JSONResponse(status_code=400, content={"error": "No items to confirm"})
+
+    # Pass 1: resolve + validate everything before touching any row.
+    resolved: list[tuple[OrderItemActual, Decimal]] = []
+    for entry in items:
+        actual_id = entry.get("actual_id")
+        actual    = db.get(OrderItemActual, actual_id)
+        if not actual:
+            return JSONResponse(status_code=404, content={"error": f"Item {actual_id} not found"})
+        try:
+            qty = Decimal(str(entry.get("actual_qty")))
+        except Exception:
+            return JSONResponse(status_code=400, content={"error": f"Invalid quantity for {actual.product}"})
+        if qty <= 0:
+            return JSONResponse(status_code=400, content={"error": f"Quantity for {actual.product} must be greater than 0"})
+        resolved.append((actual, qty))
+
+    # Pass 2: apply.
+    now = datetime.now(timezone.utc)
+    for actual, qty in resolved:
+        actual.actual_quantity = qty
+        actual.actual_unit     = actual.actual_unit or actual.ordered_unit
+        actual.confidence      = "auto"
+        actual.confirmed_by    = confirmed_by
+        actual.confirmed_at    = now
+
+    db.commit()
+    return {"ok": True, "confirmed": [a.id for a, _ in resolved]}
+
+
+# ---------------------------------------------------------------------------
 # resolve-unmatched — now also resolves order-time unclear_items, not just OCR
 # ---------------------------------------------------------------------------
 
@@ -707,7 +791,7 @@ async def api_generate_invoice(request: Request, db: Session = Depends(get_db)):
     body              = await request.json()
     order_id          = body.get("order_id")
     customer_phone    = (body.get("customer_phone") or "").strip()
-    business_date_str = body.get("business_date") or date.today().isoformat()
+    business_date_str = body.get("business_date") or _today().isoformat()
 
     try:
         business_date = date.fromisoformat(business_date_str)

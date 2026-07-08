@@ -17,6 +17,7 @@ amount = actual_quantity × rate_used  (full Decimal precision, no rounding).
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -28,7 +29,10 @@ from sqlalchemy.orm import Session
 from orderr_core.models.invoice import Invoice, InvoiceItem
 from orderr_core.models.actuals import OrderItemActual
 from orderr_core.models.rate_unclear import RateUnclearItem
+from orderr_core.models.order import Order
 from orderr_core.services.rate_lookup import get_rate
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +70,23 @@ def generate_invoice(
             f"Invoice {existing.invoice_number} already exists for order {order_id}."
         )
 
+    # ── 0b. Authoritative customer ──────────────────────────────────────────
+    # The invoice belongs to the order's customer — that is the single source of
+    # truth. Callers pass a customer_phone, but fuzzy name-based lookups upstream
+    # can resolve the wrong customer when two names collide (e.g. "SAIRAT BIRYANI"
+    # vs "Sairat Biryani Ravet"). Always take the phone from the order itself so
+    # the invoice record — and the per-customer rate lookup below — can never be
+    # stamped with a different customer than the order.
+    order = db.scalar(select(Order).where(Order.id == order_id))
+    if order and order.customer_phone:
+        if customer_phone and customer_phone != order.customer_phone:
+            logger.warning(
+                "generate_invoice: passed customer_phone %r != order.customer_phone %r "
+                "for order %s — using the order's phone.",
+                customer_phone, order.customer_phone, order_id,
+            )
+        customer_phone = order.customer_phone
+
     # ── 1. Load actuals ─────────────────────────────────────────────────────
     actuals: list[OrderItemActual] = db.scalars(
         select(OrderItemActual).where(OrderItemActual.order_id == order_id)
@@ -84,6 +105,21 @@ def generate_invoice(
         raise InvoiceHoldError(
             f"Cannot generate invoice: actuals not confirmed for [{products}]. "
             "Resolve in the Unclear Actuals queue before billing."
+        )
+
+    # ── 2b. Hold: delivered quantity never confirmed ────────────────────────
+    # actual_quantity stays NULL until someone confirms what was physically
+    # delivered. Items seeded from orderr_core don't trip the needs_review
+    # check above (their confidence is NULL, not 'needs_review'), so this is
+    # the guard that stops an order being billed when only SOME items were
+    # confirmed. Billing the ordered quantity as if delivered silently
+    # over/under-bills whenever delivery differs from the order.
+    missing_actual = [a for a in actuals if a.actual_quantity is None]
+    if missing_actual:
+        products = ", ".join(a.product for a in missing_actual)
+        raise InvoiceHoldError(
+            f"Cannot generate invoice: delivered quantity not confirmed for [{products}]. "
+            "Enter the delivered quantity for every item before billing."
         )
 
     # ── 3. Hold: unclear rates ──────────────────────────────────────────────
@@ -113,7 +149,10 @@ def generate_invoice(
     subtotal = Decimal("0")
 
     for actual in actuals:
-        qty = Decimal(str(actual.actual_quantity or actual.ordered_quantity))
+        # Guaranteed non-null by the hold above. Use it directly rather than
+        # `actual_quantity or ordered_quantity` — the `or` would fall back to
+        # the ordered qty for a legitimate 0-delivered item.
+        qty = Decimal(str(actual.actual_quantity))
         unit = actual.actual_unit or actual.ordered_unit
 
         rr = get_rate(

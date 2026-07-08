@@ -57,7 +57,19 @@ tbody tr:hover { background: var(--brass-soft); }
 .toast.show { opacity: 1; transform: translateY(0); }
 .form-actions { display: flex; gap: 10px; margin-top: 4px; }
 .label { font-size: 11px; text-transform: uppercase; color: #8a8f98; }
-@media (max-width: 640px) { .topbar { flex-direction: column; align-items: flex-start; } .tabs { width: 100%; overflow-x: auto; } }
+@media (max-width: 640px) {
+  .app { padding: 0 12px 48px; }
+  .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .tabs { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { white-space: nowrap; }
+  .brand-text h1 { font-size: 21px; }
+  .card { padding: 16px 14px; }
+  main { padding-top: 20px; }
+  /* Wide multi-column tables scroll horizontally within their card instead of
+     overflowing the page. Single-column / detail tables are untouched. */
+  .data-tbl { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+}
 </style>
 </head>
 <body>
@@ -196,6 +208,23 @@ function renderDashboardTable(rows) {
       renderDashboardTable(rows);
     });
   });
+  view.querySelectorAll('[data-recover-emp]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();   // don't collapse the row
+      const amount = prompt(
+        "Recover how much this month? (pre-filled with the balance — edit down to whatever they're paying)",
+        btn.dataset.outstanding || ''
+      );
+      if (amount === null || amount.trim() === '') return;
+      const val = Number(amount);
+      if (!(val > 0)) { toast('Enter a positive amount'); return; }
+      try {
+        await api(`/employees/${btn.dataset.recoverEmp}/recover-advance`, { method: 'POST', body: JSON.stringify({ amount: val }) });
+        toast('Advance recovery recorded');
+        renderDashboard();   // re-fetch; employee stays expanded
+      } catch (err) { toast(err.message); }
+    });
+  });
 }
 
 function employeeDetailHtml(r) {
@@ -205,6 +234,7 @@ function employeeDetailHtml(r) {
       <div><div class="label">Joining date</div>${fmtDate(r.join_date)}</div>
       <div><div class="label">Monthly salary</div>${money(r.monthly_salary)}</div>
       <div><div class="label">Leave used</div>${r.leave_used} day${r.leave_used === 1 ? '' : 's'}</div>
+      <div><div class="label">Complementary</div>${r.complementary_used || 0} day${(r.complementary_used || 0) === 1 ? '' : 's'}</div>
       <div><div class="label">Advance given</div>
         ${r.outstanding_advance > 0
           ? `<span class="pill debit">${money(r.outstanding_advance)}</span>`
@@ -216,6 +246,12 @@ function employeeDetailHtml(r) {
           : `<span class="pill credit">${money(r.pay_amount)}${r.first_pay_date ? ` from ${fmtDate(r.first_pay_date)}` : ''}</span>`}
       </div>
     </div>
+    ${(r.show_current_month && ((r.current_month_leave_days || 0) + (r.current_month_complementary_days || 0)) > 0) ? `
+      <div style="margin-top:4px; padding:8px 12px; background:#fff8e6; border:1px solid #e8d38a; border-radius:6px; font-size:13px; color:#5a4a12;">
+        <b>${escapeHtml(r.current_month_label)} so far:</b>
+        ${r.current_month_leave_days} chargeable day${r.current_month_leave_days === 1 ? '' : 's'}${(r.current_month_complementary_days || 0) > 0 ? ` + ${r.current_month_complementary_days} complementary` : ''}
+        — not in the payslip above; will apply on the ${fmtDate(r.current_month_applies_on)} payslip.
+      </div>` : ''}
     ${breakdownHtml(r)}
   `;
 }
@@ -227,8 +263,25 @@ function breakdownHtml(r) {
     ['Gross salary', money(b.gross_salary), false],
     [`Leave deduction — ${b.leave_days_deducted} day${b.leave_days_deducted === 1 ? '' : 's'} × ${money(b.per_day_rate)}/day (${fmtDate(b.covered_period_start)} – ${fmtDate(b.covered_period_end)})`,
       b.leave_deduction_amount > 0 ? `− ${money(b.leave_deduction_amount)}` : money(0), true],
-    ['Advance deduction', b.advance_deduction_amount > 0 ? `− ${money(b.advance_deduction_amount)}` : money(0), true],
   ];
+  if (b.complementary_leave_days > 0) {
+    rows.push([`Complementary leave — ${b.complementary_leave_days} day${b.complementary_leave_days === 1 ? '' : 's'} (no salary cut)`, money(0), false]);
+  }
+
+  const recovered      = b.recovered_this_month || 0;
+  const balanceRemain  = b.advance_outstanding || 0;      // after this month's recovery
+  const balanceBefore  = balanceRemain + recovered;        // before it
+  const hasAdvance     = balanceBefore > 0;
+
+  if (hasAdvance) {
+    rows.push(['Salary payable (gross − leave)', money(b.salary_payable), false]);
+    rows.push(['Advance balance before recovery', money(balanceBefore), false]);
+    rows.push(['Recovered this month', recovered > 0 ? `− ${money(recovered)}` : money(0), true]);
+  }
+
+  const finalLabel = hasAdvance ? 'Take-home this month' : 'Net payable';
+  const finalVal   = money(hasAdvance ? b.take_home : b.salary_payable);
+
   return `
     <div style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px;">
       <div class="label" style="margin-bottom:8px;">Payable breakdown</div>
@@ -241,11 +294,23 @@ function breakdownHtml(r) {
             </tr>
           `).join('')}
           <tr>
-            <td style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">Net payable</td>
-            <td class="num" style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">${money(b.net_payable)}</td>
+            <td style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">${finalLabel}</td>
+            <td class="num" style="padding:8px 0 0; border-top:1px solid var(--line); font-weight:700;">${finalVal}</td>
           </tr>
+          ${hasAdvance ? `
+          <tr>
+            <td style="padding:4px 0 0; color:var(--muted); font-size:12px;">Advance balance remaining</td>
+            <td class="num" style="padding:4px 0 0; color:var(--muted); font-size:12px;">${money(balanceRemain)}</td>
+          </tr>` : ''}
         </tbody>
       </table>
+      ${balanceRemain > 0 ? `
+      <div style="margin-top:10px;">
+        <button data-recover-emp="${r.id}" data-outstanding="${balanceRemain}"
+          style="padding:6px 14px; background:var(--ink); color:#fff; border:none; border-radius:6px; font-size:13px; cursor:pointer;">
+          ↩ Recover advance this month
+        </button>
+      </div>` : ''}
     </div>
   `;
 }
@@ -274,7 +339,7 @@ async function renderEmployees() {
     <div class="card">
       <h2><span class="eyebrow">Roster</span> Employees</h2>
       ${employeesCache.length === 0 ? `<div class="empty">No employees yet — add the first one above.</div>` : `
-      <table>
+      <table class="data-tbl">
         <thead><tr><th>Name</th><th>Phone</th><th class="num">Salary</th><th></th></tr></thead>
         <tbody>
           ${employeesCache.map(e => `
@@ -315,6 +380,17 @@ async function renderAdvances() {
   view.innerHTML = `<div class="empty">Loading…</div>`;
   await loadEmployees();
   const advances = await api('/advances');
+
+  // Pooled per-employee balance (advances are recovered as one balance, not
+  // per-loan) — total advanced / recovered / outstanding.
+  const byEmp = {};
+  for (const a of advances) {
+    if (!byEmp[a.employee_id]) byEmp[a.employee_id] = { name: a.employee_name, advanced: 0, recovered: 0 };
+    byEmp[a.employee_id].advanced  += a.amount;
+    byEmp[a.employee_id].recovered += a.repaid_amount;
+  }
+  const empSummary = Object.values(byEmp).sort((x, y) => (y.advanced - y.recovered) - (x.advanced - x.recovered));
+
   view.innerHTML = `
     <div class="card">
       <h2><span class="eyebrow">New</span> Record an advance</h2>
@@ -331,10 +407,26 @@ async function renderAdvances() {
         <div class="form-actions"><button type="submit">Record advance</button></div>
       </form>`}
     </div>
+    ${empSummary.length ? `
+    <div class="card">
+      <h2><span class="eyebrow">Summary</span> Outstanding by employee</h2>
+      <table class="data-tbl">
+        <thead><tr><th>Employee</th><th class="num">Total advanced</th><th class="num">Recovered</th><th class="num">Outstanding</th></tr></thead>
+        <tbody>
+          ${empSummary.map(s => `
+            <tr>
+              <td>${escapeHtml(s.name)}</td>
+              <td class="num">${money(s.advanced)}</td>
+              <td class="num">${money(s.recovered)}</td>
+              <td class="num">${(s.advanced - s.recovered) > 0 ? `<span class="pill debit">${money(s.advanced - s.recovered)}</span>` : `<span class="pill credit">Clear</span>`}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
     <div class="card">
       <h2><span class="eyebrow">Ledger</span> All advances</h2>
       ${advances.length === 0 ? `<div class="empty">No advances recorded yet.</div>` : `
-      <table>
+      <table class="data-tbl">
         <thead><tr><th>Date</th><th>Employee</th><th>Reason</th><th class="num">Amount</th><th class="num">Repaid</th><th class="num">Outstanding</th><th></th></tr></thead>
         <tbody>
           ${advances.map(a => {
@@ -345,10 +437,10 @@ async function renderAdvances() {
               <td>${escapeHtml(a.employee_name)}</td>
               <td>${escapeHtml(a.reason || '—')}</td>
               <td class="num">${money(a.amount)}</td>
-              <td class="num">${money(a.repaid_amount)}</td>
+              <td class="num">${money(a.repaid_amount)}${(a.repayments && a.repayments.length) ? `<div style="font-size:11px; color:var(--muted); font-weight:400; margin-top:2px;">${a.repayments.map(r => `${fmtDate(r.date)}: ${money(r.amount)}`).join('<br>')}</div>` : ''}</td>
               <td class="num">${outstanding > 0 ? `<span class="pill debit">${money(outstanding)}</span>` : `<span class="pill credit">Clear</span>`}</td>
               <td>
-                ${outstanding > 0 ? `<button class="icon-btn" data-repay="${a.id}" title="Record repayment">↩</button>` : ''}
+                ${outstanding > 0 ? `<button class="icon-btn" data-repay="${a.id}" data-outstanding="${outstanding}" title="Record this month's recovery">↩</button>` : ''}
                 <button class="icon-btn" data-remove-adv="${a.id}" title="Delete entry">✕</button>
               </td>
             </tr>`;
@@ -369,10 +461,15 @@ async function renderAdvances() {
   });
   view.querySelectorAll('[data-repay]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const amount = prompt('Repayment amount:');
-      if (!amount) return;
+      const amount = prompt(
+        "Recover how much this month? (pre-filled with the full balance — edit down to whatever the employee is paying)",
+        btn.dataset.outstanding || ''
+      );
+      if (amount === null || amount.trim() === '') return;
+      const val = Number(amount);
+      if (!(val > 0)) { toast('Enter a positive amount'); return; }
       try {
-        await api(`/advances/${btn.dataset.repay}/repay`, { method: 'POST', body: JSON.stringify({ amount: Number(amount) }) });
+        await api(`/advances/${btn.dataset.repay}/repay`, { method: 'POST', body: JSON.stringify({ amount: val }) });
         toast('Repayment recorded');
         renderAdvances();
       } catch (err) { toast(err.message); }
@@ -413,6 +510,12 @@ async function renderLeaves() {
         </div>
         <div class="row">
           <div><label>Reason</label><input name="reason" placeholder="e.g. personal, sick" /></div>
+          <div style="display:flex; align-items:flex-end;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:400;">
+              <input type="checkbox" name="paid" style="width:auto; margin:0;" />
+              Complementary (no salary deduction)
+            </label>
+          </div>
         </div>
         <div class="form-actions"><button type="submit">Record entry</button></div>
       </form>`}
@@ -420,14 +523,14 @@ async function renderLeaves() {
     <div class="card">
       <h2><span class="eyebrow">Register</span> Leave &amp; half-day entries</h2>
       ${leaves.length === 0 ? `<div class="empty">No leave or half-day entries yet.</div>` : `
-      <table>
+      <table class="data-tbl">
         <thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Reason</th><th></th></tr></thead>
         <tbody>
           ${leaves.map(l => `
             <tr>
               <td>${fmtDate(l.date)}</td>
               <td>${escapeHtml(l.employee_name)}</td>
-              <td>${l.type === 'half' ? `<span class="pill debit">Half day</span>` : `<span class="pill credit">Full day</span>`}</td>
+              <td>${l.type === 'half' ? `<span class="pill debit">Half day</span>` : `<span class="pill credit">Full day</span>`}${l.paid ? ` <span class="pill" style="background:#e6f0ff; color:#1a56db;">Complementary</span>` : ''}</td>
               <td>${escapeHtml(l.reason || '—')}</td>
               <td><button class="icon-btn" data-remove-leave="${l.id}" title="Delete entry">✕</button></td>
             </tr>
@@ -440,6 +543,7 @@ async function renderLeaves() {
   if (form) form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = Object.fromEntries(new FormData(e.target).entries());
+    payload.paid = e.target.paid.checked;   // real boolean, not "on"/undefined
     try {
       await api('/leaves', { method: 'POST', body: JSON.stringify(payload) });
       toast('Entry recorded');
