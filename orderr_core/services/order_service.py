@@ -1,4 +1,5 @@
 import json
+from orderr_core.utils import fmt_qty
 import logging
 import os
 import re
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
 BASE_URL             = os.getenv("BASE_URL", "")   # e.g. https://orderr.onrender.com
-IST                  = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 RESET_HOUR           = 20  # 8 PM IST
 DISPATCH_CUTOFF_HOUR = int(os.getenv("DISPATCH_CUTOFF_HOUR", "9"))
 
@@ -68,33 +69,7 @@ def get_delivery_date_str() -> str:
 
 # ── JSON-safety helper ────────────────────────────────────────────────────────
 
-def _safe_load_list(value) -> list:
-    """
-    Safely coerce a JSONB/text column value to a Python list.
-    Handles: None, already-a-list (normal JSONB), JSON string (legacy),
-    double-encoded JSON string, empty/null sentinels.
-
-    Use this everywhere you need to read parsed_items or unclear_items
-    back from an Order row — never call json.loads() directly on these
-    columns, because on Postgres/JSONB the driver already returns a list.
-    """
-    if not value:
-        return []
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str):
-        if value in ("null", "[]", ""):
-            return []
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, list):
-                return parsed
-            if isinstance(parsed, str):  # double-encoded
-                inner = json.loads(parsed)
-                return inner if isinstance(inner, list) else []
-        except Exception:
-            pass
-    return []
+from orderr_core.utils import safe_list as _safe_load_list
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -265,7 +240,7 @@ def _build_unclear_alert(
     if parsed_items:
         lines.append("*Parsed items (confirmed):*")
         for i in parsed_items:
-            qty = int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']
+            qty = fmt_qty(i['quantity'])
             lines.append(f"  ✅ {erp_display_name(i['product'])} — {qty} {i['unit']}")
         lines.append("")
     lines.append("*Could not understand:*")
@@ -320,7 +295,7 @@ def _save_and_notify(
 
     if is_edit:
         items_text = "\n".join(
-            f"• {erp_display_name(i['product'])} — {int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']} {i['unit']}"
+            f"• {erp_display_name(i['product'])} — {fmt_qty(i['quantity'])} {i['unit']}"
             for i in parsed_items
         )
         # Notify customer (free-form — always within their window)

@@ -20,6 +20,7 @@ Usage:
 """
 
 import re
+from orderr_core.utils import fmt_qty
 from dataclasses import dataclass
 
 
@@ -199,7 +200,7 @@ def parse_word_quantity(line: str) -> WordQtyResult | None:
 
 
 def _make_result(qty: float, unit_hint: str | None, raw_word: str) -> WordQtyResult:
-    qty_str  = int(qty) if qty == int(qty) else qty
+    qty_str  = fmt_qty(qty)
     unit_str = unit_hint or "?"
     hint     = f"{qty_str} {unit_str} (word qty — confirm)"
     return WordQtyResult(

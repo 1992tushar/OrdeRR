@@ -26,6 +26,7 @@ v4 changes:
 """
 
 import re
+from orderr_core.utils import fmt_qty
 import os
 from orderr_core.models.customer_product_alias import CustomerProductAlias
 from orderr_core.models.unclear_item_alias import UnclearItemAlias
@@ -34,7 +35,9 @@ from orderr_core.models.noise_phrase import NoisePhrase
 # Sentinel stored in a parsed item's "unit" field when the quantity is
 # ambiguous and needs manager resolution.  order_service.py and admin.py
 # both check for this value to route the item to the unclear-items flow.
-UNIT_AMBIGUOUS_MARKER = "__unit_ambiguous__"
+# Canonical definition lives in orderr_core.constants; re-exported here for
+# the existing `from template_parser import UNIT_AMBIGUOUS_MARKER` importers.
+from orderr_core.constants import UNIT_AMBIGUOUS_MARKER
 
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 
@@ -984,7 +987,7 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
             errors.append({
                 "line":       line,
                 "reason":     f"*{display_name}* is ordered in *{expected_unit}* (you sent {raw_unit_str})",
-                "suggestion": f"{display_name} - {int(qty) if qty == int(qty) else qty} {expected_unit}",
+                "suggestion": f"{display_name} - {fmt_qty(qty)} {expected_unit}",
             })
             continue
 

@@ -89,7 +89,9 @@ GLOBAL_FALLBACK_BANDS: dict[str, tuple[float, float]] = {
     # apply.  Omitted from this dict intentionally; see _is_kg_product().
     # "W/O Skin Tandoor Chicken": N/A (nos)  ← the ONLY nos product
 }
-UNIT_AMBIGUOUS_MARKER = "__unit_ambiguous__"
+# Canonical definition lives in orderr_core.constants; re-exported here for
+# the existing `from unit_inference import UNIT_AMBIGUOUS_MARKER` importers.
+from orderr_core.constants import UNIT_AMBIGUOUS_MARKER
 
 # ── Result type ───────────────────────────────────────────────────────────────
 

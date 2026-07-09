@@ -24,7 +24,7 @@ from orderr_core.models.advance import Advance
 from orderr_core.models.advance_repayment import AdvanceRepayment
 from orderr_core.models.leave import Leave
 
-IST = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 
 
 def today_ist() -> date:

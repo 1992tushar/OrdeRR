@@ -51,6 +51,7 @@ OUTPUT CONTRACT for parse_gemini_rows() and parse_ocr_lines() — unchanged from
 }
 """
 from __future__ import annotations
+from orderr_core.utils import fmt_qty
 
 import logging
 import re
@@ -319,7 +320,7 @@ def _extract_name_and_numbers(line: str) -> Tuple[str, List[float]]:
 
 
 def _unit_after_number(line: str, number: float) -> Optional[str]:
-    num_str = str(int(number)) if number == int(number) else str(number)
+    num_str = fmt_qty(number)
     idx = line.find(num_str)
     if idx == -1:
         return None

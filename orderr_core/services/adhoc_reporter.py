@@ -17,6 +17,7 @@ Entry points:
 """
 
 import os
+from orderr_core.utils import fmt_qty
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -34,7 +35,7 @@ from orderr_core.services.notifier import (
 )
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
-IST           = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 
 # ── Approved template names ───────────────────────────────────────────────────
 TEMPLATE_MANAGER_SUMMARY  = "manager_daily_summary"
@@ -306,8 +307,8 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
             product_totals[key] = product_totals.get(key, 0) + item["quantity"]
 
     total_items_count = sum(product_totals.values())
-    items_text        = ", ".join(f"{erp_display_name(p)} x{int(q) if q == int(q) else q}" for p, q in product_totals.items())
-    product_summary   = " | ".join(f"{erp_display_name(p)}: {int(q) if q == int(q) else q}" for p, q in product_totals.items())
+    items_text        = ", ".join(f"{erp_display_name(p)} x{fmt_qty(q)}" for p, q in product_totals.items())
+    product_summary   = " | ".join(f"{erp_display_name(p)}: {fmt_qty(q)}" for p, q in product_totals.items())
 
     send_whatsapp_template(
         manager_phone,

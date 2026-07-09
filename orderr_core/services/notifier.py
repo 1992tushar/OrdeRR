@@ -1,4 +1,5 @@
 import logging
+from orderr_core.utils import fmt_qty
 import os
 import requests
 from datetime import datetime
@@ -161,7 +162,7 @@ def _format_items_freeform(items: list) -> str:
     lines = ""
     for i, item in enumerate(items, 1):
         qty     = item["quantity"]
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+        qty_str = fmt_qty(qty)
         lines  += f"{i}. {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
     return lines
 
@@ -171,7 +172,7 @@ def _format_items_template(items: list) -> str:
     parts = []
     for item in items:
         qty     = item["quantity"]
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+        qty_str = fmt_qty(qty)
         parts.append(f"{erp_display_name(item['product'])} {qty_str} {item['unit']}")
     return " | ".join(parts)
 
@@ -191,7 +192,7 @@ def send_order_confirmation(
     items_text = ""
     for item in items:
         qty     = item["quantity"]
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+        qty_str = fmt_qty(qty)
         items_text += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
 
     delivery_text = (
@@ -299,7 +300,7 @@ def send_replace_confirmation_request(
         lines = ""
         for item in items:
             qty     = item["quantity"]
-            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            qty_str = fmt_qty(qty)
             lines  += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
         return lines
 
@@ -320,7 +321,7 @@ def send_repeat_order_confirmation_request(
         lines = ""
         for item in items:
             qty     = item["quantity"]
-            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            qty_str = fmt_qty(qty)
             lines  += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
         return lines
 

@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import Column, Integer, String, DateTime
 from orderr_core.database import Base
 
-IST = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 
 
 class UnclearItemAlias(Base):

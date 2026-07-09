@@ -69,7 +69,7 @@ logger = logging.getLogger(__name__)
 router     = APIRouter()
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
-IST        = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -176,27 +176,7 @@ class ResolveWordQtyItem(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _safe_list(val) -> list:
-    """
-    Safely coerce a JSONB column value to a Python list.
-    Handles: None, already-a-list, JSON string, double-encoded JSON string.
-    Never raises.
-    """
-    if val is None:
-        return []
-    if isinstance(val, list):
-        return val
-    if isinstance(val, str):
-        if val in ("null", "[]", ""):
-            return []
-        try:
-            result = json.loads(val)
-            if isinstance(result, str):          # double-encoded
-                result = json.loads(result)
-            return result if isinstance(result, list) else []
-        except Exception:
-            return []
-    return []
+from orderr_core.utils import safe_list as _safe_list
 
 
 LINE_RE = re.compile(

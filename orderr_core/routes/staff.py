@@ -22,9 +22,8 @@ from orderr_core.models.leave import Leave
 from orderr_core.services import staff_ledger
 
 router = APIRouter()
-templates = Jinja2Templates(directory="orderr_core/templates")
-from orderr_core.services.template_parser import erp_display_name as _erp_display_name
-templates.env.globals["erp_name"] = _erp_display_name
+from orderr_core.templating import make_templates
+templates = make_templates()
 
 
 def _emp(e: Employee) -> dict:

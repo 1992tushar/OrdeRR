@@ -7,7 +7,7 @@ from orderr_core.services.notifier import send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 
-IST                  = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME           = os.getenv("PLANT_NAME", "OrdeRR")
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN", "")

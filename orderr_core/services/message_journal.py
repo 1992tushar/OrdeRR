@@ -11,7 +11,7 @@ from orderr_core.services.notifier import send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 
-IST = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 
 RETRY_SCHEDULE_MINUTES = [1, 5, 15, 30, 60]
 

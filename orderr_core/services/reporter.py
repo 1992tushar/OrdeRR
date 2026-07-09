@@ -1,4 +1,5 @@
 import os
+from orderr_core.utils import fmt_qty
 import json
 import smtplib
 from datetime import datetime, date, timezone, timedelta
@@ -18,7 +19,7 @@ from orderr_core.services.order_service import get_current_business_date_str
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
-IST           = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 
 # ── Approved template name ────────────────────────────────────────────────────
 TEMPLATE_DAILY_REPORT = "manager_daily_report"
@@ -32,22 +33,7 @@ SMTP_PASSWORD  = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", f"{PLANT_NAME} OrdeRR")
 
 
-def _safe_list(value) -> list:
-    if value is None:
-        return []
-    if isinstance(value, list):     # ← add this
-        return value
-    if isinstance(value, str):
-        if value in ("null", "[]", ""):
-            return []
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, str):
-                parsed = json.loads(parsed)
-            return parsed if isinstance(parsed, list) else []
-        except Exception:
-            return []
-    return []
+from orderr_core.utils import safe_list as _safe_list
 
 
 def normalize_product(product: str) -> str:
@@ -148,7 +134,7 @@ def generate_daily_report(db: Session, target_date: date | None = None) -> dict:
         lines = []
         for data in product_totals.values():
             qty     = data["total_quantity"]
-            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            qty_str = fmt_qty(qty)
             lines.append(f"{data['product']} - {qty_str} {data['unit']}")
         if unclear_orders:
             lines.append(f"Unclear: {len(unclear_orders)} (need follow up)")
@@ -180,7 +166,7 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
     summary_rows = ""
     for entry in product_totals.values():
         qty = entry["total_quantity"]
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+        qty_str = fmt_qty(qty)
         summary_rows += f"""
                 <tr>
                     <td class="product-name">{entry['product']}</td>
@@ -202,7 +188,7 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
         item_rows = ""
         for item in items:
             qty = item.get("quantity", 0)
-            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            qty_str = fmt_qty(qty)
             item_rows += f"""
                     <tr>
                         <td class="product-name" style="padding-left:24px;">{report_product_name(item.get('product','—'))}</td>

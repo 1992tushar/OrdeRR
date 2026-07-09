@@ -185,7 +185,7 @@ def _ensure_customer_outstanding_and_nullable_phone():
 
 _ensure_customer_outstanding_and_nullable_phone()
 
-IST = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 
 # Track last report time for health check
 _last_report_time: str = "Never"

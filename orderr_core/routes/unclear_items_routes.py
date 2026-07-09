@@ -97,7 +97,7 @@ def resolve_unclear_item(
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"'{canonical}' is not a valid product name")
 
-    IST = timezone(timedelta(hours=5, minutes=30))
+    from orderr_core.constants import IST
 
     # ── Upsert alias ──────────────────────────────────────────────────────────
     existing_alias = db.query(UnclearItemAlias).filter(

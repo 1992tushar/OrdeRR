@@ -19,7 +19,7 @@ from orderr_core.models.customer import Customer
 from orderr_core.models.order import Order
 
 # IST = UTC+5:30
-IST = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 RESET_HOUR = 20  # 8 PM IST
 
 def get_delivery_date_for_now() -> date:

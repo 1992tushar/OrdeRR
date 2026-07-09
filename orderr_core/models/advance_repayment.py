@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from orderr_core.database import Base
 
-_IST = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST as _IST
 
 
 class AdvanceRepayment(Base):
