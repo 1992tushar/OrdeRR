@@ -176,6 +176,15 @@ def _format_items_template(items: list) -> str:
     return " | ".join(parts)
 
 
+def _format_bullet_lines(items: list) -> str:
+    """Bulleted item list — '• <ERP name> — <qty> <unit>' per line (trailing
+    newline each). Shared by the confirmation / replace / repeat messages."""
+    lines = ""
+    for item in items:
+        lines += f"• {erp_display_name(item['product'])} — {fmt_qty(item['quantity'])} {item['unit']}\n"
+    return lines
+
+
 def send_order_confirmation(
     customer_phone: str,
     parsed: dict,
@@ -188,11 +197,7 @@ def send_order_confirmation(
     items         = parsed.get("items", [])
     delivery_time = parsed.get("delivery_time", "")
 
-    items_text = ""
-    for item in items:
-        qty     = item["quantity"]
-        qty_str = fmt_qty(qty)
-        items_text += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
+    items_text = _format_bullet_lines(items)
 
     delivery_text = (
         f"🕒 Delivery: {delivery_time}"
@@ -295,18 +300,10 @@ def send_replace_confirmation_request(
     existing_items: list,
     new_items: list,
 ) -> bool:
-    def fmt(items):
-        lines = ""
-        for item in items:
-            qty     = item["quantity"]
-            qty_str = fmt_qty(qty)
-            lines  += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
-        return lines
-
     message = (
         f"⚠️ *You already placed an order today — {PLANT_NAME}*\n\n"
-        f"*Current order:*\n{fmt(existing_items)}\n"
-        f"*New order:*\n{fmt(new_items)}\n"
+        f"*Current order:*\n{_format_bullet_lines(existing_items)}\n"
+        f"*New order:*\n{_format_bullet_lines(new_items)}\n"
         f"Reply *yes* to replace your order, or *no* to keep the current one."
     )
     return send_whatsapp_message(customer_phone, message) is not None
@@ -316,18 +313,10 @@ def send_repeat_order_confirmation_request(
     customer_phone: str,
     items: list,
 ) -> bool:
-    def fmt(items):
-        lines = ""
-        for item in items:
-            qty     = item["quantity"]
-            qty_str = fmt_qty(qty)
-            lines  += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
-        return lines
-
     message = (
         f"🔁 *Repeat Last Order — {PLANT_NAME}*\n\n"
         f"Your last order was:\n\n"
-        f"{fmt(items)}\n"
+        f"{_format_bullet_lines(items)}\n"
         f"Reply *yes* to confirm, or type *order* to place a new one."
     )
     return send_whatsapp_message(customer_phone, message) is not None

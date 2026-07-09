@@ -491,7 +491,7 @@ function buildHotelCard(h){
   head.innerHTML =
     '<span class="hotel-dot dot-'+h.status+'"></span>' +
     '<span class="hotel-name">'+h.hotel_name+'</span>' +
-    (h.invoice_number ? '<span class="hotel-meta">'+h.invoice_number+' - Rs.'+h.invoice_total?.toFixed(2)+'</span>' : '') +
+    (h.invoice_number ? '<span class="hotel-meta">'+h.invoice_number+' - ₹'+h.invoice_total?.toFixed(2)+'</span>' : '') +
     '<span class="hotel-badge badge-'+h.status+'">'+statusLabel+'</span>' +
     '<span class="chevron" id="chev-'+h.order_id+'">v</span>';
   head.onclick = ()=> toggleCard(h.order_id);
@@ -636,7 +636,7 @@ function buildInvArea(h){
       : '/dashboard/invoices/'+h.invoice_number;
     area.innerHTML =
       '<a class="inv-success" href="'+invLink+'" style="text-decoration:none" title="View invoice detail">' +
-      'OK '+h.invoice_number+' - Rs.'+h.invoice_total?.toFixed(2)+'</a>' +
+      'OK '+h.invoice_number+' - ₹'+h.invoice_total?.toFixed(2)+'</a>' +
       '<a class="pdf-link" href="/billing/api/invoices/'+h.invoice_number+'/pdf" target="_blank">Download PDF</a>';
   } else if(h.status === 'clear'){
     area.innerHTML =
@@ -770,7 +770,7 @@ async function generateInvoice(orderId){
     if(phone && d.invoice_number){
       const ia = document.getElementById('ia-'+orderId);
       if(ia){
-        const waText = encodeURIComponent('Invoice '+d.invoice_number+' - Rs.'+(d.total||0).toFixed(2)+'. Download PDF: /billing/api/invoices/'+d.invoice_number+'/pdf');
+        const waText = encodeURIComponent('Invoice '+d.invoice_number+' - ₹'+(d.total||0).toFixed(2)+'. Download PDF: /billing/api/invoices/'+d.invoice_number+'/pdf');
         const waBtn = document.createElement('a');
         waBtn.className = 'pdf-link';
         waBtn.href = 'https://wa.me/'+phone.replace(/\D/g,'')+'?text='+waText;
@@ -939,9 +939,9 @@ function rerenderRates(){
       '<td><span class="product-name">'+erpName(p.product)+'</span>' +
       '<span class="unit-badge">'+p.unit+'</span>' +
       (p.stale ? '<span class="stale-tag">carried forward - '+p.rate_date+'</span>' : '') +
-      (hasOverride ? '<span class="stale-tag" style="background:var(--blue-bg);color:var(--blue);border:none">override Rs.'+overrideMap[p.product]+'</span>' : '') +
+      (hasOverride ? '<span class="stale-tag" style="background:var(--blue-bg);color:var(--blue);border:none">override ₹'+overrideMap[p.product]+'</span>' : '') +
       '</td>' +
-      '<td style="text-align:right"><input class="rate-inp'+(hasOverride?' edited':'')+'" type="number" step="0.01" min="0" value="'+val+'" placeholder="Rs. -" data-product="'+p.product+'" data-unit="'+p.unit+'" oninput="onRateEdit(this)"></td>' +
+      '<td style="text-align:right"><input class="rate-inp'+(hasOverride?' edited':'')+'" type="number" step="0.01" min="0" value="'+val+'" placeholder="₹ -" data-product="'+p.product+'" data-unit="'+p.unit+'" oninput="onRateEdit(this)"></td>' +
       '<td style="width:48px"></td>';
     tbody.appendChild(tr);
   });
@@ -1021,7 +1021,7 @@ function filterHist(){
     el.innerHTML =
       '<div class="hstat"><strong>'+out.length+'</strong>invoices</div>' +
       '<div class="hstat"><strong>'+dates+'</strong>day(s)</div>' +
-      '<div class="hstat"><strong>Rs.'+total.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong>total</div>';
+      '<div class="hstat"><strong>₹'+total.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong>total</div>';
   } else { el.innerHTML=''; }
 
   if(!out.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
@@ -1031,7 +1031,7 @@ function filterHist(){
     '<td>'+(i.hotel_name||'-')+'</td>' +
     '<td style="color:var(--ink2)">'+fmts(i.business_date)+'</td>' +
     '<td style="color:var(--ink3);font-size:12px">'+(i.customer_phone||'-')+'</td>' +
-    '<td style="text-align:right"><span class="inv-amount">Rs.'+parseFloat(i.total).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></td>' +
+    '<td style="text-align:right"><span class="inv-amount">₹'+parseFloat(i.total).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></td>' +
     '<td style="text-align:center"><a class="pdf-link btn-sm" href="/billing/api/invoices/'+i.invoice_number+'/pdf" target="_blank">Download</a></td></tr>'
   ).join('');
 }
