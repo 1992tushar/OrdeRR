@@ -35,24 +35,15 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", f"{PLANT_NAME} OrdeRR")
 from orderr_core.utils import safe_list as _safe_list
 
 
-def normalize_product(product: str) -> str:
-    if "chicken" not in product.lower():
-        return f"Chicken {product}"
-    return product
-
-
 def report_product_name(product: str) -> str:
-    """Display name for the production report — the EXACT Vasy ERP item name when
-    the parsed product maps to the ERP catalog, otherwise the normalized friendly
-    name (covers legacy names and manager-added items not in the ERP map).
+    """Display name for the production report — the exact Vasy ERP item name
+    when the product maps to the ERP catalog, else the name unchanged.
 
-    The parsed order stores the friendly canonical name (e.g. "Breast Boneless");
-    the plant / ERP reconciliation needs the ERP name (e.g. "Chicken Breast
-    boneless"), so the swap happens here at render time only — stored data and
-    rate/history keys stay on the friendly name."""
-    from orderr_core.services.template_parser import get_erp_item
-    erp = get_erp_item((product or "").strip())
-    return erp["erp_name"] if erp else normalize_product(product)
+    Thin alias over the app-wide erp_display_name() so the report labels
+    products identically to every other surface (messages, invoices,
+    dashboard). Stored data / rate keys stay on the friendly name."""
+    from orderr_core.services.template_parser import erp_display_name
+    return erp_display_name(product)
 
 
 def merge_items(items: list) -> list:
