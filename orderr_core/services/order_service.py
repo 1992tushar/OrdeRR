@@ -39,32 +39,21 @@ MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
 PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
 BASE_URL             = os.getenv("BASE_URL", "")   # e.g. https://orderr.onrender.com
 from orderr_core.constants import IST
-RESET_HOUR           = 20  # 8 PM IST
 DISPATCH_CUTOFF_HOUR = int(os.getenv("DISPATCH_CUTOFF_HOUR", "9"))
 
 
 # ── Date helpers ──────────────────────────────────────────────────────────────
-
-def get_today_ist() -> date:
-    return datetime.now(IST).date()
-
-def compute_business_date(created_at_utc: datetime) -> date:
-    ist_time = created_at_utc.astimezone(IST)
-    if ist_time.hour >= RESET_HOUR:
-        return (ist_time + timedelta(days=1)).date()
-    return ist_time.date()
-
-def get_current_business_date() -> date:
-    now_ist = datetime.now(IST)
-    if now_ist.hour >= RESET_HOUR:
-        return (now_ist + timedelta(days=1)).date()
-    return now_ist.date()
-
-def get_current_business_date_str() -> str:
-    return get_current_business_date().strftime("%Y-%m-%d")
-
-def get_delivery_date_str() -> str:
-    return get_today_ist().strftime("%Y-%m-%d")
+# Canonical implementations live in orderr_core.dates; re-exported here so the
+# many `from order_service import get_current_business_date[_str]` / RESET_HOUR
+# importers keep working unchanged.
+from orderr_core.constants import RESET_HOUR
+from orderr_core.dates import (
+    get_today_ist,
+    compute_business_date,
+    get_current_business_date,
+    get_current_business_date_str,
+    get_delivery_date_str,
+)
 
 
 # ── JSON-safety helper ────────────────────────────────────────────────────────

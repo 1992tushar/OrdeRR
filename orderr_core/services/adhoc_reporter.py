@@ -211,54 +211,16 @@ def _send_manager_adhoc_report(manager_phone: str, db: Session):
 
 
 def _send_manager_summary(manager_phone: str, db: Session):
-    """Sends the manager daily summary template."""
+    """Sends the manager daily summary template (shared builder with the
+    scheduled 23:10 send in pending_notifier)."""
     from orderr_core.services.order_service import get_current_business_date
+    from orderr_core.services.pending_notifier import build_management_summary_params
 
     delivery_date = get_current_business_date()
-
-    date_str      = delivery_date.strftime("%d %B %Y")
-
     print(f"\n📊 Manager summary requested by {manager_phone}")
 
-    grouped = get_pending_customers(db, delivery_date)
-
-    total_active = (
-        db.query(Customer)
-        .filter(
-            Customer.is_active == True,
-            Customer.is_daily_order_customer == True,
-            Customer.onboarding_status == "active",
-        )
-        .count()
-    )
-
-    all_pending    = [c for customers in grouped.values() for c in customers]
-    total_pending  = len(all_pending)
-    total_received = total_active - total_pending
-
-    area_customers: dict = {}
-    for c in all_pending:
-        area = c.area or "Unassigned"
-        area_customers.setdefault(area, []).append(c.restaurant_name)
-
-    if area_customers:
-        parts = [
-            f"{area} ({len(names)} pending): {', '.join(names)}"
-            for area, names in sorted(area_customers.items())
-        ]
-        area_breakdown = " | ".join(parts)
-    else:
-        area_breakdown = "None — all orders received"
-
-    unassigned_pending = len(grouped.get(None, []))
-    if unassigned_pending > 0:
-        area_breakdown += f" | Unassigned: {unassigned_pending} pending"
-
-    send_whatsapp_template(
-        manager_phone,
-        TEMPLATE_MANAGER_SUMMARY,
-        [PLANT_NAME, date_str, str(total_active), str(total_received), str(total_pending), area_breakdown],
-    )
+    params, total_received, total_active = build_management_summary_params(db, delivery_date)
+    send_whatsapp_template(manager_phone, TEMPLATE_MANAGER_SUMMARY, params)
     print(f"   ✅ Summary sent → {total_received}/{total_active} received")
 
 # Add this helper after the TEMPLATE_DAILY_REPORT line:

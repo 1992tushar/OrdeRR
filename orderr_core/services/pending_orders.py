@@ -18,15 +18,20 @@ from sqlalchemy.orm import Session
 from orderr_core.models.customer import Customer
 from orderr_core.models.order import Order
 
-# IST = UTC+5:30
-from orderr_core.constants import IST
-RESET_HOUR = 20  # 8 PM IST
+# Canonical business-date helper lives in orderr_core.dates; re-exported here
+# so `from pending_orders import get_delivery_date_for_now` keeps working.
+from orderr_core.dates import get_delivery_date_for_now
 
-def get_delivery_date_for_now() -> date:
-    now_ist = datetime.now(IST)
-    if now_ist.hour >= RESET_HOUR:
-        return (now_ist + timedelta(days=1)).date()
-    return now_ist.date()
+
+def active_daily_customers_q(db: Session):
+    """Query for the customers that Pending / reminders operate on:
+    active, fully onboarded, daily-order customers. Callers apply
+    .all() / .count() as needed."""
+    return db.query(Customer).filter(
+        Customer.is_active == True,
+        Customer.is_daily_order_customer == True,
+        Customer.onboarding_status == "active",
+    )
 
 
 def get_pending_customers(db: Session, delivery_date: date) -> dict:
@@ -45,15 +50,7 @@ def get_pending_customers(db: Session, delivery_date: date) -> dict:
     """
 
     # All active daily-order customers
-    active_customers = (
-        db.query(Customer)
-        .filter(
-            Customer.is_active == True,
-            Customer.is_daily_order_customer == True,
-            Customer.onboarding_status == "active"   # only fully onboarded
-        )
-        .all()
-    )
+    active_customers = active_daily_customers_q(db).all()
 
     # Phones that have at least one order for this delivery_date
     # Order.delivery_date is stored as a string "YYYY-MM-DD" in the existing model

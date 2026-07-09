@@ -18,7 +18,11 @@ from sqlalchemy.orm import Session
 
 from orderr_core.models.salesperson import Salesperson
 from orderr_core.models.customer import Customer
-from orderr_core.services.pending_orders import get_pending_customers, get_delivery_date_for_now
+from orderr_core.services.pending_orders import (
+    get_pending_customers,
+    get_delivery_date_for_now,
+    active_daily_customers_q,
+)
 from orderr_core.services.notifier import send_whatsapp_template, send_whatsapp_message
 
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
@@ -145,18 +149,27 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
         print("⚠️  MANAGER_PHONE not set — management summary skipped")
         return
 
+    params, total_received, total_active = build_management_summary_params(db, delivery_date)
+
+    result = send_whatsapp_template(MANAGER_PHONE, TEMPLATE_MANAGER_SUMMARY, params)
+
+    if result:
+        print(f"\n✅ Management summary sent → {MANAGER_PHONE} ({total_received}/{total_active} received)\n")
+
+
+def build_management_summary_params(db: Session, delivery_date: date) -> tuple[list, int, int]:
+    """Compute the manager_daily_summary template params for `delivery_date`.
+
+    Returns (params, total_received, total_active). Shared by the scheduled
+    send_management_summary() and the on-demand ad-hoc manager summary so the
+    two never drift apart.
+
+    params = [PLANT_NAME, date_str, total_active, orders_received,
+              pending_count, area_breakdown]  (all strings, Meta-template order)
+    """
     grouped = get_pending_customers(db, delivery_date)
 
-    total_active = (
-        db.query(Customer)
-        .filter(
-            Customer.is_active == True,
-            Customer.is_daily_order_customer == True,
-            Customer.onboarding_status == "active",
-        )
-        .count()
-    )
-
+    total_active   = active_daily_customers_q(db).count()
     all_pending    = [c for customers in grouped.values() for c in customers]
     total_pending  = len(all_pending)
     total_received = total_active - total_pending
@@ -169,10 +182,10 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
         area_customers.setdefault(area, []).append(c.restaurant_name)
 
     if area_customers:
-        parts = []
-        for area, names in sorted(area_customers.items()):
-            names_str = ", ".join(names)
-            parts.append(f"{area} ({len(names)} pending): {names_str}")
+        parts = [
+            f"{area} ({len(names)} pending): {', '.join(names)}"
+            for area, names in sorted(area_customers.items())
+        ]
         area_breakdown = " | ".join(parts)
     else:
         area_breakdown = "None — all orders received"
@@ -182,19 +195,12 @@ def send_management_summary(db: Session, delivery_date: date | None = None):
         area_breakdown += f" | Unassigned: {unassigned_pending} pending"
 
     date_str = delivery_date.strftime("%d %B %Y")
-
-    result = send_whatsapp_template(
-        MANAGER_PHONE,
-        TEMPLATE_MANAGER_SUMMARY,
-        [
-            PLANT_NAME,
-            date_str,
-            str(total_active),
-            str(total_received),
-            str(total_pending),
-            area_breakdown,
-        ],
-    )
-
-    if result:
-        print(f"\n✅ Management summary sent → {MANAGER_PHONE} ({total_received}/{total_active} received)\n")
+    params = [
+        PLANT_NAME,
+        date_str,
+        str(total_active),
+        str(total_received),
+        str(total_pending),
+        area_breakdown,
+    ]
+    return params, total_received, total_active
