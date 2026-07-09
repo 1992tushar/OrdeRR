@@ -65,23 +65,29 @@ GLOBAL_FALLBACK_BANDS: dict[str, tuple[float, float]] = {
     "W/O Skin Regular Chicken": (1.0, 50.0),
     "Breast Boneless":       (1.0,  50.0),
     "Leg Boneless":          (1.0,  50.0),
+    "Thai Boneless":         (1.0,  50.0),
+    "Supreme Boneless":      (1.0,  50.0),
     "Wings":                 (1.0,  50.0),
-    "Ready Lollipop":        (1.0,  50.0),
     "Drumstick":             (1.0,  50.0),
+    "Whole Leg":             (1.0,  50.0),
+    "WS Tandoor Chicken":    (1.0,  50.0),
     "Carcass":               (1.0,  50.0),
 
-    # ── Offal / small-portion (0.25–8 kg) ────────────────────────────────
+    # ── Offal / byproducts / small-portion (0.25–8 kg) ────────────────────
     # Bare numbers >= ~100 are far more likely grams than kg at small-
     # restaurant scale.
     "Liver":                 (0.25, 8.0),
     "Gizzard":               (0.25, 8.0),
     "Kheema":                (0.25, 8.0),
+    "Chicken Neck":          (0.25, 8.0),
+    "Chicken Skin":          (0.25, 8.0),
+    "Chicken Feet":          (0.25, 8.0),
+    "Chicken Mundi":         (0.25, 8.0),
 
     # ── Counted items (nos) ───────────────────────────────────────────────
     # These are sold by piece, not weight — the kg/grams ambiguity does not
     # apply.  Omitted from this dict intentionally; see _is_kg_product().
-    # "W/O Skin Tandoor Chicken": N/A (nos)
-    # "Whole Leg":                N/A (nos)
+    # "W/O Skin Tandoor Chicken": N/A (nos)  ← the ONLY nos product
 }
 UNIT_AMBIGUOUS_MARKER = "__unit_ambiguous__"
 

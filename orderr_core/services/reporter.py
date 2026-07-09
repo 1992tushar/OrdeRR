@@ -56,10 +56,24 @@ def normalize_product(product: str) -> str:
     return product
 
 
+def report_product_name(product: str) -> str:
+    """Display name for the production report — the EXACT Vasy ERP item name when
+    the parsed product maps to the ERP catalog, otherwise the normalized friendly
+    name (covers legacy names and manager-added items not in the ERP map).
+
+    The parsed order stores the friendly canonical name (e.g. "Breast Boneless");
+    the plant / ERP reconciliation needs the ERP name (e.g. "Chicken Breast
+    boneless"), so the swap happens here at render time only — stored data and
+    rate/history keys stay on the friendly name."""
+    from orderr_core.services.template_parser import get_erp_item
+    erp = get_erp_item((product or "").strip())
+    return erp["erp_name"] if erp else normalize_product(product)
+
+
 def merge_items(items: list) -> list:
     merged = {}
     for item in items:
-        product  = normalize_product(item.get("product", "Unknown").strip())
+        product  = report_product_name(item.get("product", "Unknown").strip())
         quantity = item.get("quantity", 0)
         unit     = item.get("unit", "kg").lower()
         key      = f"{product.lower()}||{unit}"
@@ -119,7 +133,7 @@ def generate_daily_report(db: Session, target_date: date | None = None) -> dict:
     for order in clear_orders:
         items = _safe_list(order.parsed_items)
         for item in items:
-            product  = normalize_product(item.get("product", "Unknown").strip())
+            product  = report_product_name(item.get("product", "Unknown").strip())
             quantity = item.get("quantity", 0)
             unit     = item.get("unit", "kg").lower()
             key      = f"{product.lower()}||{unit}"
@@ -191,7 +205,7 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
             qty_str = str(int(qty)) if qty == int(qty) else str(qty)
             item_rows += f"""
                     <tr>
-                        <td class="product-name" style="padding-left:24px;">{item.get('product','—')}</td>
+                        <td class="product-name" style="padding-left:24px;">{report_product_name(item.get('product','—'))}</td>
                         <td class="qty-ordered">{qty_str} {item.get('unit','kg')}</td>
                         <td class="qty-delivered"><div class="write-box"></div></td>
                     </tr>"""

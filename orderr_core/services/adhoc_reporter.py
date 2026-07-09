@@ -25,6 +25,7 @@ from orderr_core.models.customer import Customer
 from orderr_core.models.order import Order
 from orderr_core.models.salesperson import Salesperson
 from orderr_core.services.pending_orders import get_pending_customers, get_delivery_date_for_now
+from orderr_core.services.template_parser import erp_display_name
 from orderr_core.services.notifier import (
     send_whatsapp_template,
     send_whatsapp_message,
@@ -305,8 +306,8 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
             product_totals[key] = product_totals.get(key, 0) + item["quantity"]
 
     total_items_count = sum(product_totals.values())
-    items_text        = ", ".join(f"{p} x{int(q) if q == int(q) else q}" for p, q in product_totals.items())
-    product_summary   = " | ".join(f"{p}: {int(q) if q == int(q) else q}" for p, q in product_totals.items())
+    items_text        = ", ".join(f"{erp_display_name(p)} x{int(q) if q == int(q) else q}" for p, q in product_totals.items())
+    product_summary   = " | ".join(f"{erp_display_name(p)}: {int(q) if q == int(q) else q}" for p, q in product_totals.items())
 
     send_whatsapp_template(
         manager_phone,

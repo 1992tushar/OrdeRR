@@ -261,7 +261,7 @@
             <div class="order-items">
               {% for item in order.order_lines %}
                 <div class="item-row">
-                  <span class="item-name">{{ item.product }}</span>
+                  <span class="item-name">{{ erp_name(item.product) }}</span>
                   <span class="item-qty">
                     {% set qty = item.quantity %}
                     {% if qty == qty | int %}{{ qty | int }}{% else %}{{ qty }}{% endif %}

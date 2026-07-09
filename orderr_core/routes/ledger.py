@@ -25,6 +25,8 @@ router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 templates = Jinja2Templates(directory="orderr_core/templates")
+from orderr_core.services.template_parser import erp_display_name as _erp_display_name
+templates.env.globals["erp_name"] = _erp_display_name
 LEDGER_DAYS = 7
 
 

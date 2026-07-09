@@ -10,7 +10,6 @@ from orderr_core.services.customer_service import create_customer_manually
 from orderr_core.database import get_db
 from orderr_core.services.order_service import process_incoming_order
 from orderr_core.services.reporter import send_daily_report
-from orderr_core.services.product_catalog import generate_menu_template
 from orderr_core.services.notifier import send_whatsapp_message
 from orderr_core.services.customer_service import normalize_phone
 
@@ -348,29 +347,8 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
                     continue
 
                 # ── Customer flow from here ───────────────────────────────────
-
-                # Pre-check: is this customer new or mid-onboarding?
-                from orderr_core.models.customer import Customer as CustomerModel
-                existing_customer = (
-                    db.query(CustomerModel)
-                    .filter(CustomerModel.phone_number == customer_phone)
-                    .first()
-                )
-                is_onboarding = (
-                    existing_customer is None
-                    or getattr(existing_customer, "onboarding_status", None) == "awaiting_name"
-                )
-
-                # Menu trigger — onboarding / new customers only
-                msg_lower = raw_message.strip().lower()
-                MENU_TRIGGER = {"menu", "order", "show menu", "send menu", "place order"}
-                if is_onboarding and msg_lower in MENU_TRIGGER:
-                    try:
-                        send_whatsapp_message(customer_phone, generate_menu_template())
-                        transition(inbound_msg, "CONFIRMED", db)
-                    except Exception as e:
-                        record_failure(db, inbound_msg, f"Menu send failed: {e}")
-                    continue
+                # Customers send free-form order messages — there is no product
+                # template/menu. Every customer message is parsed as an order.
 
                 # ── Parse as order ────────────────────────────────────────────
                 transition(inbound_msg, "PARSING", db)

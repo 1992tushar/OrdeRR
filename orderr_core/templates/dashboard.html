@@ -356,7 +356,7 @@
                 <tbody>
                     {% if product_summary %}
                         {% for item in product_summary %}
-                        <tr><td>{{ item.product }}</td><td><strong>{{ item.total_quantity }}</strong></td><td>{{ item.unit }}</td><td>{{ item.orders_count }}</td></tr>
+                        <tr><td>{{ erp_name(item.product) }}</td><td><strong>{{ item.total_quantity }}</strong></td><td>{{ item.unit }}</td><td>{{ item.orders_count }}</td></tr>
                         {% endfor %}
                     {% else %}
                         <tr><td colspan="4" style="text-align:center;color:#aaa">No orders for this date</td></tr>
@@ -385,7 +385,7 @@
                         {% endif %}
                     </span>
                 </div>
-                <div class="items">{% for item in order.items_parsed %}{{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}
+                <div class="items">{% for item in order.items_parsed %}{{ erp_name(item.product) }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}
                 
                                 {% if is_before_cutoff %}
                 {% if not order.is_next_day_override %}
@@ -865,6 +865,10 @@
 <div id="toast"></div>
 
 <script>
+// friendly → Vasy ERP name map (from ERP_ITEMS); erpName() shows the ERP name
+// wherever product names are rendered client-side, falling back to the raw name.
+window.ERP_NAMES = {{ erp_names_map | tojson }};
+function erpName(p){ return (p && window.ERP_NAMES[p]) || p; }
 let allSalespersons = [];
 let currentAssignId = null;
 let windowData = [];
@@ -1491,7 +1495,7 @@ async function openHistory(cid,rname) {
         const orders=data.orders||[];
         if(!orders.length){document.getElementById('history-body').innerHTML='<div class="empty">No orders found</div>';return;}
         document.getElementById('history-body').innerHTML=orders.map(o=>{
-            const items=(o.items||[]).map(i=>`${esc(i.product)} — ${i.quantity} ${esc(i.unit)}`).join('<br>');
+            const items=(o.items||[]).map(i=>`${esc(erpName(i.product))} — ${i.quantity} ${esc(i.unit)}`).join('<br>');
             const dl=o.delivery_date||(o.created_at?o.created_at.substring(0,10):'—');
             const unclearItems=o.unclear_items||[];
             const tag=o.is_cancelled?'<span class="badge inactive" style="font-size:10px">Cancelled</span>':o.is_unclear?'<span class="badge unclear" style="font-size:10px">Unclear</span>':unclearItems.length?'<span class="badge unclear" style="font-size:10px">Partial</span>':'<span class="badge active" style="font-size:10px">OK</span>';
@@ -1688,7 +1692,7 @@ async function loadUnclearOrders() {
             return;
         }
 
-        const productOptions = products.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+        const productOptions = products.map(p => `<option value="${esc(p)}">${esc(erpName(p))}</option>`).join('');
 
         container.innerHTML = orders.map(order => {
             const parsedSection = order.parsed_items.length ? `
@@ -1696,7 +1700,7 @@ async function loadUnclearOrders() {
                     <div class="unclear-section-label unclear-parsed-label">✅ Parsed items (included in product summary):</div>
                     ${order.parsed_items.map(i => `
                         <div style="font-size:13px;color:#2d3748;padding:2px 0;">
-                            &nbsp;&nbsp;• ${esc(i.product)} — ${Number.isInteger(i.quantity) || i.quantity%1===0 ? parseInt(i.quantity) : i.quantity} ${esc(i.unit)}
+                            &nbsp;&nbsp;• ${esc(erpName(i.product))} — ${Number.isInteger(i.quantity) || i.quantity%1===0 ? parseInt(i.quantity) : i.quantity} ${esc(i.unit)}
                         </div>`).join('')}
                 </div>` : '';
 
@@ -1774,7 +1778,7 @@ async function loadUnclearOrders() {
                             return `
                                 <div class="unclear-item-row" id="${rowId}-row">
                                     <span class="qty-ambiguous-label">⚖️ Unit unclear</span>
-                                    <div class="qty-ambiguous-pill">${esc(product)} — ${esc(qty)} <em style="color:#aaa">kg or g?</em></div>
+                                    <div class="qty-ambiguous-pill">${esc(erpName(product))} — ${esc(qty)} <em style="color:#aaa">kg or g?</em></div>
                                     <button class="unit-toggle-btn" id="${rowId}-kg"
                                         onclick="selectUnit('${rowId}', 'kg')">kg</button>
                                     <button class="unit-toggle-btn" id="${rowId}-g"
@@ -1919,7 +1923,7 @@ async function resolveQtyItem(orderId, product, quantity, customerPhone, rowId) 
         ordersStale = true;
         btn.textContent = `✅ ${quantity} ${unit}`;
         btn.classList.add('done');
-        showToast(`✅ ${product}: confirmed as ${quantity} ${unit}`, 'success');
+        showToast(`✅ ${erpName(product)}: confirmed as ${quantity} ${unit}`, 'success');
         setTimeout(() => loadUnclearOrders(), 1500);
     } catch(e) {
         btn.disabled = false;
@@ -1984,7 +1988,7 @@ async function resolveWordQtyItem(orderId, rowId, customerPhone) {
         ordersStale = true;
         btn.textContent = `✅ ${quantity} ${unit} — ${data.retro_patched} past order${data.retro_patched !== 1 ? 's' : ''} updated`;
         btn.classList.add('done');
-        showToast(`✅ ${product}: ${quantity} ${unit} added to order (${data.retro_patched} past orders updated)`, 'success');
+        showToast(`✅ ${erpName(product)}: ${quantity} ${unit} added to order (${data.retro_patched} past orders updated)`, 'success');
         setTimeout(() => { loadUnclearOrders(); loadAliases(); loadCustomerAliases(); }, 1800);
     } catch(e) {
         btn.disabled    = false;
@@ -2020,7 +2024,7 @@ async function loadAliases() {
                         ${aliases.map(a => `
                             <tr id="alias-row-${a.id}">
                                 <td class="alias-raw">${esc(a.raw_text)}</td>
-                                <td style="color:#2d3748;font-weight:600;">${esc(a.canonical_product_name)}</td>
+                                <td style="color:#2d3748;font-weight:600;">${esc(erpName(a.canonical_product_name))}</td>
                                 <td style="color:#aaa;font-size:12px;">${a.created_at ? a.created_at.substring(0,10) : '—'}</td>
                                 <td>
                                     <button onclick="deleteAlias(${a.id})"
@@ -2079,7 +2083,7 @@ async function loadCustomerAliases() {
                                     ${a.customer_name ? `<div style="font-size:11px;color:#a0aec0;">${esc(a.customer_phone)}</div>` : ''}
                                 </td>
                                 <td class="alias-raw">${esc(a.raw_text)}</td>
-                                <td style="color:#2d3748;font-weight:600;">${esc(a.canonical_product_name)}</td>
+                                <td style="color:#2d3748;font-weight:600;">${esc(erpName(a.canonical_product_name))}</td>
                                 <td style="color:#aaa;font-size:12px;">${a.created_at ? a.created_at.substring(0,10) : '—'}</td>
                                 <td>
                                     <button onclick="deleteCustomerAlias(${a.id})"

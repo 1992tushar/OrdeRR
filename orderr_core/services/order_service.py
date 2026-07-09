@@ -17,7 +17,7 @@ from orderr_core.services.notifier import (
     send_replace_confirmation_request,
     send_repeat_order_confirmation_request,
 )
-from orderr_core.services.template_parser import parse_template_order
+from orderr_core.services.template_parser import parse_template_order, erp_display_name
 from orderr_core.services.customer_service import get_customer_by_phone, create_new_customer
 from orderr_core.services.adhoc_reporter import is_report_keyword, handle_adhoc_report_request
 from orderr_core.services.intent_classifier import (
@@ -266,7 +266,7 @@ def _build_unclear_alert(
         lines.append("*Parsed items (confirmed):*")
         for i in parsed_items:
             qty = int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']
-            lines.append(f"  ✅ {i['product']} — {qty} {i['unit']}")
+            lines.append(f"  ✅ {erp_display_name(i['product'])} — {qty} {i['unit']}")
         lines.append("")
     lines.append("*Could not understand:*")
     for raw in unclear_items:
@@ -320,7 +320,7 @@ def _save_and_notify(
 
     if is_edit:
         items_text = "\n".join(
-            f"• {i['product']} — {int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']} {i['unit']}"
+            f"• {erp_display_name(i['product'])} — {int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']} {i['unit']}"
             for i in parsed_items
         )
         # Notify customer (free-form — always within their window)
@@ -768,7 +768,7 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
             # so this is an extra contextual note about it being a second order).
             existing_items = _safe_load_list(existing_order.parsed_items)
             existing_lines = "\n".join(
-                f"• {i['product']} — {i['quantity']} {i['unit']}"
+                f"• {erp_display_name(i['product'])} — {i['quantity']} {i['unit']}"
                 for i in existing_items
             )
             additional_note = (

@@ -119,7 +119,7 @@
   {% set is_active = ov.effective_to is none %}
   <tr class="{{ 'active-row' if is_active else 'expired-row expired' }}">
     <td>{{ ov.customer_phone }}</td>
-    <td>{{ ov.product }}</td>
+    <td>{{ erp_name(ov.product) }}</td>
     <td>₹{{ "%.4f"|format(ov.rate_per_unit|float) }}</td>
     <td>{{ ov.unit }}</td>
     <td>{{ ov.effective_from }}</td>

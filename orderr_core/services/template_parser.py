@@ -150,6 +150,7 @@ PRODUCT_DEFINITIONS = [
         "bb", "cb",
         "bl breast", "breast bl", "b/l breast", "b.l breast",
         "brest", "brest boneless", "breast bnls","bonlesh", "bonles", "bonless chicken", "bonlesh chicken",
+        "chicken breast", "chiken breast", "chicken brest",
     ]),
 
     ("Leg Boneless", "kg", [
@@ -169,13 +170,6 @@ PRODUCT_DEFINITIONS = [
         "chicken lollipop", "ready lollypop",
         "lp", "lpop",
         "loli", "lolypop",
-    ]),
-
-    # ── Ready Lollipop ────────────────────────────────────────────────────────
-
-    ("Ready Lollipop", "kg", [
-        "ready lollipop", 
-        "ready lollypop",
     ]),
 
     # ── Bone Products ─────────────────────────────────────────────────────────
@@ -217,7 +211,7 @@ PRODUCT_DEFINITIONS = [
         "drmstk", "drumstik", "darmistk",
     ]),
 
-    ("Whole Leg", "nos", [
+    ("Whole Leg", "kg", [
         "whole leg", "full leg", "full chicken leg",
         "leg piece", "complete leg",
         "wl",
@@ -249,29 +243,117 @@ PRODUCT_DEFINITIONS = [
         "khima", "qeema",
     ]),
 
-    # ── New canonical products (used pervasively across customer orders /
-    #    test fixtures but previously missing from the catalog) ───────────────
+    # ── Whole Chicken: With Skin Tandoor (ERP CH1024560) ──────────────────────
+    # Was previously offered in the order template but missing here, so
+    # "with skin tandoor" orders never matched. Generic/Hindi "tandoor" stays
+    # mapped to the W/O Skin (skinless) variant above to preserve behaviour.
 
-    ("Chicken Leg", "kg", [
-        "chicken leg", "chiken leg", "chicken legs",
+    ("WS Tandoor Chicken", "kg", [
+        "with skin tandoor", "with skin whole chicken tandoor",
+        "ws tandoor", "ws tandoor chicken", "skin tandoor",
+        "tandoor with skin", "with skin td",
     ]),
 
-    ("Mutton", "kg", [
-        "mutton", "mutton meat", "goat meat", "goat", "lamb",
+    # ── Specialty Boneless (ERP) ──────────────────────────────────────────────
+
+    ("Thai Boneless", "kg", [
+        "thai boneless", "thai bonless", "thai boneless chicken",
+        "thai bnls", "thai bl",
     ]),
 
-    ("Chicken Breast", "kg", [
-        "chicken breast", "chiken breast", "chicken brest",
+    ("Supreme Boneless", "kg", [
+        "supreme boneless", "supreme bonless", "supreme boneless chicken",
+        "supreme bnls", "supreme",
     ]),
 
-    ("Chicken Whole", "nos", [
-        "chicken whole", "whole chicken nos",
+    # ── Byproducts (ERP) ──────────────────────────────────────────────────────
+
+    ("Chicken Neck", "kg", [
+        "chicken neck", "neck", "gardan", "gala", "chicken gardan",
+    ]),
+
+    ("Chicken Skin", "kg", [
+        "chicken skin", "only skin", "skin only", "chamdi", "chicken chamdi",
+    ]),
+
+    ("Chicken Feet", "kg", [
+        "chicken feet", "feet", "chicken paw", "paw", "paws", "panje", "chicken panje",
+    ]),
+
+    ("Chicken Mundi", "kg", [
+        "chicken mundi", "mundi", "chicken head", "head", "mundya", "chicken mundya",
     ]),
 
 ]
 
 # Flat set of all valid canonical product names (for alias resolution validation)
 VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
+
+
+# ── Vasy ERP catalog mapping ──────────────────────────────────────────────────
+# Maps each canonical (friendly) product name to its exact Vasy ERP item, so
+# parsed orders line up 1:1 with the ERP catalog for push / reconciliation.
+# Source: Vasy ERP "Product List" export (FY 2026-27).
+#
+# Friendly names above stay stable (they key rates, invoices, stats, history);
+# this dict is the sole ERP integration point. `erp_code` / `erp_name` are the
+# exact ERP Item Code and Name.
+#
+# Deliberately EXCLUDED from matching (not customer-orderable / not selected):
+#   Delivery Charges, Plant Wastage, Dead Bird           (internal, non-product)
+#   Live/Gavran birds (CH1024551/552/553/554)            (not sold to hotels)
+#   Pure Gavran Chicken Curry Cut (CH1024556)            (gavran range)
+#   Chicken Liver and Gizzard combo (CH1024577)          (kept Liver & Gizzard separate)
+#   Chicken Curry Cut With Skin (CH1024562, Deactive)    (generic Curry Cut → Without Skin)
+ERP_ITEMS = {
+    "WS Regular Chicken":       {"erp_code": "CH1024561", "erp_name": "With Skin whole chicken Regular",    "category": "Chicken"},
+    "WS Tandoor Chicken":       {"erp_code": "CH1024560", "erp_name": "With Skin whole chicken Tandoor",    "category": "Chicken"},
+    "W/O Skin Regular Chicken": {"erp_code": "CH1024559", "erp_name": "Without Skin whole chicken Regular", "category": "Chicken"},
+    "W/O Skin Tandoor Chicken": {"erp_code": "CH1024558", "erp_name": "Without Skin whole chicken Tandoor", "category": "Chicken"},
+    "Curry Cut":                {"erp_code": "CH1024563", "erp_name": "Chicken Curry Cut Without Skin",     "category": "Chicken"},
+    "Biryani Cut":              {"erp_code": "CH1024576", "erp_name": "Chicken Biryani Cut",                "category": "Chicken"},
+    "Breast Boneless":          {"erp_code": "CH1024574", "erp_name": "Chicken Breast boneless",            "category": "Chicken"},
+    "Leg Boneless":             {"erp_code": "CH1024557", "erp_name": "Chicken Leg Boneless",               "category": "Chicken"},
+    "Thai Boneless":            {"erp_code": "FS10246370","erp_name": "THAI BONLESS",                       "category": "Chicken"},
+    "Supreme Boneless":         {"erp_code": "CH1024578", "erp_name": "Supreme Bonless",                    "category": "Chicken"},
+    "Wings":                    {"erp_code": "CH1024575", "erp_name": "Chicken Wings with Skin",            "category": "Chicken"},
+    "Drumstick":                {"erp_code": "CH1024573", "erp_name": "Chicken Drumstick",                  "category": "Chicken"},
+    "Whole Leg":                {"erp_code": "CH1024572", "erp_name": "Chicken Whole Leg",                  "category": "Chicken"},
+    "Carcass":                  {"erp_code": "CH1024567", "erp_name": "Chicken Carcass",                    "category": "Chicken"},
+    "Chicken Neck":             {"erp_code": "CH1024565", "erp_name": "Chicken Neck",                       "category": "Chicken"},
+    "Chicken Skin":             {"erp_code": "CH1024564", "erp_name": "Chicken Skin",                       "category": "Chicken"},
+    "Chicken Feet":             {"erp_code": "CH1024568", "erp_name": "Chicken Feet",                       "category": "Chicken"},
+    "Chicken Mundi":            {"erp_code": "CH1024566", "erp_name": "Chicken Mundi",                      "category": "Chicken"},
+    "Liver":                    {"erp_code": "CH1024570", "erp_name": "Chicken Liver",                      "category": "Chicken"},
+    "Gizzard":                  {"erp_code": "CH1024569", "erp_name": "Chicken Gizzard",                    "category": "Chicken"},
+    "Kheema":                   {"erp_code": "CH1024571", "erp_name": "Chicken Kheema",                     "category": "Chicken"},
+}
+
+# Safety net: every ERP-mapped name must be a real canonical product, and every
+# canonical product must have an ERP mapping — catches drift the moment it happens.
+assert set(ERP_ITEMS) == VALID_PRODUCT_NAMES, (
+    "ERP_ITEMS / PRODUCT_DEFINITIONS mismatch — "
+    f"only in ERP_ITEMS: {set(ERP_ITEMS) - VALID_PRODUCT_NAMES}; "
+    f"only in PRODUCT_DEFINITIONS: {VALID_PRODUCT_NAMES - set(ERP_ITEMS)}"
+)
+
+
+def get_erp_item(canonical_name: str) -> dict | None:
+    """Return the Vasy ERP item ({erp_code, erp_name, category}) for a canonical
+    product name, or None if the name isn't in the catalog."""
+    return ERP_ITEMS.get(canonical_name)
+
+
+def erp_display_name(product: str) -> str:
+    """Human-facing display name for a product — the EXACT Vasy ERP item name when
+    the product maps to the ERP catalog, else the name unchanged.
+
+    Use this at EVERY surface where a product name is shown to a human (WhatsApp
+    messages, reports, invoices, dashboard, ledger). Storage and lookup KEYS
+    (rates, stats, aliases, form field names) must keep the friendly canonical
+    name — only the display is swapped."""
+    erp = get_erp_item((product or "").strip())
+    return erp["erp_name"] if erp else (product or "")
 
 
 # ── Normalizers ───────────────────────────────────────────────────────────────

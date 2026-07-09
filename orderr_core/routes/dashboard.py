@@ -14,6 +14,10 @@ import os
 router = APIRouter()
 IST = timezone(timedelta(hours=5, minutes=30))
 templates = Jinja2Templates(directory="orderr_core/templates")
+from orderr_core.services.template_parser import erp_display_name as _erp_display_name, ERP_ITEMS as _ERP_ITEMS
+templates.env.globals["erp_name"] = _erp_display_name
+# friendly → ERP name map, emitted to the page for JS-rendered product names
+templates.env.globals["erp_names_map"] = {k: v["erp_name"] for k, v in _ERP_ITEMS.items()}
 
 def _safe_list(value) -> list:
     """

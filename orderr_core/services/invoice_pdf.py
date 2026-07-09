@@ -173,33 +173,22 @@ def _uom(unit: str) -> str:
 
 
 # ── ERP product master → (item code, full ERP description) ────────────────────
-# Source: "Fluffy Fresh Foods Private Limited" product-list export. Keys are
-# OrdeRR's canonical product names (lower-cased). Unmapped products fall back to
-# the placeholder code + OrdeRR's own name, so nothing breaks.
-PRODUCT_MAP = {
-    "w/o skin tandoor chicken": ("CH1024558", "Without Skin whole chicken Tandoor"),
-    "w/o skin regular chicken": ("CH1024559", "Without Skin whole chicken Regular"),
-    "ws regular chicken":       ("CH1024561", "With Skin whole chicken Regular"),
-    "curry cut":                ("CH1024563", "Chicken Curry Cut Without Skin"),
-    "biryani cut":              ("CH1024576", "Chicken Biryani Cut"),
-    "drumstick":                ("CH1024573", "Chicken Drumstick"),
-    "whole leg":                ("CH1024572", "Chicken Whole Leg"),
-    "liver":                    ("CH1024570", "Chicken Liver"),
-    "gizzard":                  ("CH1024569", "Chicken Gizzard"),
-    "kheema":                   ("CH1024571", "Chicken Kheema"),
-    "breast boneless":          ("CH1024574", "Chicken Breast boneless"),
-    "chicken breast":           ("CH1024574", "Chicken Breast boneless"),
-    "leg boneless":             ("CH1024557", "Chicken Leg Boneless"),
-    "wings":                    ("CH1024575", "Chicken Wings with Skin"),
-    "carcass":                  ("CH1024567", "Chicken Carcass"),
-}
-
-
 def _product_info(product: str) -> tuple[str, str]:
-    """Return (item_code, description) for a product — ERP values when mapped,
-    otherwise the placeholder code and OrdeRR's own name."""
-    info = PRODUCT_MAP.get((product or "").strip().lower())
-    return info if info else (ITEM_CODE, product)
+    """Return (item_code, description) for a product — exact Vasy ERP values when
+    the product maps to the ERP catalog, otherwise the placeholder code and
+    OrdeRR's own name so nothing breaks.
+
+    Single source of truth: ERP_ITEMS in template_parser. Matches on the exact
+    canonical name first, then case-insensitively, so legacy/lower-cased stored
+    names still resolve."""
+    from orderr_core.services.template_parser import get_erp_item, ERP_ITEMS
+    name = (product or "").strip()
+    erp = get_erp_item(name)
+    if not erp:
+        # Case-insensitive fallback for any legacy stored casing.
+        low = name.lower()
+        erp = next((v for k, v in ERP_ITEMS.items() if k.lower() == low), None)
+    return (erp["erp_code"], erp["erp_name"]) if erp else (ITEM_CODE, product)
 
 
 def _barcode_bytes(text: str) -> io.BytesIO:

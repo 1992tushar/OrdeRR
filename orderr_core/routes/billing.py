@@ -60,6 +60,10 @@ import json
 logger = logging.getLogger(__name__)
 router = APIRouter()
 templates = Jinja2Templates(directory="orderr_core/templates")
+from orderr_core.services.template_parser import erp_display_name as _erp_display_name, ERP_ITEMS as _ERP_ITEMS
+templates.env.globals["erp_name"] = _erp_display_name
+# friendly → ERP name map, emitted to the page for JS-rendered product names
+templates.env.globals["erp_names_map"] = {k: v["erp_name"] for k, v in _ERP_ITEMS.items()}
 
 def _today() -> date:
     """Billing 'today' = the current BUSINESS date (rolls over at the 8 PM

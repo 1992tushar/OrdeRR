@@ -5,6 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from orderr_core.services.customer_service import normalize_phone
+from orderr_core.services.template_parser import erp_display_name
 
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN")
 META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
@@ -161,7 +162,7 @@ def _format_items_freeform(items: list) -> str:
     for i, item in enumerate(items, 1):
         qty     = item["quantity"]
         qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        lines  += f"{i}. {item['product']} — {qty_str} {item['unit']}\n"
+        lines  += f"{i}. {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
     return lines
 
 
@@ -171,7 +172,7 @@ def _format_items_template(items: list) -> str:
     for item in items:
         qty     = item["quantity"]
         qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        parts.append(f"{item['product']} {qty_str} {item['unit']}")
+        parts.append(f"{erp_display_name(item['product'])} {qty_str} {item['unit']}")
     return " | ".join(parts)
 
 
@@ -191,7 +192,7 @@ def send_order_confirmation(
     for item in items:
         qty     = item["quantity"]
         qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        items_text += f"• {item['product']} — {qty_str} {item['unit']}\n"
+        items_text += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
 
     delivery_text = (
         f"🕒 Delivery: {delivery_time}"
@@ -299,7 +300,7 @@ def send_replace_confirmation_request(
         for item in items:
             qty     = item["quantity"]
             qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-            lines  += f"• {item['product']} — {qty_str} {item['unit']}\n"
+            lines  += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
         return lines
 
     message = (
@@ -320,7 +321,7 @@ def send_repeat_order_confirmation_request(
         for item in items:
             qty     = item["quantity"]
             qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-            lines  += f"• {item['product']} — {qty_str} {item['unit']}\n"
+            lines  += f"• {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
         return lines
 
     message = (

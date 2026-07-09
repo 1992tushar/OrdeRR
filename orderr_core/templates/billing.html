@@ -361,6 +361,10 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 <div id="toast"></div>
 
 <script>
+// friendly → Vasy ERP name map (from ERP_ITEMS); erpName() shows the ERP name
+// wherever product names are rendered client-side, falling back to the raw name.
+window.ERP_NAMES = {{ erp_names_map | tojson }};
+function erpName(p){ return (p && window.ERP_NAMES[p]) || p; }
 let today     = new Date().toISOString().slice(0,10);
 let hotelResults = [];
 let rateRows  = [];
@@ -542,12 +546,12 @@ function buildPendingBody(h){
   (h.items||[]).forEach(it=>{
     const qid = 'qi-'+h.order_id+'-'+it.actual_id;
     rows += '<tr>' +
-      '<td><strong>'+it.product+'</strong></td>' +
+      '<td><strong>'+erpName(it.product)+'</strong></td>' +
       '<td style="text-align:right">'+(it.ordered_qty!=null?it.ordered_qty:'-')+'</td>' +
       '<td style="text-align:right">' +
       '<input class="qty-inp" id="'+qid+'" type="number" step="0.001" min="0" placeholder="qty" ' +
       'onkeydown="if(event.key===\'Enter\'){event.preventDefault();confirmAllItems('+h.order_id+')}" ' +
-      'aria-label="Delivered quantity for '+it.product+'">' +
+      'aria-label="Delivered quantity for '+erpName(it.product)+'">' +
       '</td>' +
       '<td>'+it.unit+'</td>' +
       '</tr>';
@@ -577,14 +581,14 @@ function buildItemsTable(h){
     if(unconfirmed && it.actual_id != null) anyEditable = true;
     const qid = 'qi-'+h.order_id+'-'+it.actual_id;
     rows += '<tr class="'+(unconfirmed?'nr':'')+'">' +
-      '<td><strong>'+it.product+'</strong></td>' +
+      '<td><strong>'+erpName(it.product)+'</strong></td>' +
       '<td style="text-align:right">'+(it.ordered_qty!=null?it.ordered_qty:'-')+'</td>' +
       '<td style="text-align:right">' +
       (unconfirmed
         ? '<div class="qty-row">' +
           '<input class="qty-inp" id="'+qid+'" type="number" step="0.001" min="0" value="'+(it.actual_qty??'')+'" placeholder="qty" ' +
           'onkeydown="if(event.key===\'Enter\'){event.preventDefault();confirmAllItems('+h.order_id+')}" ' +
-          'aria-label="Delivered quantity for '+it.product+'"></div>' +
+          'aria-label="Delivered quantity for '+erpName(it.product)+'"></div>' +
           (it.review_reason?'<div class="review-label">'+it.review_reason+'</div>':'')
         : it.actual_qty
       ) +
@@ -695,7 +699,7 @@ async function confirmAllItems(orderId){
     const inp = document.getElementById('qi-'+orderId+'-'+it.actual_id);
     const qty = parseFloat(inp ? inp.value : '');
     if(!qty || qty<=0){
-      showToast('Enter a delivered quantity for '+it.product);
+      showToast('Enter a delivered quantity for '+erpName(it.product));
       if(inp) inp.focus();
       return;
     }
@@ -932,7 +936,7 @@ function rerenderRates(){
         : (p.rate!=null?p.rate:'');
     const tr = document.createElement('tr');
     tr.innerHTML =
-      '<td><span class="product-name">'+p.product+'</span>' +
+      '<td><span class="product-name">'+erpName(p.product)+'</span>' +
       '<span class="unit-badge">'+p.unit+'</span>' +
       (p.stale ? '<span class="stale-tag">carried forward - '+p.rate_date+'</span>' : '') +
       (hasOverride ? '<span class="stale-tag" style="background:var(--blue-bg);color:var(--blue);border:none">override Rs.'+overrideMap[p.product]+'</span>' : '') +

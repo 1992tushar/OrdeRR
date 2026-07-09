@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from orderr_core.models.invoice import Invoice, InvoiceItem
 from orderr_core.models.actuals import OrderItemActual
+from orderr_core.services.template_parser import erp_display_name
 from orderr_core.models.rate_unclear import RateUnclearItem
 from orderr_core.models.order import Order
 from orderr_core.services.rate_lookup import get_rate
@@ -101,7 +102,7 @@ def generate_invoice(
         if a.confidence == "needs_review" and not a.confirmed_by
     ]
     if unverified:
-        products = ", ".join(a.product for a in unverified)
+        products = ", ".join(erp_display_name(a.product) for a in unverified)
         raise InvoiceHoldError(
             f"Cannot generate invoice: actuals not confirmed for [{products}]. "
             "Resolve in the Unclear Actuals queue before billing."
@@ -116,7 +117,7 @@ def generate_invoice(
     # over/under-bills whenever delivery differs from the order.
     missing_actual = [a for a in actuals if a.actual_quantity is None]
     if missing_actual:
-        products = ", ".join(a.product for a in missing_actual)
+        products = ", ".join(erp_display_name(a.product) for a in missing_actual)
         raise InvoiceHoldError(
             f"Cannot generate invoice: delivered quantity not confirmed for [{products}]. "
             "Enter the delivered quantity for every item before billing."
@@ -165,7 +166,7 @@ def generate_invoice(
         # Hold: no rate exists at all
         if rr.source == "none" or not rr.found:
             raise InvoiceHoldError(
-                f"Cannot generate invoice: no rate found for [{actual.product}]. "
+                f"Cannot generate invoice: no rate found for [{erp_display_name(actual.product)}]. "
                 "Add a daily rate or customer override before billing."
             )
 

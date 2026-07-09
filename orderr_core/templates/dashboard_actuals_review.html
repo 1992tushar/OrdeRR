@@ -81,7 +81,7 @@
     <tbody>
     {% for a in needs_review %}
     <tr>
-      <td><strong>{{ a.product }}</strong></td>
+      <td><strong>{{ erp_name(a.product) }}</strong></td>
       <td>
         <span style="font-size:0.88rem;">
           Qty: <strong>{{ a.actual_quantity if a.actual_quantity is not none else '?' }}</strong>
