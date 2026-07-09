@@ -224,16 +224,9 @@ def _send_manager_summary(manager_phone: str, db: Session):
     print(f"   ✅ Summary sent → {total_received}/{total_active} received")
 
 # Add this helper after the TEMPLATE_DAILY_REPORT line:
-def _safe_list(value) -> list:
-    if not value:
-        return []
-    try:
-        parsed = json.loads(value)
-        if isinstance(parsed, str):      # double-encoded
-            parsed = json.loads(parsed)
-        return parsed if isinstance(parsed, list) else []
-    except Exception:
-        return []
+# Was a divergent local copy that crashed on native-list (JSONB) input and
+# silently returned [] — now the shared, robust helper.
+from orderr_core.utils import safe_list as _safe_list
 
 
 def _send_manager_daily_report_only(manager_phone: str, db: Session):
