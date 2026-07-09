@@ -30,7 +30,7 @@ from orderr_core.auth import require_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
+from orderr_core.config import MANAGER_PHONE
 ADD_CUSTOMER_CMD = "add customer"
 
 # Statuses returned by process_incoming_order() that are NOT real orders.

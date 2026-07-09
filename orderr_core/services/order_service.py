@@ -35,8 +35,7 @@ from orderr_core.services.intent_classifier import (
 
 logger = logging.getLogger(__name__)
 
-MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
-PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 BASE_URL             = os.getenv("BASE_URL", "")   # e.g. https://orderr.onrender.com
 from orderr_core.constants import IST
 DISPATCH_CUTOFF_HOUR = int(os.getenv("DISPATCH_CUTOFF_HOUR", "9"))

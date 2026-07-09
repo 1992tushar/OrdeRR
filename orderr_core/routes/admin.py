@@ -67,8 +67,7 @@ logger = logging.getLogger(__name__)
 
 
 router     = APIRouter()
-PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
-MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 from orderr_core.constants import IST
 
 

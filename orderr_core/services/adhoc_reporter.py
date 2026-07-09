@@ -33,8 +33,7 @@ from orderr_core.services.notifier import (
     send_manager_menu,
     send_salesperson_menu,
 )
-MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
-PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 from orderr_core.constants import IST
 
 # ── Approved template names ───────────────────────────────────────────────────

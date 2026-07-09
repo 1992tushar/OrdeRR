@@ -8,6 +8,7 @@ from orderr_core.models.order import Order
 from orderr_core.auth import require_auth
 from datetime import datetime, date, timezone, timedelta
 from orderr_core.services.order_service import get_current_business_date
+from orderr_core.config import PLANT_NAME
 import json
 import os
 
@@ -98,7 +99,7 @@ def dashboard(
         request=request,
         name="dashboard.html",
         context={
-            "plant_name"         : os.getenv("PLANT_NAME", "Fluffy"),
+            "plant_name"         : PLANT_NAME,
             "current_time"       : datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "orders"             : orders,
             "clear_orders"       : clear_orders,

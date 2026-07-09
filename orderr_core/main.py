@@ -11,6 +11,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 import os
 from datetime import datetime, timezone, timedelta
 
+from orderr_core.config import PLANT_NAME
 from orderr_core.database import engine, Base, SessionLocal
 from orderr_core.routes import webhook, dashboard
 from orderr_core.routes.admin import router as admin_router
@@ -343,7 +344,7 @@ app.include_router(staff_router,    tags=["Staff"])
 def root():
     return {
         "app"   : "OrdeRR",
-        "plant" : os.getenv("PLANT_NAME", "Fluffy"),
+        "plant" : PLANT_NAME,
         "status": "running",
     }
 
@@ -368,7 +369,7 @@ def health_check():
     return {
         "status"          : "ok",
         "app"             : "OrdeRR",
-        "plant"           : os.getenv("PLANT_NAME", "Fluffy"),
+        "plant"           : PLANT_NAME,
         "database"        : db_status,
         "scheduler"       : sched_status,
         "scheduler_jobs"  : job_count,

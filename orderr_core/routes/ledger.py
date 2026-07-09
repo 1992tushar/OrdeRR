@@ -23,7 +23,7 @@ import json
 
 router = APIRouter()
 from orderr_core.constants import IST
-PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import PLANT_NAME
 from orderr_core.templating import make_templates
 templates = make_templates()
 LEDGER_DAYS = 7

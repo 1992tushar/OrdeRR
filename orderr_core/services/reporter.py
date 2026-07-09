@@ -17,8 +17,7 @@ from orderr_core.models.customer import Customer
 from orderr_core.services.notifier import send_whatsapp_template, send_whatsapp_message
 from orderr_core.services.order_service import get_current_business_date_str
 
-MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
-PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 from orderr_core.constants import IST
 
 # ── Approved template name ────────────────────────────────────────────────────

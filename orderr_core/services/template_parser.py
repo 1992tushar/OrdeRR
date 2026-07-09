@@ -39,7 +39,7 @@ from orderr_core.models.noise_phrase import NoisePhrase
 # the existing `from template_parser import UNIT_AMBIGUOUS_MARKER` importers.
 from orderr_core.constants import UNIT_AMBIGUOUS_MARKER
 
-PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import PLANT_NAME
 
 # ── Multi-item single-line splitter ───────────────────────────────────────────
 # Some customers send several items on ONE line/string instead of one per

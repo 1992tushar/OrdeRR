@@ -15,8 +15,7 @@ from orderr_core.constants import IST
 
 RETRY_SCHEDULE_MINUTES = [1, 5, 15, 30, 60]
 
-MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
-PLANT_NAME    = os.getenv("PLANT_NAME", "OrdeRR")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 
 ACK_MESSAGE = "✅ Order received. Processing now."
 

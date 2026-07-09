@@ -10,8 +10,7 @@ from orderr_core.services.template_parser import erp_display_name
 
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN")
 META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
-MANAGER_PHONE        = os.getenv("MANAGER_PHONE")
-PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 
 logger = logging.getLogger(__name__)
 

@@ -25,8 +25,7 @@ from orderr_core.services.pending_orders import (
 )
 from orderr_core.services.notifier import send_whatsapp_template, send_whatsapp_message
 
-MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
-PLANT_NAME    = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 
 # ── Approved template names ───────────────────────────────────────────────────
 # NOTE: customer_daily_reminder is MARKETING category — cannot deliver without opt-in.
