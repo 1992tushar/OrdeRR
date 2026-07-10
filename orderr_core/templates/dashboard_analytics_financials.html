@@ -130,42 +130,63 @@ tfoot td{font-weight:700;background:var(--bg)}
 
   <!-- P3-14 Payables / AP -->
   <div class="section-title">Payables (AP)</div>
+  {% if fin.payables.ap.has_bills %}
+  <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+    <div class="kpi cogs"><div class="n">{{ fin.payables.ap.ap_total_fmt }}</div><div class="l">Total payable (supplier bills)</div></div>
+    <div class="kpi"><div class="n">{{ fin.payables.ap.open_bills }}</div><div class="l">Open bills</div></div>
+    <div class="kpi"><div class="n">{{ fin.payables.unpaid_total_fmt }}</div><div class="l">+ unpaid expenses</div></div>
+  </div>
+  <div class="grid2" style="margin-top:14px">
+    <div>
+      <div class="section-title" style="font-size:13px;margin-top:4px">AP aging (by due date)</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>Bucket</th><th class="num">Due</th></tr></thead>
+          <tbody>
+            {% for a in fin.payables.ap.aging %}
+            <tr><td>{{ a.bucket }}</td><td class="num">{{ a.amount_fmt }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+    <div>
+      <div class="section-title" style="font-size:13px;margin-top:4px">Top creditors (owed)</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>Vendor</th><th class="num">Due</th></tr></thead>
+          <tbody>
+            {% for c in fin.payables.ap.top_creditors %}
+            <tr><td>{{ c.vendor }}</td><td class="num">{{ c.due_fmt }}</td></tr>
+            {% else %}
+            <tr><td colspan="2" class="empty">Nothing owed. 🎉</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+  </div>
+  <div class="note" style="border-left-color:var(--green-border)">True AP from the Vasy Supplier Bill List — bill-level with due dates, so aging is real (not a proxy). Also tracked: unpaid expenses {{ fin.payables.unpaid_total_fmt }}.</div>
+  {% else %}
   <div class="note" style="border-left-color:var(--blue-border)">
-    Partial AP view: <b>unpaid expenses = {{ fin.payables.unpaid_total_fmt }}</b> (from the expense ledger's UnPaid column) plus who we pay most (below).
-    True supplier outstanding needs a Vasy <b>creditor/supplier-outstanding</b> export (not yet available) — purchases don't carry a paid/unpaid split.
+    Upload the <b>Supplier Outstanding</b> export on the Imports page for true bill-level AP + aging.
+    Meanwhile: unpaid expenses = <b>{{ fin.payables.unpaid_total_fmt }}</b>.
   </div>
-  <div class="grid2">
-    <div>
-      <div class="section-title" style="font-size:13px;margin-top:4px">Unpaid expenses</div>
-      <div class="wrap"><div class="scroll">
-        <table>
-          <thead><tr><th>Expense</th><th>Party</th><th>Date</th><th class="num">Unpaid</th></tr></thead>
-          <tbody>
-            {% for u in fin.payables.unpaid_rows %}
-            <tr><td>{{ u.expense_no }}</td><td>{{ u.party }}</td><td style="white-space:nowrap">{{ u.date }}</td><td class="num">{{ u.unpaid_fmt }}</td></tr>
-            {% else %}
-            <tr><td colspan="4" class="empty">No unpaid expenses. 🎉</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div></div>
-    </div>
-    <div>
-      <div class="section-title" style="font-size:13px;margin-top:4px">Top payees (money out)</div>
-      <div class="wrap"><div class="scroll">
-        <table>
-          <thead><tr><th>Party</th><th class="num">Payments</th><th class="num">Total paid</th></tr></thead>
-          <tbody>
-            {% for p in fin.payables.top_payees %}
-            <tr><td>{{ p.party }}</td><td class="num">{{ p.count }}</td><td class="num">{{ p.total_fmt }}</td></tr>
-            {% else %}
-            <tr><td colspan="3" class="empty">No payments.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div></div>
-    </div>
-  </div>
+  {% endif %}
+
+  <div class="section-title" style="font-size:13px">Top payees (money out)</div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Party</th><th class="num">Payments</th><th class="num">Total paid</th></tr></thead>
+      <tbody>
+        {% for p in fin.payables.top_payees %}
+        <tr><td>{{ p.party }}</td><td class="num">{{ p.count }}</td><td class="num">{{ p.total_fmt }}</td></tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">No payments.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
   {% endif %}
 </main>
 </body>

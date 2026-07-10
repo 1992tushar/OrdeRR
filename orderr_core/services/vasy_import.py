@@ -32,6 +32,7 @@ from orderr_core.models.vasy_invoice import VasyInvoice, VasyInvoiceItem
 from orderr_core.models.vasy_purchase import VasyPurchase, VasyPurchaseItem
 from orderr_core.models.vasy_expense import VasyExpense
 from orderr_core.models.vasy_payment import VasyPayment
+from orderr_core.models.vasy_supplier_bill import VasySupplierBill
 from orderr_core.services.customer_service import (
     _to_amount, normalize_phone, import_customers_from_xlsx,
 )
@@ -85,6 +86,7 @@ def _find_header(ws, required_labels, max_scan=15):
         if ("receipt_no" in colmap or ("closing" in colmap and "party" in colmap)
                 or ("voucher" in colmap and "party" in colmap)
                 or ("bill" in colmap and "party" in colmap)
+                or ("bill" in colmap and "vendor" in colmap)
                 or "expense_no" in colmap or "payment_no" in colmap):
             # header row found (heuristic: a distinctive column is present)
             return r_idx, colmap
@@ -665,3 +667,68 @@ def import_payments(db: Session, file_bytes: bytes, source_file: str = None) -> 
     db.commit()
     return {"entity": "payments", "rows": created + updated, "created": created,
             "updated": updated, "unmatched": 0, "total_fmt": _fmt_inr_local(total_amount)}
+
+
+# ── Supplier bills import (accounts payable; bill-level, upsert on Bill No) ─
+
+def import_supplier_bills(db: Session, file_bytes: bytes, source_file: str = None) -> dict:
+    """Import a Vasy Supplier Bill List into VasySupplierBill (upsert on
+    bill_no). Bill-level AP with paid/due/due-date/status → enables true AP
+    aging. Vendor stored raw. Skips footer Total row."""
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as e:
+        raise ValueError(f"Could not read the supplier-outstanding Excel file: {e}")
+    ws = wb.active
+    labels = {
+        "status": ("status",),
+        "bill": ("bill no", "bill no.", "bill number"),
+        "bill_date": ("bill date",),
+        "vendor": ("vendor", "party name", "supplier", "party"),
+        "amount": ("amount",),
+        "paid": ("paid amount", "paid"),
+        "due": ("due amount", "due", "outstanding"),
+        "tax": ("tax amount", "tax"),
+        "due_date": ("due date",),
+    }
+    header_idx, col = _find_header(ws, labels)
+    if "bill" not in col or "due" not in col:
+        raise ValueError("Supplier outstanding export must have 'Bill No' and 'Due Amount' columns.")
+
+    def cell(row, key):
+        i = col.get(key)
+        return row[i] if (i is not None and i < len(row)) else None
+
+    existing = {b.bill_no: b for b in db.query(VasySupplierBill).all()}
+    created = updated = 0
+    total_due = 0.0
+    seen = set()
+    for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
+        if not row:
+            continue
+        bno = cell(row, "bill")
+        bno = str(bno).strip() if bno is not None else ""
+        if _is_total_row(bno) or bno in seen:
+            continue
+        seen.add(bno)
+        due = _to_amount(cell(row, "due"))
+        total_due += float(due)
+        rec = existing.get(bno)
+        if rec is None:
+            rec = VasySupplierBill(bill_no=bno); db.add(rec); created += 1
+        else:
+            updated += 1
+        rec.bill_date = _parse_date(cell(row, "bill_date"))
+        rec.due_date = _parse_date(cell(row, "due_date"))
+        rec.vendor = str(cell(row, "vendor") or "").strip()
+        rec.vendor_key = normalize_name(rec.vendor)
+        rec.amount = _to_amount(cell(row, "amount"))
+        rec.paid = _to_amount(cell(row, "paid"))
+        rec.due = due
+        rec.tax = _to_amount(cell(row, "tax"))
+        rec.status = (str(cell(row, "status") or "").strip().lower() or None)
+    db.add(ImportLog(entity="supplier_bills", source_file=source_file, rows_total=created + updated,
+                     created=created, updated=updated, unmatched=0, notes=f"due_total={round(total_due,2)}"))
+    db.commit()
+    return {"entity": "supplier_bills", "rows": created + updated, "created": created,
+            "updated": updated, "unmatched": 0, "total_fmt": _fmt_inr_local(total_due)}

@@ -30,6 +30,7 @@ from orderr_core.models.vasy_invoice import VasyInvoice
 from orderr_core.models.vasy_purchase import VasyPurchase
 from orderr_core.models.vasy_expense import VasyExpense
 from orderr_core.models.vasy_payment import VasyPayment
+from orderr_core.models.vasy_supplier_bill import VasySupplierBill
 from orderr_core.services.template_parser import erp_display_name, ERP_ITEMS
 from orderr_core.utils import safe_list, fmt_qty
 
@@ -525,6 +526,7 @@ def import_coverage(db: Session, today: date) -> list:
         ("Purchases", VasyPurchase, VasyPurchase.bill_date, "purchases"),
         ("Expenses", VasyExpense, VasyExpense.expense_date, "expenses"),
         ("Payments", VasyPayment, VasyPayment.payment_date, "payments"),
+        ("Supplier bills (AP)", VasySupplierBill, VasySupplierBill.bill_date, "supplier-outstanding"),
     ]
     rows = []
 
@@ -636,13 +638,49 @@ def plant_financials(db: Session, today: date, months: int = 12) -> dict:
     t_gp = t_rev - t_cogs
     t_in, t_out = sum(cin.values()), sum(cout.values())
 
-    # ── P3-14 payables ──
+    # ── P3-14 payables (true AP from supplier bills, if imported) ──
+    has_ap = db.query(VasySupplierBill.id).first() is not None
+    ap = {"has_bills": has_ap}
+    if has_ap:
+        bills = db.query(VasySupplierBill).filter(VasySupplierBill.due > 0).all()
+        ap_total = sum(float(b.due) for b in bills)
+        # true aging by due date (days overdue = today − due_date)
+        buckets = {"current": 0.0, "0-30": 0.0, "31-60": 0.0, "61-90": 0.0, "90+": 0.0, "no-date": 0.0}
+        for b in bills:
+            due = float(b.due)
+            if b.due_date is None:
+                buckets["no-date"] += due
+            else:
+                od = (today - b.due_date).days
+                if od <= 0:
+                    buckets["current"] += due
+                elif od <= 30:
+                    buckets["0-30"] += due
+                elif od <= 60:
+                    buckets["31-60"] += due
+                elif od <= 90:
+                    buckets["61-90"] += due
+                else:
+                    buckets["90+"] += due
+        creditors = {}
+        for b in bills:
+            creditors[b.vendor] = creditors.get(b.vendor, 0.0) + float(b.due)
+        top_creditors = sorted(creditors.items(), key=lambda kv: kv[1], reverse=True)[:10]
+        ap.update({
+            "ap_total_fmt": fmt_inr(ap_total),
+            "open_bills": len(bills),
+            "aging": [
+                {"bucket": "Not yet due", "amount_fmt": fmt_inr(buckets["current"])},
+                {"bucket": "1–30 days overdue", "amount_fmt": fmt_inr(buckets["0-30"])},
+                {"bucket": "31–60 days overdue", "amount_fmt": fmt_inr(buckets["31-60"])},
+                {"bucket": "61–90 days overdue", "amount_fmt": fmt_inr(buckets["61-90"])},
+                {"bucket": "90+ days overdue", "amount_fmt": fmt_inr(buckets["90+"])},
+            ],
+            "top_creditors": [{"vendor": v, "due_fmt": fmt_inr(d)} for v, d in top_creditors],
+        })
+
+    # supporting: unpaid expenses + top payees (money out)
     unpaid_total = float(db.query(func.coalesce(func.sum(VasyExpense.unpaid), 0)).scalar() or 0)
-    unpaid_rows = [{"expense_no": e.expense_no, "party": e.party_name,
-                    "date": e.expense_date.strftime("%d %b %Y") if e.expense_date else "",
-                    "unpaid_fmt": fmt_inr(e.unpaid)}
-                   for e in db.query(VasyExpense).filter(VasyExpense.unpaid > 0)
-                   .order_by(VasyExpense.unpaid.desc()).limit(50).all()]
     payee_rows = db.query(VasyPayment.party_name, func.count(VasyPayment.id),
                           func.coalesce(func.sum(VasyPayment.amount), 0)) \
         .group_by(VasyPayment.party_name).order_by(func.sum(VasyPayment.amount).desc()).limit(15).all()
@@ -667,8 +705,8 @@ def plant_financials(db: Session, today: date, months: int = 12) -> dict:
             "payments": _date_range(db, VasyPayment.payment_date),
         },
         "payables": {
+            "ap": ap,
             "unpaid_total_fmt": fmt_inr(unpaid_total),
-            "unpaid_rows": unpaid_rows,
             "top_payees": top_payees,
         },
     }

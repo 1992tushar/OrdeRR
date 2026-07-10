@@ -50,6 +50,7 @@ tr:last-child td{border-bottom:none}
 .tag.receipts{background:var(--blue-bg);color:var(--blue)} .tag.outstanding{background:var(--amber-bg);color:var(--amber)}
 .tag.sales_invoices{background:var(--green-bg);color:var(--green)}
 .tag.purchases{background:var(--amber-bg);color:var(--amber)} .tag.expenses{background:var(--red-bg);color:var(--red)} .tag.payments{background:var(--red-bg);color:var(--red)}
+.tag.supplier_bills{background:var(--amber-bg);color:var(--amber)}
 .empty{color:var(--ink3);text-align:center;padding:22px}
 .warn{color:var(--amber);font-weight:600}
 
@@ -180,6 +181,13 @@ details.help ul{margin:6px 0 6px 18px} details.help li{margin:3px 0}
       <input type="file" id="f-payments" accept=".xlsx,.xlsm">
       <button class="btn" id="b-payments" onclick="upload('payments')">Upload payments</button>
       <div class="result" id="r-payments"></div>
+    </div>
+    <div class="card">
+      <h3>🏭 Supplier Outstanding</h3>
+      <p>Vasy → Supplier Bill List (accounts payable → true AP + aging).</p>
+      <input type="file" id="f-supplier-outstanding" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-supplier-outstanding" onclick="upload('supplier-outstanding')">Upload supplier bills</button>
+      <div class="result" id="r-supplier-outstanding"></div>
     </div>
   </div>
 
