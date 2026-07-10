@@ -265,6 +265,37 @@ def analytics_export(
     )
 
 
+@router.get("/analytics/reconcile", response_class=HTMLResponse)
+def analytics_reconcile(
+    request: Request,
+    date: str = Query(default=None, description="YYYY-MM-DD (defaults to latest Vasy invoice date)"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P2-16 — OrdeRR↔Vasy invoice reconciliation (billing leakage)."""
+    from datetime import date as _date
+    from orderr_core.services import analytics_service
+
+    target = None
+    if date:
+        try:
+            target = _date.fromisoformat(date)
+        except ValueError:
+            target = None
+    data = analytics_service.reconciliation(db, target_date=target)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_reconcile.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "rc"         : data,
+            "analytics_view": "reconcile",
+        },
+    )
+
+
 @router.get("/analytics/collections", response_class=HTMLResponse)
 def analytics_collections(
     request: Request,

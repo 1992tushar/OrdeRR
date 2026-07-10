@@ -26,6 +26,7 @@ from orderr_core.models.salesperson import Salesperson
 from orderr_core.models.actuals import OrderItemActual
 from orderr_core.models.customer_receipt import CustomerReceipt
 from orderr_core.models.outstanding_snapshot import OutstandingSnapshot
+from orderr_core.models.vasy_invoice import VasyInvoice
 from orderr_core.services.template_parser import erp_display_name
 from orderr_core.utils import safe_list, fmt_qty
 
@@ -316,6 +317,99 @@ def collections(db: Session, today: date, weeks: int = 12) -> dict:
         "unattributed_count": len(unattributed),
         "attributed_total_fmt": fmt_inr(grand_total - un_total),
         "grand_total_fmt": fmt_inr(grand_total),
+    }
+
+
+# ── P2-15/16 Vasy revenue + OrdeRR↔Vasy reconciliation ─────────────────────
+
+def reconciliation(db: Session, target_date: date = None) -> dict:
+    """P2-16 — flag OrdeRR deliveries with no matching Vasy invoice (billing
+    leakage), for a given date, matching by customer.
+
+    Also surfaces the day's Vasy-invoiced revenue (P2-15 authoritative revenue)
+    and the reverse list (Vasy-invoiced customers with no OrdeRR order that day
+    — e.g. phone/manual orders). Match is customer_id + exact date; the order's
+    business-date basis vs Vasy invoice date can differ by a day, so this is a
+    same-day approximation (labelled).
+    """
+    dates = [d[0] for d in db.query(VasyInvoice.invoice_date).distinct()
+             .filter(VasyInvoice.invoice_date != None)                 # noqa: E711
+             .order_by(VasyInvoice.invoice_date.desc()).all()]
+    if not dates:
+        return {"has_data": False}
+    target = target_date or dates[0]
+    ds = target.strftime("%Y-%m-%d")
+
+    # customers + phone→id map
+    customers = {c.id: c for c in db.query(Customer).all()}
+    phone_to_id = {}
+    for c in customers.values():
+        if c.phone_number:
+            phone_to_id[c.phone_number] = c.id
+
+    # Vasy invoices that day, grouped by customer
+    vasy = db.query(VasyInvoice).filter(VasyInvoice.invoice_date == target).all()
+    vasy_by_cust = {}
+    vasy_total = 0.0
+    for v in vasy:
+        vasy_total += float(v.total or 0)
+        if v.customer_id is not None:
+            vasy_by_cust.setdefault(v.customer_id, []).append(v)
+
+    # OrdeRR orders that day (non-cancelled), grouped by customer
+    orders = db.query(Order).filter(
+        Order.business_date == ds, Order.is_cancelled == False).all()  # noqa: E712
+    orders_by_cust = {}
+    for o in orders:
+        cid = phone_to_id.get(o.customer_phone)
+        orders_by_cust.setdefault(cid, []).append(o)
+
+    # unbilled: OrdeRR customer ordered that day but no Vasy invoice
+    unbilled = []
+    for cid, olist in orders_by_cust.items():
+        if cid is None:
+            continue  # order from a phone with no customer record
+        if cid not in vasy_by_cust:
+            c = customers.get(cid)
+            items = 0
+            for o in olist:
+                items += len(safe_list(o.parsed_items))
+            unbilled.append({
+                "customer_id": cid,
+                "name": (c.restaurant_name if c else None) or o.customer_phone,
+                "area": (c.area if c else "") or "",
+                "orders": len(olist),
+                "items": items,
+            })
+    unbilled.sort(key=lambda r: r["name"].lower())
+
+    # reverse: Vasy invoiced that day but no OrdeRR order
+    no_order = []
+    for cid, vlist in vasy_by_cust.items():
+        if cid not in orders_by_cust:
+            c = customers.get(cid)
+            tot = sum(float(v.total or 0) for v in vlist)
+            no_order.append({
+                "customer_id": cid,
+                "name": (c.restaurant_name if c else None) or vlist[0].party_name,
+                "vouchers": ", ".join(v.voucher_no for v in vlist),
+                "total_fmt": fmt_inr(tot),
+            })
+    no_order.sort(key=lambda r: r["name"].lower())
+
+    matched = sum(1 for cid in orders_by_cust if cid in vasy_by_cust)
+
+    return {
+        "has_data": True,
+        "date": ds,
+        "date_display": target.strftime("%d %b %Y"),
+        "available_dates": [d.strftime("%Y-%m-%d") for d in dates],
+        "vasy_invoice_count": len(vasy),
+        "vasy_total_fmt": fmt_inr(vasy_total),
+        "ordered_customers": len([c for c in orders_by_cust if c is not None]),
+        "matched": matched,
+        "unbilled": unbilled,
+        "no_order": no_order,
     }
 
 

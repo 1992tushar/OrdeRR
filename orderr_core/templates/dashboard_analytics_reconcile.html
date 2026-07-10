@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Reconcile</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 12px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:700}
+.note{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin:12px 0}
+select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px}
+@media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .n{font-size:22px;font-weight:800;line-height:1;letter-spacing:-.3px}
+.kpi.rev .n{color:var(--green)} .kpi.leak .n{color:var(--red)}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;margin-bottom:8px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
+.chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.empty{color:var(--green);text-align:center;padding:22px;font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  {% if not rc.has_data %}
+  <div class="section-title">OrdeRR ↔ Vasy reconciliation</div>
+  <div class="note">No Vasy sales invoices imported yet. Upload a sales-invoice export on the <a href="/dashboard/analytics/imports">Imports</a> page.</div>
+  {% else %}
+
+  <div class="section-head">
+    <div class="section-title">OrdeRR ↔ Vasy reconciliation</div>
+    <form method="get" style="margin:0">
+      <select name="date" onchange="this.form.submit()">
+        {% for d in rc.available_dates %}<option value="{{ d }}" {{ 'selected' if d == rc.date else '' }}>{{ d }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi rev"><div class="n">{{ rc.vasy_total_fmt }}</div><div class="l">Vasy invoiced ({{ rc.date_display }})</div></div>
+    <div class="kpi"><div class="n">{{ rc.vasy_invoice_count }}</div><div class="l">Vasy invoices</div></div>
+    <div class="kpi leak"><div class="n">{{ rc.unbilled|length }}</div><div class="l">Unbilled OrdeRR deliveries</div></div>
+    <div class="kpi"><div class="n">{{ rc.matched }}</div><div class="l">Matched (ordered + invoiced)</div></div>
+  </div>
+
+  <div class="note">
+    Billing-leakage check for <b>{{ rc.date_display }}</b>: OrdeRR orders matched to Vasy invoices by
+    customer. Matching is same-day + customer; OrdeRR's 8&nbsp;PM business-date can differ from the
+    Vasy invoice date by a day, so treat borderline cases as a prompt to check, not proof.
+    Vasy invoiced = authoritative revenue (P2-15).
+  </div>
+
+  <div class="section-head"><div class="section-title" style="font-size:13px;color:var(--red)">⚠️ OrdeRR delivered, not invoiced in Vasy</div></div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Customer</th><th>Area</th><th class="num">OrdeRR orders</th><th class="num">Items</th></tr></thead>
+      <tbody>
+        {% for u in rc.unbilled %}
+        <tr class="row" onclick="location.href='/dashboard/analytics/customer/{{ u.customer_id }}'">
+          <td>{{ u.name }}</td><td>{% if u.area %}<span class="chip">{{ u.area }}</span>{% endif %}</td>
+          <td class="num">{{ u.orders }}</td><td class="num">{{ u.items }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">✓ No unbilled OrdeRR deliveries for this date.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+
+  <div class="section-head" style="margin-top:24px"><div class="section-title" style="font-size:13px;color:var(--ink2)">Vasy invoiced, no OrdeRR order (e.g. phone/manual)</div></div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Customer</th><th>Voucher(s)</th><th class="num">Invoiced</th></tr></thead>
+      <tbody>
+        {% for n in rc.no_order %}
+        <tr class="row" onclick="location.href='/dashboard/analytics/customer/{{ n.customer_id }}'">
+          <td>{{ n.name }}</td><td style="font-size:12px;color:var(--ink3)">{{ n.vouchers }}</td><td class="num">{{ n.total_fmt }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">—</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% endif %}
+</main>
+</body>
+</html>
