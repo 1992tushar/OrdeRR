@@ -189,6 +189,7 @@ def analytics_revenue(
 
     today = get_current_business_date()
     rev = analytics_service.revenue_trends(db, today)
+    growth = analytics_service.new_vs_lost(db, today)
 
     return templates.TemplateResponse(
         request=request,
@@ -198,6 +199,7 @@ def analytics_revenue(
             "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "today_display": today.strftime("%d %b %Y"),
             "rev"        : rev,
+            "growth"     : growth,
             "analytics_view": "revenue",
         },
     )

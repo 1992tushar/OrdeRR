@@ -145,12 +145,71 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
       <tbody id="body"></tbody>
     </table>
   </div></div>
+
+  <!-- P1-6 New vs lost customers -->
+  <div class="section-title">New vs lost customers · last 12 months</div>
+  <div class="card">
+    <div class="hero" style="margin-bottom:12px">
+      <div><div class="big" style="color:var(--green)">+{{ growth.total_new }}</div><div class="lab">Acquired</div></div>
+      <div><div class="big" style="color:var(--red)">−{{ growth.total_lost }}</div><div class="lab">Lost</div></div>
+      <div><div class="big">{{ '+' if growth.net > 0 else '' }}{{ growth.net }}</div><div class="lab">Net</div></div>
+      <div style="margin-left:auto;display:flex;gap:14px;align-items:center;font-size:12px;color:var(--ink2)">
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:var(--green);vertical-align:middle;margin-right:5px"></span>New</span>
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:var(--red);vertical-align:middle;margin-right:5px"></span>Lost</span>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <svg class="trend" id="growth" role="img" aria-label="New vs lost customers per month" style="height:220px"></svg>
+      <div class="tip" id="gtip"></div>
+    </div>
+    <div class="note">Acquisition = customer's first-ever order in that month; attrition = customer's last order in that month (current month excluded — still in progress). From order history.</div>
+  </div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Month</th><th class="num">New</th><th class="num">Lost</th><th class="num">Net</th></tr></thead>
+      <tbody>
+        {% for m in growth.series %}
+        <tr>
+          <td>{{ m.label }}</td>
+          <td class="num" style="color:var(--green)">{{ '+' ~ m.new if m.new else '0' }}</td>
+          <td class="num" style="color:var(--red)">{{ '−' ~ m.lost if m.lost else '0' }}</td>
+          <td class="num">{{ '+' if m.net > 0 else '' }}{{ m.net }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
 </main>
 
 <script>
 const TREND = {{ rev.trend | tojson }};
 const ROWS = {{ rev.customers | tojson }};
+const GROWTH = {{ growth.series | tojson }};
 let sortKey = "delta", sortDir = -1;
+
+function drawGrowth(){
+  const svg = document.getElementById('growth'), tip = document.getElementById('gtip');
+  const W = svg.clientWidth || 900, H = 220, padL=32, padR=12, padT=14, padB=26;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const max = Math.max(1, ...GROWTH.map(d=>Math.max(d.new, d.lost)));
+  const n=GROWTH.length, grp=(plotW-6*(n-1))/n, bw=(grp-3)/2;
+  let els='';
+  els+=`<line class="axis" x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}"/>`;
+  [0,max].forEach(v=>{const y=padT+plotH-(v/max)*plotH; els+=`<text class="ylab" x="${padL-6}" y="${y+3}" text-anchor="end">${v}</text>`;});
+  GROWTH.forEach((d,i)=>{
+    const gx=padL+i*(grp+6);
+    [['new',d.new,'#1a6b41'],['lost',d.lost,'#b91c1c']].forEach((s,j)=>{
+      const h=(s[1]/max)*plotH, x=gx+j*(bw+3), y=padT+plotH-h, rr=h>3?3:0;
+      els+=`<path d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" fill="${s[2]}" data-t="${s[0]}" data-v="${s[1]}" data-l="${d.label}" data-x="${x+bw/2}" data-y="${y}" class="gb"></path>`;
+    });
+    if (i%(n>8?2:1)===0) els+=`<text class="xlab" x="${gx+grp/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+  });
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=els;
+  svg.querySelectorAll('.gb').forEach(b=>{
+    b.addEventListener('mouseenter',()=>{tip.style.opacity=1;tip.style.left=b.getAttribute('data-x')+'px';tip.style.top=(parseFloat(b.getAttribute('data-y'))-6)+'px';tip.innerHTML='<strong>'+b.getAttribute('data-v')+'</strong> '+b.getAttribute('data-t')+' · '+b.getAttribute('data-l');});
+    b.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
 
 function drawTrend(){
   const svg = document.getElementById('trend'), tip = document.getElementById('tip');
@@ -221,7 +280,8 @@ document.querySelectorAll('th.srt').forEach(th=>th.addEventListener('click',()=>
   render();
 }));
 ['q','fa','fs','fd'].forEach(id=>document.getElementById(id).addEventListener('input',render));
-drawTrend(); render(); window.addEventListener('resize',drawTrend);
+drawTrend(); drawGrowth(); render();
+window.addEventListener('resize',()=>{drawTrend();drawGrowth();});
 </script>
 </body>
 </html>

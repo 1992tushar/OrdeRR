@@ -615,6 +615,54 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
     }
 
 
+# ── P1-6 New vs lost customers ─────────────────────────────────────────────
+
+def new_vs_lost(db: Session, today: date, months: int = 12) -> dict:
+    """P1-6 — monthly customer acquisitions vs attrition.
+
+    Acquisition[m] = customers whose FIRST order month == m.
+    Attrition[m]   = customers whose LAST order month == m, excluding the
+                     current month (a customer can't be declared lost in the
+                     month still in progress — they may yet order).
+    Derived from Order.business_date history (non-cancelled).
+    """
+    rows = (
+        db.query(Order.customer_phone,
+                 func.min(Order.business_date), func.max(Order.business_date))
+        .filter(Order.is_cancelled == False,        # noqa: E712
+                Order.business_date != None)        # noqa: E711
+        .group_by(Order.customer_phone)
+        .all()
+    )
+
+    keys = _last_n_months(today, months)
+    key_set = set(keys)
+    curr_key = _month_key(today)
+    acq = {k: 0 for k in keys}
+    att = {k: 0 for k in keys}
+
+    for phone, first_ds, last_ds in rows:
+        try:
+            fm = _month_key(date.fromisoformat(first_ds))
+            lm = _month_key(date.fromisoformat(last_ds))
+        except (TypeError, ValueError):
+            continue
+        if fm in key_set:
+            acq[fm] += 1
+        if lm in key_set and lm != curr_key:
+            att[lm] += 1
+
+    series = [{"key": k, "label": _month_label(k), "new": acq[k], "lost": att[k],
+               "net": acq[k] - att[k]} for k in keys]
+
+    return {
+        "series": series,
+        "total_new": sum(acq.values()),
+        "total_lost": sum(att.values()),
+        "net": sum(acq.values()) - sum(att.values()),
+    }
+
+
 # ── P1-7 Product mix (value + volume) ──────────────────────────────────────
 
 def product_mix(db: Session, today: date, days=30) -> dict:
