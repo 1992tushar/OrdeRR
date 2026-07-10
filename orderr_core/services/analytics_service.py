@@ -867,7 +867,7 @@ def chase_list(db: Session, today: date, top_n: int = 20) -> dict:
 
 # ── P2-15/16 Vasy revenue + OrdeRR↔Vasy reconciliation ─────────────────────
 
-def reconciliation(db: Session, target_date: date = None) -> dict:
+def reconciliation(db: Session, target_date: date = None, today: date = None) -> dict:
     """P2-16 — flag OrdeRR deliveries with no matching Vasy invoice (billing
     leakage), for a given date, matching by customer.
 
@@ -877,12 +877,17 @@ def reconciliation(db: Session, target_date: date = None) -> dict:
     business-date basis vs Vasy invoice date can differ by a day, so this is a
     same-day approximation (labelled).
     """
+    if today is None:
+        from orderr_core.dates import get_current_business_date
+        today = get_current_business_date()
     dates = [d[0] for d in db.query(VasyInvoice.invoice_date).distinct()
              .filter(VasyInvoice.invoice_date != None)                 # noqa: E711
              .order_by(VasyInvoice.invoice_date.desc()).all()]
     if not dates:
         return {"has_data": False}
-    target = target_date or dates[0]
+    # default to the latest invoice date that isn't in the future (skip stray
+    # post-dated invoices), else the most recent available
+    target = target_date or next((d for d in dates if d <= today), dates[0])
     ds = target.strftime("%Y-%m-%d")
 
     # customers + phone→id map
