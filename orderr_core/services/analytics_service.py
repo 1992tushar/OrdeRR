@@ -234,6 +234,133 @@ def money_pulse(db: Session, today: date) -> dict:
     }
 
 
+# ── P2-8/9/11/12 Receivables (AR exposure, debtors, aging proxy) ───────────
+
+def _receipt_stats_by_customer(db: Session):
+    """{customer_id: (last_date, count, total)} over matched receipts."""
+    rows = (
+        db.query(CustomerReceipt.customer_id,
+                 func.max(CustomerReceipt.receipt_date),
+                 func.count(CustomerReceipt.id),
+                 func.coalesce(func.sum(CustomerReceipt.amount), 0))
+        .filter(CustomerReceipt.customer_id != None)   # noqa: E711
+        .group_by(CustomerReceipt.customer_id).all()
+    )
+    return {cid: (last, cnt, float(tot)) for cid, last, cnt, tot in rows}
+
+
+def receivables(db: Session, today: date) -> dict:
+    """P2-8/9/11/12 — receivables from the latest outstanding snapshot fused
+    with receipt history.
+
+    Per debtor (closing > 0): outstanding, balance direction vs previous
+    snapshot (P2-9), days-since-last-payment (P2-11), last-payment date, avg
+    receipt. Plus total AR + top-10 concentration (P2-8) and an aging proxy
+    bucketed by days-since-last-payment (P2-12 — NOT true invoice aging;
+    labelled as such, since Vasy open-bills aren't exported).
+    """
+    latest_snap, prev_snap = _latest_two_snapshot_dates(db)
+    if latest_snap is None:
+        return {"has_data": False}
+
+    snaps = db.query(OutstandingSnapshot).filter(
+        OutstandingSnapshot.snapshot_date == latest_snap).all()
+    prev_closing = {}
+    if prev_snap:
+        prev_closing = {s.party_key: float(s.closing) for s in db.query(OutstandingSnapshot)
+                        .filter(OutstandingSnapshot.snapshot_date == prev_snap).all()}
+    rstats = _receipt_stats_by_customer(db)
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+    cust = {c.id: c for c in db.query(Customer).all()}
+
+    rows = []
+    total_ar = 0.0
+    credit_total = 0.0
+    areas, salespeople = set(), set()
+    aging = {"0-30": 0.0, "31-60": 0.0, "61-90": 0.0, "90+": 0.0, "no-payment": 0.0}
+
+    for s in snaps:
+        closing = float(s.closing)
+        if closing < 0:
+            credit_total += closing
+        if closing <= 0:
+            continue
+        total_ar += closing
+
+        c = cust.get(s.customer_id) if s.customer_id else None
+        area = (c.area if c else "") or ""
+        sp = (sp_name.get(c.salesperson_id) if c and c.salesperson_id else "") or ""
+        if area:
+            areas.add(area)
+        if sp:
+            salespeople.add(sp)
+
+        last_date = count = avg = None
+        days_since = None
+        if s.customer_id in rstats:
+            last_date, count, tot = rstats[s.customer_id]
+            avg = tot / count if count else 0
+            if last_date:
+                days_since = (today - last_date).days
+
+        # direction vs previous snapshot
+        if prev_snap and s.party_key in prev_closing:
+            pc = prev_closing[s.party_key]
+            direction = "up" if closing > pc else "down" if closing < pc else "flat"
+        else:
+            direction = None
+
+        # aging proxy bucket (by payment recency)
+        if days_since is None:
+            aging["no-payment"] += closing
+        elif days_since <= 30:
+            aging["0-30"] += closing
+        elif days_since <= 60:
+            aging["31-60"] += closing
+        elif days_since <= 90:
+            aging["61-90"] += closing
+        else:
+            aging["90+"] += closing
+
+        rows.append({
+            "customer_id": s.customer_id,
+            "name": (c.restaurant_name if c else None) or s.party_name,
+            "area": area, "salesperson": sp,
+            "outstanding": round(closing, 2), "outstanding_fmt": fmt_inr(closing),
+            "direction": direction,
+            "last_payment": last_date.strftime("%Y-%m-%d") if last_date else "",
+            "last_payment_display": last_date.strftime("%d %b %Y") if last_date else "never",
+            "days_since_payment": days_since if days_since is not None else "",
+            "avg_receipt_fmt": fmt_inr(avg) if avg is not None else "—",
+        })
+
+    rows.sort(key=lambda r: r["outstanding"], reverse=True)
+    top10 = sum(r["outstanding"] for r in rows[:10])
+    top5 = sum(r["outstanding"] for r in rows[:5])
+
+    return {
+        "has_data": True,
+        "as_of": latest_snap.strftime("%d %b %Y"),
+        "has_trend": prev_snap is not None,
+        "prev_as_of": prev_snap.strftime("%d %b %Y") if prev_snap else None,
+        "rows": rows,
+        "debtor_count": len(rows),
+        "total_ar": round(total_ar, 2), "total_ar_fmt": fmt_inr(total_ar),
+        "credit_total_fmt": fmt_inr(credit_total),
+        "top10_fmt": fmt_inr(top10), "top5_fmt": fmt_inr(top5),
+        "top10_pct": round(top10 / total_ar * 100, 1) if total_ar else 0,
+        "top5_pct": round(top5 / total_ar * 100, 1) if total_ar else 0,
+        "aging": [
+            {"bucket": "0–30 days", "amount": round(aging["0-30"], 2), "amount_fmt": fmt_inr(aging["0-30"])},
+            {"bucket": "31–60 days", "amount": round(aging["31-60"], 2), "amount_fmt": fmt_inr(aging["31-60"])},
+            {"bucket": "61–90 days", "amount": round(aging["61-90"], 2), "amount_fmt": fmt_inr(aging["61-90"])},
+            {"bucket": "90+ days", "amount": round(aging["90+"], 2), "amount_fmt": fmt_inr(aging["90+"])},
+            {"bucket": "No payment on record", "amount": round(aging["no-payment"], 2), "amount_fmt": fmt_inr(aging["no-payment"])},
+        ],
+        "areas": sorted(areas), "salespeople": sorted(salespeople),
+    }
+
+
 # ── P1-2 Customer 360 (sales side) ─────────────────────────────────────────
 
 # Windows offered in the C360 period selector. days=None → all time.
@@ -934,6 +1061,17 @@ def export_dataset(db: Session, today: date, name: str, days=None):
                 [["Area", r["name"], r["revenue"], r["orders"], r["active"], r["portfolio"]]
                  for r in data["by_area"]])
         return (f"team_area_{tag}.xlsx", "Team & area", headers, rows)
+
+    if name == "receivables":
+        data = receivables(db, today)
+        if not data.get("has_data"):
+            return (f"receivables_{tag}.xlsx", "Receivables", ["Note"], [["No outstanding snapshot imported yet."]])
+        headers = ["Customer", "Area", "Salesperson", "Outstanding (INR)", "Trend",
+                   "Days since payment", "Last payment", "Avg receipt"]
+        rows = [[r["name"], r["area"], r["salesperson"], r["outstanding"],
+                 r["direction"] or "", r["days_since_payment"], r["last_payment"],
+                 r["avg_receipt_fmt"]] for r in data["rows"]]
+        return (f"receivables_{tag}.xlsx", "Receivables", headers, rows)
 
     if name == "rfm":
         data = rfm(db, today)

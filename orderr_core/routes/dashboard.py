@@ -265,6 +265,31 @@ def analytics_export(
     )
 
 
+@router.get("/analytics/receivables", response_class=HTMLResponse)
+def analytics_receivables(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P2-8/9/11/12 — receivables: exposure, top debtors, days-since-payment,
+    balance direction, aging proxy."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.receivables(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_receivables.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "rec"        : data,
+            "analytics_view": "receivables",
+        },
+    )
+
+
 @router.get("/analytics/imports", response_class=HTMLResponse)
 def analytics_imports(
     request: Request,
