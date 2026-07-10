@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Imports</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+.section-title{font-size:15px;font-weight:700;margin:6px 2px 12px}
+.note{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--blue-border);border-radius:8px;padding:10px 14px;margin-bottom:16px}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:26px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.card h3{font-size:14px;font-weight:700;margin-bottom:4px}
+.card p{font-size:12px;color:var(--ink3);margin-bottom:14px}
+input[type=file]{font-size:12px;width:100%;margin-bottom:12px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--green);color:#fff}
+.btn:disabled{background:var(--ink3);cursor:not-allowed}
+.result{margin-top:12px;font-size:12px;border-radius:8px;padding:10px 12px;display:none}
+.result.ok{display:block;background:var(--green-bg);border:1px solid var(--green-border);color:var(--green)}
+.result.err{display:block;background:var(--red-bg);border:1px solid var(--red-border);color:var(--red)}
+.result b{font-weight:700}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;text-transform:uppercase}
+.tag.receipts{background:var(--blue-bg);color:var(--blue)} .tag.outstanding{background:var(--amber-bg);color:var(--amber)}
+.empty{color:var(--ink3);text-align:center;padding:22px}
+.warn{color:var(--amber);font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-title">Import Vasy exports</div>
+  <div class="note">
+    Vasy ERP is the source of truth for money. Upload the daily exports here —
+    imports are <b>idempotent</b> (re-uploading the same/overlapping file updates,
+    never duplicates). Receipts key on <b>Receipt No.</b>; Outstanding refreshes each
+    customer's current balance and records a dated snapshot for the trend.
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>💸 Receipts</h3>
+      <p>Vasy → Bank/Cash → Receipt export (money in).</p>
+      <input type="file" id="f-receipts" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-receipts" onclick="upload('receipts')">Upload receipts</button>
+      <div class="result" id="r-receipts"></div>
+    </div>
+    <div class="card">
+      <h3>📊 Customer Outstanding</h3>
+      <p>Vasy → Reports → Outstanding (today's full balance list).</p>
+      <input type="file" id="f-outstanding" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-outstanding" onclick="upload('outstanding')">Upload outstanding</button>
+      <div class="result" id="r-outstanding"></div>
+    </div>
+  </div>
+
+  <div class="section-title">Recent imports</div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th>When</th><th>Entity</th><th>File</th>
+        <th class="num">Rows</th><th class="num">New</th><th class="num">Updated</th><th class="num">Unattributed</th><th>Notes</th>
+      </tr></thead>
+      <tbody>
+        {% for l in logs %}
+        <tr>
+          <td style="white-space:nowrap">{{ l.imported_at }}</td>
+          <td><span class="tag {{ l.entity }}">{{ l.entity }}</span></td>
+          <td>{{ l.source_file }}</td>
+          <td class="num">{{ l.rows_total }}</td>
+          <td class="num">{{ l.created }}</td>
+          <td class="num">{{ l.updated }}</td>
+          <td class="num {{ 'warn' if l.unmatched else '' }}">{{ l.unmatched }}</td>
+          <td style="font-size:11px;color:var(--ink3)">{{ l.notes }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">No imports yet. Upload a file above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+</main>
+
+<script>
+async function upload(kind){
+  const fileEl = document.getElementById('f-'+kind);
+  const btn = document.getElementById('b-'+kind);
+  const res = document.getElementById('r-'+kind);
+  res.className = 'result';
+  if (!fileEl.files.length){ res.className='result err'; res.textContent='Choose a file first.'; return; }
+  const fd = new FormData(); fd.append('file', fileEl.files[0]);
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try{
+    const r = await fetch('/dashboard/analytics/import/'+kind, {method:'POST', body:fd});
+    const j = await r.json();
+    if (!r.ok){ throw new Error(j.detail || ('HTTP '+r.status)); }
+    const s = j.summary;
+    let msg = '<b>Done.</b> '+s.rows+' rows — '+s.created+' new, '+s.updated+' updated, <b>'+s.matched+'</b> matched';
+    if (s.unmatched) msg += ', <b>'+s.unmatched+'</b> unattributed';
+    if (s.snapshot_date) msg += ' · snapshot '+s.snapshot_date;
+    if (s.customers) msg += ' · customers +'+s.customers.created+'/~'+s.customers.updated;
+    res.className='result ok'; res.innerHTML = msg + ' — <a href="/dashboard/analytics/imports" style="color:inherit;font-weight:700">refresh</a>';
+  }catch(e){
+    res.className='result err'; res.textContent = 'Import failed: '+e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = 'Upload '+kind;
+  }
+}
+</script>
+</body>
+</html>

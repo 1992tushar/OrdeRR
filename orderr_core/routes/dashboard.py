@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, Request, Query
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Request, Query, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -261,6 +261,83 @@ def analytics_export(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/analytics/imports", response_class=HTMLResponse)
+def analytics_imports(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P2-5 — manual Vasy file upload + import history."""
+    from orderr_core.models.import_log import ImportLog
+
+    logs = db.query(ImportLog).order_by(ImportLog.imported_at.desc()).limit(25).all()
+    rows = [{
+        "entity": l.entity,
+        "source_file": l.source_file or "",
+        "rows_total": l.rows_total,
+        "created": l.created,
+        "updated": l.updated,
+        "unmatched": l.unmatched,
+        "notes": l.notes or "",
+        "imported_at": l.imported_at.astimezone(IST).strftime("%d %b %Y %I:%M %p") if l.imported_at else "",
+    } for l in logs]
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_imports.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "logs"       : rows,
+            "analytics_view": "imports",
+        },
+    )
+
+
+@router.post("/analytics/import/receipts")
+async def analytics_import_receipts(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Upload a Vasy receipt export → CustomerReceipt (idempotent)."""
+    from orderr_core.services import vasy_import
+
+    fname = (file.filename or "").lower()
+    if not fname.endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Please upload the receipt .xlsx export.")
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    try:
+        summary = vasy_import.import_receipts(db, contents, source_file=file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse({"status": "ok", "summary": summary})
+
+
+@router.post("/analytics/import/outstanding")
+async def analytics_import_outstanding(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Upload a Vasy outstanding export → refresh customers + daily snapshot."""
+    from orderr_core.services import vasy_import
+
+    fname = (file.filename or "").lower()
+    if not fname.endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Please upload the outstanding .xlsx export.")
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    try:
+        summary = vasy_import.import_outstanding(db, contents, source_file=file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse({"status": "ok", "summary": summary})
 
 
 @router.get("/analytics/rfm", response_class=HTMLResponse)
