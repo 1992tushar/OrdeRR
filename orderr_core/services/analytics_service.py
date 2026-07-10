@@ -706,6 +706,33 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
     mix_list = [{"name": n, "unit": u, "qty": fmt_qty(q), "qty_raw": q}
                 for (n, u), q in sorted(mix.items(), key=lambda kv: kv[1], reverse=True)]
 
+    # ── P2-14 payments & balance history ──
+    receipts = []
+    collected = 0.0
+    rec_rows = (db.query(CustomerReceipt)
+                .filter(CustomerReceipt.customer_id == customer.id)
+                .order_by(CustomerReceipt.receipt_date.desc(),
+                          CustomerReceipt.receipt_no.desc()).all())
+    for r in rec_rows:
+        amt = float(r.amount or 0)
+        collected += amt
+        receipts.append({
+            "receipt_no": r.receipt_no,
+            "date_display": r.receipt_date.strftime("%d %b %Y") if r.receipt_date else "",
+            "mode": (r.mode or "").title(),
+            "amount_fmt": fmt_inr(amt),
+            "status": (r.status or "").title(),
+        })
+    snap_rows = (db.query(OutstandingSnapshot)
+                 .filter(OutstandingSnapshot.customer_id == customer.id)
+                 .order_by(OutstandingSnapshot.snapshot_date).all())
+    balance_trend = [{"date": s.snapshot_date.strftime("%Y-%m-%d"),
+                      "label": s.snapshot_date.strftime("%d %b"),
+                      "closing": round(float(s.closing), 2)} for s in snap_rows]
+    current_outstanding = float(snap_rows[-1].closing) if snap_rows else None
+    last_payment = rec_rows[0].receipt_date if rec_rows else None
+    n_rec = len(rec_rows)
+
     recency_days = (today - date.fromisoformat(last_order)).days if last_order else None
     n_invoices = len(invoices)
     avg_order_value = (total_revenue / n_invoices) if n_invoices else 0.0
@@ -735,6 +762,17 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
         "mix": mix_list,
         "orders": orders,
         "invoices": invoices,
+        "payments": {
+            "has_data": bool(rec_rows) or bool(snap_rows),
+            "current_outstanding_fmt": fmt_inr(current_outstanding) if current_outstanding is not None else "—",
+            "collected_fmt": fmt_inr(collected),
+            "receipt_count": n_rec,
+            "avg_receipt_fmt": fmt_inr(collected / n_rec) if n_rec else "—",
+            "last_payment_display": last_payment.strftime("%d %b %Y") if last_payment else "never",
+            "days_since_payment": (today - last_payment).days if last_payment else "",
+            "receipts": receipts,
+            "balance_trend": balance_trend,
+        },
     }
 
 
