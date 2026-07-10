@@ -663,6 +663,8 @@ def import_sales_items(db: Session, file_bytes: bytes, source_file: str = None) 
     return {
         "entity": "sales_items",
         "rows": len(mappings),
+        "created": len(mappings),   # snapshot-replace: every row is (re)inserted
+        "updated": 0,
         "line_items": len(mappings),
         "skus": len(skus),
         "matched": matched,
