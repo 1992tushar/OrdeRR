@@ -27,7 +27,7 @@ from orderr_core.models.actuals import OrderItemActual
 from orderr_core.models.customer_receipt import CustomerReceipt
 from orderr_core.models.outstanding_snapshot import OutstandingSnapshot
 from orderr_core.models.vasy_invoice import VasyInvoice
-from orderr_core.services.template_parser import erp_display_name
+from orderr_core.services.template_parser import erp_display_name, ERP_ITEMS
 from orderr_core.utils import safe_list, fmt_qty
 
 
@@ -1065,6 +1065,34 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
     last_payment = rec_rows[0].receipt_date if rec_rows else None
     n_rec = len(rec_rows)
 
+    # ── P3-9 share-of-wallet / upsell ──
+    bought = {n for (n, _u) in mix.keys()}
+    peer = {}                       # erp_name → set(customer_phone) who order it
+    all_orderers = set()
+    for ph2, parsed2 in (db.query(Order.customer_phone, Order.parsed_items)
+                         .filter(Order.is_cancelled == False).all()):  # noqa: E712
+        if ph2:
+            all_orderers.add(ph2)
+        seen = set()
+        for it in safe_list(parsed2):
+            if isinstance(it, dict):
+                seen.add(erp_display_name(it.get("product", "") or "Unknown"))
+        for nm in seen:
+            peer.setdefault(nm, set()).add(ph2)
+    n_orderers = max(1, len(all_orderers))
+    suggestions = sorted(((nm, len(s)) for nm, s in peer.items() if nm not in bought),
+                         key=lambda x: x[1], reverse=True)[:5]
+    catalog = [it["erp_name"] for it in ERP_ITEMS.values()]
+    catalog_set = set(catalog)
+    sow_pct = round(len(bought & catalog_set) / len(catalog_set) * 100) if catalog_set else 0
+    upsell = {
+        "share_of_wallet_pct": sow_pct,
+        "bought_count": len(bought & catalog_set),
+        "catalog_count": len(catalog_set),
+        "suggestions": [{"name": nm, "peer_count": cnt,
+                         "peer_pct": round(cnt / n_orderers * 100)} for nm, cnt in suggestions],
+    }
+
     recency_days = (today - date.fromisoformat(last_order)).days if last_order else None
     n_invoices = len(invoices)
     avg_order_value = (total_revenue / n_invoices) if n_invoices else 0.0
@@ -1092,6 +1120,7 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
         },
         "trend": trend,
         "mix": mix_list,
+        "upsell": upsell,
         "orders": orders,
         "invoices": invoices,
         "payments": {
@@ -1814,6 +1843,63 @@ def team_performance(db: Session, today: date, days=30) -> dict:
         "window_label": "All time" if days is None else f"Last {days} days",
         "has_money": bool(collected) or bool(outstanding),
     }
+
+
+# ── P3-8 Demand forecast (per SKU, for production planning) ────────────────
+
+def demand_forecast(db: Session, today: date, lookback: int = 28) -> dict:
+    """P3-8 — per-SKU demand forecast for production planning.
+
+    From ordered quantities (parsed order items). Baseline avg daily demand
+    over the last `lookback` days vs the last 7 days; next-day forecast =
+    recent daily rate, next-week = ×7. Trend = recent vs baseline. Simple,
+    explainable moving-average — good enough to plan daily production.
+    """
+    start = today - timedelta(days=lookback - 1)
+    start7 = today - timedelta(days=6)
+    ss, ss7, ts = start.strftime("%Y-%m-%d"), start7.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+
+    rows = db.query(Order.business_date, Order.parsed_items).filter(
+        Order.is_cancelled == False,                        # noqa: E712
+        Order.business_date != None,                        # noqa: E711
+        Order.business_date >= ss, Order.business_date <= ts).all()
+
+    agg = {}  # erp_name → {full, last7, unit_votes}
+    for bdate, parsed in rows:
+        in7 = bdate >= ss7
+        for it in safe_list(parsed):
+            if not isinstance(it, dict):
+                continue
+            name = erp_display_name(it.get("product", "") or "Unknown")
+            unit = (it.get("unit", "kg") or "kg").lower()
+            try:
+                qty = float(it.get("quantity") or 0)
+            except (TypeError, ValueError):
+                qty = 0
+            a = agg.setdefault(name, {"full": 0.0, "last7": 0.0, "units": {}})
+            a["full"] += qty
+            if in7:
+                a["last7"] += qty
+            a["units"][unit] = a["units"].get(unit, 0) + 1
+
+    out = []
+    for name, a in agg.items():
+        avg_daily = a["full"] / lookback
+        recent_daily = a["last7"] / 7
+        trend = None
+        if avg_daily > 0:
+            trend = round((recent_daily - avg_daily) / avg_daily * 100, 1)
+        unit = max(a["units"].items(), key=lambda kv: kv[1])[0] if a["units"] else "kg"
+        out.append({
+            "product": name, "unit": unit,
+            "avg_daily": round(avg_daily, 1), "avg_daily_fmt": fmt_qty(round(avg_daily, 1)),
+            "recent_daily": round(recent_daily, 1), "recent_daily_fmt": fmt_qty(round(recent_daily, 1)),
+            "forecast_next_day": round(recent_daily, 1), "forecast_next_day_fmt": fmt_qty(round(recent_daily, 1)),
+            "forecast_next_week": round(recent_daily * 7, 1), "forecast_next_week_fmt": fmt_qty(round(recent_daily * 7, 1)),
+            "trend_pct": trend,
+        })
+    out.sort(key=lambda r: r["forecast_next_week"], reverse=True)
+    return {"lookback": lookback, "rows": out, "has_data": bool(out)}
 
 
 # ── P1-9 Fill rate (ordered vs delivered) ──────────────────────────────────

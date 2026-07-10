@@ -120,6 +120,19 @@ tr:last-child td{border-bottom:none}
           <div class="empty">No ordered items yet.</div>
         {% endif %}
       </div>
+
+      <!-- P3-9 share-of-wallet / upsell -->
+      <div class="section-title" style="margin-top:18px">Share of wallet · {{ d.upsell.share_of_wallet_pct }}%</div>
+      <div class="card">
+        <div class="note" style="margin:0 0 10px">Buys <b>{{ d.upsell.bought_count }}</b> of {{ d.upsell.catalog_count }} SKUs. Top products peers buy that this customer doesn't:</div>
+        {% if d.upsell.suggestions %}
+          {% for s in d.upsell.suggestions %}
+          <div class="mixline"><span>{{ s.name }}</span><span class="num" style="color:var(--blue)">{{ s.peer_pct }}% of peers</span></div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">Buys the full catalog — no upsell gaps. 🎉</div>
+        {% endif %}
+      </div>
     </div>
     <!-- Invoice history -->
     <div>

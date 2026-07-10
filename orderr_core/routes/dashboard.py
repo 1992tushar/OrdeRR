@@ -221,6 +221,7 @@ def analytics_products(
     days = analytics_service.C360_WINDOWS.get(mix_days, 30)
     mix = analytics_service.product_mix(db, today, days=days)
     demand = analytics_service.demand_trend(db, today)
+    forecast = analytics_service.demand_forecast(db, today)
 
     return templates.TemplateResponse(
         request=request,
@@ -232,6 +233,7 @@ def analytics_products(
             "mix"        : mix,
             "mix_days"   : mix_days,
             "demand"     : demand,
+            "forecast"   : forecast,
             "analytics_view": "products",
         },
     )

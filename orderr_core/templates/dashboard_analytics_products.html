@@ -151,6 +151,41 @@ svg.line .dot{fill:var(--surface);stroke:var(--green);stroke-width:2}
     <div class="empty">No ordered items in the last 12 months.</div>
     {% endif %}
   </div>
+
+  <!-- P3-8 Demand forecast -->
+  <div class="section-head" style="margin-top:30px">
+    <div class="section-title">Production forecast · per SKU (next day / week)</div>
+  </div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th>SKU</th>
+        <th class="num">Avg/day ({{ forecast.lookback }}d)</th>
+        <th class="num">Last 7d/day</th>
+        <th class="num">Trend</th>
+        <th class="num">Forecast next day</th>
+        <th class="num">Forecast next week</th>
+      </tr></thead>
+      <tbody>
+        {% for r in forecast.rows %}
+        <tr>
+          <td>{{ r.product }} <span style="color:var(--ink3);font-size:11px">({{ r.unit }})</span></td>
+          <td class="num">{{ r.avg_daily_fmt }}</td>
+          <td class="num">{{ r.recent_daily_fmt }}</td>
+          <td class="num">
+            {% if r.trend_pct is none %}<span style="color:var(--ink3)">—</span>
+            {% else %}<span style="font-weight:700;color:{{ 'var(--green)' if r.trend_pct > 0 else 'var(--red)' if r.trend_pct < 0 else 'var(--ink3)' }}">{{ '+' if r.trend_pct > 0 else '' }}{{ r.trend_pct }}%</span>{% endif %}
+          </td>
+          <td class="num"><b>{{ r.forecast_next_day_fmt }}</b> {{ r.unit }}</td>
+          <td class="num"><b>{{ r.forecast_next_week_fmt }}</b> {{ r.unit }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No recent orders to forecast from.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  <div class="note">Forecast = recent daily order rate (last 7 days) projected forward; trend compares it to the {{ forecast.lookback }}-day baseline. A simple moving-average planning aid, from ordered (not billed) quantities.</div>
 </main>
 
 {% if demand.skus %}
