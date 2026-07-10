@@ -53,6 +53,11 @@ from orderr_core.models.advance import Advance                     # noqa: F401
 from orderr_core.models.advance_repayment import AdvanceRepayment   # noqa: F401
 from orderr_core.models.leave import Leave                         # noqa: F401
 
+# Analytics Phase 2 — Vasy money mirrors (read-only; Vasy = source of truth)
+from orderr_core.models.customer_receipt import CustomerReceipt     # noqa: F401
+from orderr_core.models.outstanding_snapshot import OutstandingSnapshot  # noqa: F401
+from orderr_core.models.import_log import ImportLog                 # noqa: F401
+
 
 Base.metadata.create_all(bind=engine)
 
