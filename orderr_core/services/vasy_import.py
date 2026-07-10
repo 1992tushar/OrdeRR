@@ -431,8 +431,9 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
 
     existing = {v.voucher_no: v for v in db.query(VasyInvoice).all()
                 if not _is_total_row(v.voucher_no)}
-    created = updated = unmatched = 0
+    created = updated = unmatched = auto_created = 0
     total_amount = 0.0
+    new_by_key = {}   # party_key -> id for customers auto-created within this run
 
     for vno, inv in invoices.items():
         total = sum(float(l["net"]) for l in inv["lines"])
@@ -444,6 +445,27 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
             cust_id = by_phone.get(p10)
         if cust_id is None:
             cust_id = by_name.get(key)
+        if cust_id is None and total > 0 and key:
+            # A billed party with no customer record yet — e.g. a zero-outstanding
+            # customer that never shows up in the outstanding export. Create one
+            # from the clean Vasy name so its sales attribute. Gated on total>0 so
+            # internal ₹0 accounts (PLANT WASTAGE, WORKERS DAILY FOOD) are NOT
+            # turned into customers. Matching itself stays exact — never fuzzy.
+            cust_id = new_by_key.get(key)
+            if cust_id is None:
+                newc = Customer(
+                    restaurant_name=(inv["party"] or "").strip(),
+                    phone_number=None,
+                    onboarding_status="active",
+                    is_active=True,
+                    is_daily_order_customer=False,
+                )
+                db.add(newc)
+                db.flush()   # assign PK without committing the outer transaction
+                cust_id = newc.id
+                new_by_key[key] = cust_id
+                by_name.setdefault(key, cust_id)
+                auto_created += 1
         if cust_id is None:
             unmatched += 1
 
@@ -473,7 +495,7 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
                      rows_total=created + updated, created=created,
                      updated=updated, unmatched=unmatched,
                      notes=f"lines={sum(len(i['lines']) for i in invoices.values())}; "
-                           f"total={round(total_amount, 2)}"))
+                           f"total={round(total_amount, 2)}; auto_created={auto_created}"))
     db.commit()
 
     return {
@@ -484,6 +506,7 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
         "updated": updated,
         "unmatched": unmatched,
         "matched": created + updated - unmatched,
+        "customers_created": auto_created,
         "total_fmt": _fmt_inr_local(total_amount),
     }
 
