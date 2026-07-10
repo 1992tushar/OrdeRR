@@ -111,7 +111,11 @@ PRODUCT_DEFINITIONS = [
         "no skin tandoor", "no skin td",
         "sl tandoor", "wos tandoor",
         "al faham", "al-faham", "alfaham",
-        "skin remove tandoor","तंदूर", "तंदूरी", "तंदूर चिकन", "तंदूरी चिकन", "तंदूर साइज", "तंदूर बर्ड",
+        "skin remove tandoor",
+        # NOTE: bare/generic tandoor (tandoor, tandur, tandoori, तंदूर, …) is
+        # intentionally NOT listed here. It doesn't state skin, so it is routed
+        # to the Unclear flow via AMBIGUOUS_SKIN_TERMS below — the manager picks
+        # W/O Skin vs WS Tandoor once, and the learned alias auto-maps after.
     ]),
 
     ("W/O Skin Regular Chicken", "kg", [
@@ -129,17 +133,12 @@ PRODUCT_DEFINITIONS = [
    
     ("WS Regular Chicken", "kg", [
         "with skin whole chicken regular", "ws whole chicken regular",
-        "with skin regular", "whole chicken regular",
-        "ws regular chicken", "ws regular", "regular chicken",
+        "with skin regular", "ws regular chicken", "ws regular",
         "skin regular",
-        "regular", "reg chicken", "reg chik",
-        "big chicken", "big chik", "full chicken",
-        "large chicken", "heavy chicken",
-        "1.5kg chicken", "regular bird",
-        "whole chicken", "whole broiler", "whole broiler chicken",
-        "broiler", "boiler", "full bird", "wbc",
-        "murgi", "murg", "kombdi", "kombadi",
-        "reguler", "reglar", "big bird", "large bird",
+        # NOTE: skin-ambiguous whole-chicken terms (regular, big chicken,
+        # broiler/boiler, murgi, whole chicken, …) are NOT listed here. They
+        # don't state skin, so they route to the Unclear flow via
+        # AMBIGUOUS_SKIN_TERMS below rather than silently defaulting to WS.
     ]),
 
     # ── Boneless ──────────────────────────────────────────────────────────────
@@ -293,6 +292,30 @@ PRODUCT_DEFINITIONS = [
 VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
 
 
+# ── Skin-ambiguous whole-chicken terms ────────────────────────────────────────
+# Whole-chicken words that DON'T state With Skin vs Without Skin. With/Without
+# Skin are different priced products, so the parser must not guess: these route
+# to the Unclear flow (manager picks the variant from the dropdown). Once
+# resolved, the learned alias (global or per-customer) auto-maps next time —
+# checked BEFORE the catalog — so this is a one-time cleanup per term.
+# Matching is by token SET (word order & simple punctuation ignored), so
+# "chicken big" and "big chicken" are both caught.
+AMBIGUOUS_SKIN_TERMS = [
+    # Regular whole chicken — no skin stated
+    "regular", "regular chicken", "whole chicken regular", "reg chicken",
+    "reg chik", "reguler", "reglar",
+    "big chicken", "chicken big", "big chik", "full chicken", "large chicken",
+    "heavy chicken", "big bird", "large bird", "regular bird",
+    "whole chicken", "whole broiler", "whole broiler chicken", "broiler",
+    "boiler", "full bird", "wbc",
+    "murgi", "murg", "kombdi", "kombadi",
+    # Tandoor whole chicken — no skin stated
+    "tandoor", "tandur", "tandoori", "tanduri",
+    "tandoor chicken", "tandoori chicken", "tandur chicken", "tanduri chicken",
+    "तंदूर", "तंदूरी", "तंदूर चिकन", "तंदूरी चिकन", "तंदूर साइज", "तंदूर बर्ड",
+]
+
+
 # ── Vasy ERP catalog mapping ──────────────────────────────────────────────────
 # Maps each canonical (friendly) product name to its exact Vasy ERP item, so
 # parsed orders line up 1:1 with the ERP catalog for push / reconciliation.
@@ -381,6 +404,21 @@ def _tokenize(text: str) -> set:
     return set(_normalize(text).split())
 
 
+# Token-sets of the skin-ambiguous terms, built once (lazily so it can rely on
+# _tokenize being defined). Compared as frozensets so word order doesn't matter.
+_AMBIGUOUS_TOKEN_SETS = None
+
+
+def _is_skin_ambiguous(raw_tokens: set) -> bool:
+    """True when the input is exactly a known skin-ambiguous whole-chicken term
+    (see AMBIGUOUS_SKIN_TERMS). Such inputs must fall through to the Unclear
+    flow rather than being matched/guessed to a skin variant."""
+    global _AMBIGUOUS_TOKEN_SETS
+    if _AMBIGUOUS_TOKEN_SETS is None:
+        _AMBIGUOUS_TOKEN_SETS = {frozenset(_tokenize(t)) for t in AMBIGUOUS_SKIN_TERMS}
+    return bool(raw_tokens) and frozenset(raw_tokens) in _AMBIGUOUS_TOKEN_SETS
+
+
 def _match_product(raw_name: str):
     """
     Returns (display_name, unit) or None.
@@ -396,7 +434,14 @@ def _match_product(raw_name: str):
     n = _normalize(raw_name)
     s = _squish(raw_name)
     raw_tokens = _tokenize(raw_name)
- 
+
+    # 0. Skin-ambiguous whole-chicken terms → no catalog match, so they route to
+    #    the Unclear flow instead of being guessed to a With/Without Skin variant.
+    #    Runs before any (exact/fuzzy) matching. Learned aliases are checked
+    #    upstream of _match_product, so a resolved term still auto-maps.
+    if _is_skin_ambiguous(raw_tokens):
+        return None
+
     # 1. Exact
     for display, unit, aliases in PRODUCT_DEFINITIONS:
         for alias in aliases:

@@ -18,7 +18,12 @@ from orderr_core.services.notifier import (
     send_replace_confirmation_request,
     send_repeat_order_confirmation_request,
 )
-from orderr_core.services.template_parser import parse_template_order, erp_display_name
+from orderr_core.services.template_parser import (
+    parse_template_order,
+    erp_display_name,
+    _split_on_connectors,
+    _split_multi_item_line,
+)
 from orderr_core.services.customer_service import get_customer_by_phone, create_new_customer
 from orderr_core.services.adhoc_reporter import is_report_keyword, handle_adhoc_report_request
 from orderr_core.services.intent_classifier import (
@@ -241,6 +246,35 @@ def _build_unclear_alert(
 def _has_digits(text: str) -> bool:
     """Return True if the message contains any digit — signals a quantity/order attempt."""
     return bool(re.search(r'\d', text))
+
+
+def _unparseable_segments(message: str) -> list:
+    """Break an order the parser couldn't read AT ALL into the same per-item
+    segments it would have tried, keeping only the digit-bearing chunks.
+
+    Lets a fully-unrecognised (but numeric) message still surface as individual
+    dropdown-correctable rows in the Unclear tab, instead of a contentless
+    'couldn't read anything' order with nothing to fix. Falls back to the whole
+    message when no cleaner split is possible."""
+    def _clean(seg: str) -> str:
+        # Customers use runs of dots as separators ("Chicken..15"); collapse
+        # those to a space so the name/qty read cleanly — but leave single dots
+        # alone so decimals like "2.5" survive. Trim stray leading/trailing
+        # dots and whitespace.
+        seg = re.sub(r"\.{2,}", " ", seg)
+        seg = re.sub(r"\s+", " ", seg).strip(" .")
+        return seg
+
+    segments = []
+    for line in message.splitlines():
+        for part in _split_on_connectors(line):
+            segments.extend(_split_multi_item_line(part))
+    segments = [_clean(s) for s in segments]
+    segments = [s for s in segments if s and _has_digits(s)]
+    # De-dupe while preserving order.
+    seen = set()
+    unique = [s for s in segments if not (s in seen or seen.add(s))]
+    return unique or [_clean(message) or message.strip()]
 
 
 def _save_and_notify(
@@ -654,13 +688,18 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
         if _has_digits(message):
             # Contains digits → likely a failed order attempt, not small talk.
             # Save as unclear order so it surfaces immediately on the dashboard.
+            # Store the message's number-bearing segments as unclear_items so
+            # each becomes a dropdown-correctable row in the Unclear tab — rather
+            # than a contentless order with nothing for the manager to fix.
+            segments = _unparseable_segments(message)
             order = Order(
                 plant_name     = PLANT_NAME,
                 customer_phone = customer_phone,
                 customer_name  = customer.restaurant_name,
                 raw_message    = message,
                 is_unclear     = True,
-                unclear_reason = "Contains numbers but no items could be matched",
+                unclear_items  = segments,
+                unclear_reason = "Items not recognised — set each from the dropdown",
                 business_date  = get_current_business_date_str(),
                 delivery_date  = get_delivery_date_str(),
                 status         = "received",
