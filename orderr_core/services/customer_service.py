@@ -151,11 +151,26 @@ def create_customer_manually(
 # ── Bulk import from the "Customer Outstanding" spreadsheet ──────────────────
 
 def _to_amount(value) -> Decimal:
-    """Coerce a spreadsheet cell into a Decimal amount; blanks/junk → 0."""
+    """Coerce a spreadsheet cell into a Decimal amount; blanks/junk → 0.
+
+    Handles the Vasy quirk where credit/negative balances export as STRINGS with
+    a non-breaking space after the sign and comma grouping, e.g.
+    '-\\xa08,29,681.00'. All whitespace (incl. \\xa0) and commas are stripped
+    before parsing so those don't silently become 0.
+    """
     if value is None:
         return Decimal("0")
+    if isinstance(value, (int, float)):
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return Decimal("0")
+    import re
+    s = re.sub(r"[\s ]", "", str(value)).replace(",", "")
+    if not s:
+        return Decimal("0")
     try:
-        return Decimal(str(value).replace(",", "").strip() or "0")
+        return Decimal(s)
     except (InvalidOperation, ValueError):
         return Decimal("0")
 
