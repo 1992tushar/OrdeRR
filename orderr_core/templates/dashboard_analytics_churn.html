@@ -75,10 +75,10 @@ tr.row:hover{background:var(--green-bg)}
   </div>
   <div class="note">
     A customer is flagged when the gap since their last order exceeds
-    <strong>{{ churn.params.ratio_threshold }}×</strong> their own median ordering
-    cadence (needs ≥{{ churn.params.min_orders }} orders for a stable baseline;
-    minimum {{ churn.params.floor_days }} days). Sales figures aside — this is a
-    pure ordering-rhythm signal from OrdeRR order history.
+    <strong>{{ churn.params.ratio_threshold }}×</strong> their own median <b>billing
+    cadence</b> (needs ≥{{ churn.params.min_orders }} invoices for a stable baseline;
+    minimum {{ churn.params.floor_days }} days). A billing-rhythm signal from
+    <b>Vasy sales invoices</b> (actual business), not OrdeRR orders.
   </div>
 
   <div class="stat-row">
@@ -109,7 +109,7 @@ tr.row:hover{background:var(--green-bg)}
         <th data-sort="name">Customer</th>
         <th data-sort="area">Area</th>
         <th data-sort="salesperson">Sales</th>
-        <th data-sort="orders" class="num">Orders</th>
+        <th data-sort="orders" class="num">Invoices</th>
         <th data-sort="cadence_days" class="num">Cadence</th>
         <th data-sort="days_since_last" class="num">Days since</th>
         <th data-sort="ratio" class="num">Overdue ×</th>

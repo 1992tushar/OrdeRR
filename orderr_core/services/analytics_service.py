@@ -143,26 +143,69 @@ def _orders_for_range(db: Session, start: date, end: date):
     return order_count, active_customers
 
 
+def _vasy_sales_for_range(db: Session, start: date, end: date):
+    """(revenue, invoice_count, billed_customers) from Vasy sales invoices
+    (the authoritative revenue source) with invoice_date in [start, end]."""
+    rev, cnt, custs = (
+        db.query(
+            func.coalesce(func.sum(VasyInvoice.total), 0),
+            func.count(VasyInvoice.id),
+            func.count(func.distinct(VasyInvoice.customer_id)),
+        )
+        .filter(VasyInvoice.invoice_date >= start, VasyInvoice.invoice_date <= end)
+        .one()
+    )
+    return float(rev or 0), int(cnt or 0), int(custs or 0)
+
+
+def _vasy_revenue_by_customer(db: Session, start=None, end=None):
+    """{customer_id: revenue} from Vasy invoices (matched customers only),
+    optionally bounded by invoice_date in [start, end]."""
+    q = db.query(VasyInvoice.customer_id, func.coalesce(func.sum(VasyInvoice.total), 0)) \
+        .filter(VasyInvoice.customer_id != None)   # noqa: E711
+    if start is not None:
+        q = q.filter(VasyInvoice.invoice_date >= start)
+    if end is not None:
+        q = q.filter(VasyInvoice.invoice_date <= end)
+    return {cid: float(t) for cid, t in q.group_by(VasyInvoice.customer_id).all()}
+
+
+def _vasy_invoice_dates_by_customer(db: Session, upto: date):
+    """{customer_id: [dates asc]} of Vasy invoice dates up to `upto` — the
+    billing-activity signal (recency / frequency / cadence)."""
+    rows = (
+        db.query(VasyInvoice.customer_id, VasyInvoice.invoice_date)
+        .filter(VasyInvoice.customer_id != None,          # noqa: E711
+                VasyInvoice.invoice_date != None,          # noqa: E711
+                VasyInvoice.invoice_date <= upto)
+        .all()
+    )
+    out = {}
+    for cid, d in rows:
+        out.setdefault(cid, []).append(d)
+    for cid in out:
+        out[cid].sort()
+    return out
+
+
 def business_pulse(db: Session, today: date) -> dict:
     """P1-1 — Business Pulse KPI strip.
 
-    Returns per-period sales (₹ & kg), order count and active-customer count
-    for Today / Last 7 Days / Month-to-Date. Sales come from OrdeRR invoices
-    (operational); orders/customers from the orders table.
+    Sales come from **Vasy** sales invoices (the source of truth for revenue);
+    OrdeRR is only the operational order-consolidation layer. Per period
+    (Today / Last 7 Days / Month-to-Date): revenue ₹, invoice count, billed
+    customers.
     """
     periods = []
     for key, label, sublabel, start, end in _period_bounds(today):
-        rupees, kg = _sales_for_range(db, start, end)
-        orders, customers = _orders_for_range(db, start, end)
+        rupees, invoices, customers = _vasy_sales_for_range(db, start, end)
         periods.append({
             "key": key,
             "label": label,
             "sublabel": sublabel,
             "sales_rupees": rupees,
             "sales_rupees_fmt": fmt_inr(rupees),
-            "sales_kg": kg,
-            "sales_kg_fmt": fmt_kg(kg),
-            "orders": orders,
+            "invoices": invoices,
             "active_customers": customers,
         })
     return {"periods": periods}
@@ -213,7 +256,7 @@ def money_pulse(db: Session, today: date) -> dict:
     periods = []
     for key, label, sublabel, start, end in _period_bounds(today):
         total, cash, bank = _collections_for_range(db, start, end)
-        billed, _ = _sales_for_range(db, start, end)   # OrdeRR invoices (operational)
+        billed, _, _ = _vasy_sales_for_range(db, start, end)   # Vasy invoices = billed truth
         periods.append({
             "key": key, "label": label, "sublabel": sublabel,
             "collections": total, "collections_fmt": fmt_inr(total),
@@ -361,7 +404,7 @@ def credit_intelligence(db: Session, today: date) -> dict:
                      .filter(OutstandingSnapshot.snapshot_date == prev_snap,
                              OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
     rstats = _receipt_stats_by_customer(db)
-    dates_by_phone = _order_dates_by_phone(db, today)
+    dates_by_cust = _vasy_invoice_dates_by_customer(db, today)   # billing cadence
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
 
     # receipt window span in months (denominator for avg monthly collections)
@@ -382,7 +425,7 @@ def credit_intelligence(db: Session, today: date) -> dict:
     for c in db.query(Customer).all():
         outstanding = snap_now.get(c.id, 0.0)
         rec = rstats.get(c.id)              # (last_date, count, total) or None
-        dates = dates_by_phone.get(c.phone_number) if c.phone_number else None
+        dates = dates_by_cust.get(c.id)
         has_orders = bool(dates)
         has_activity = outstanding != 0 or rec is not None or has_orders
         if not has_activity:
@@ -738,7 +781,7 @@ def manager_digest(db: Session, today: date) -> dict:
 
     lines = [f"📊 {PLANT_NAME} — Daily Digest", today.strftime("%d %b %Y"), ""]
     lines.append(f"Sales today: {today_sales['sales_rupees_fmt'] if today_sales else '₹0'}"
-                 f" · {today_sales['orders'] if today_sales else 0} orders")
+                 f" · {today_sales['invoices'] if today_sales else 0} invoices")
     if today_coll is not None:
         lines.append(f"Collected today: {today_coll['collections_fmt']}")
     if money.get("has_data"):
@@ -1081,28 +1124,19 @@ def customer_360(db: Session, today: date, days=30) -> dict:
     rstats = _receipt_stats_by_customer(db)
     has_money = bool(latest_snap) or bool(rstats)
 
-    # revenue by phone within window (non-void invoices)
-    rev_q = db.query(
-        Invoice.customer_phone, func.coalesce(func.sum(Invoice.total), 0)
-    ).filter(Invoice.status != "void", Invoice.business_date <= today)
+    # revenue + invoice count by customer within window (Vasy = revenue truth)
+    revenue = _vasy_revenue_by_customer(db, window_start, today)
+    vc_q = db.query(VasyInvoice.customer_id, func.count(VasyInvoice.id)).filter(
+        VasyInvoice.customer_id != None, VasyInvoice.invoice_date <= today)  # noqa: E711
     if window_start:
-        rev_q = rev_q.filter(Invoice.business_date >= window_start)
-    revenue = {ph: float(t) for ph, t in rev_q.group_by(Invoice.customer_phone).all()}
+        vc_q = vc_q.filter(VasyInvoice.invoice_date >= window_start)
+    inv_win = {cid: n for cid, n in vc_q.group_by(VasyInvoice.customer_id).all()}
 
-    # order count by phone within window (non-cancelled)
-    oc_q = db.query(Order.customer_phone, func.count(Order.id)).filter(
-        Order.is_cancelled == False,  # noqa: E712
-        Order.business_date <= today_str,
-    )
-    if ws:
-        oc_q = oc_q.filter(Order.business_date >= ws)
-    orders_win = {ph: c for ph, c in oc_q.group_by(Order.customer_phone).all()}
-
-    # last order date (all time, non-cancelled)
+    # last invoice date (all time) per customer
     last_q = db.query(
-        Order.customer_phone, func.max(Order.business_date)
-    ).filter(Order.is_cancelled == False).group_by(Order.customer_phone).all()  # noqa: E712
-    last_order = {ph: d for ph, d in last_q if d}
+        VasyInvoice.customer_id, func.max(VasyInvoice.invoice_date)
+    ).filter(VasyInvoice.customer_id != None).group_by(VasyInvoice.customer_id).all()  # noqa: E711
+    last_inv = {cid: d for cid, d in last_q if d}
 
     # product mix within window — parsed_items is JSON, so aggregate in Python
     mix_q = db.query(Order.customer_phone, Order.parsed_items).filter(
@@ -1128,12 +1162,12 @@ def customer_360(db: Session, today: date, days=30) -> dict:
     areas, salespeople = set(), set()
     for c in db.query(Customer).all():
         ph = c.phone_number
-        rev = revenue.get(ph, 0.0)
-        n_orders = orders_win.get(ph, 0)
-        last = last_order.get(ph)
-        recency_days = (today - date.fromisoformat(last)).days if last else None
+        rev = revenue.get(c.id, 0.0)
+        n_orders = inv_win.get(c.id, 0)          # invoice count (Vasy)
+        last = last_inv.get(c.id)                # date or None
+        recency_days = (today - last).days if last else None
 
-        # top-3 products by quantity → summary
+        # top-3 products by quantity → summary (from OrdeRR orders — operational)
         prod_qty = mix.get(ph, {})
         top = sorted(prod_qty.items(), key=lambda kv: kv[1], reverse=True)[:3]
         mix_summary = ", ".join(
@@ -1171,7 +1205,7 @@ def customer_360(db: Session, today: date, days=30) -> dict:
             "revenue": rev,
             "revenue_fmt": fmt_inr(rev),
             "orders": n_orders,
-            "last_order": last or "",
+            "last_order": last.strftime("%Y-%m-%d") if last else "",
             "recency_days": recency_days if recency_days is not None else "",
             "mix_summary": mix_summary,
             # P2-7 payment columns
@@ -1235,29 +1269,29 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
         sp_row = db.query(Salesperson).get(customer.salesperson_id)
         sp = sp_row.name if sp_row else None
 
-    # ── invoices (revenue) ──
+    # ── invoices (revenue) — from Vasy sales invoices (source of truth) ──
     invoices = []
     monthly = {}  # 'YYYY-MM' → revenue
     total_revenue = 0.0
-    if phone:
-        inv_rows = (
-            db.query(Invoice)
-            .filter(Invoice.customer_phone == phone, Invoice.status != "void")
-            .order_by(Invoice.business_date.desc())
-            .all()
-        )
-        for inv in inv_rows:
-            amt = float(inv.total or 0)
-            total_revenue += amt
-            monthly[_month_key(inv.business_date)] = monthly.get(_month_key(inv.business_date), 0.0) + amt
-            invoices.append({
-                "number": inv.invoice_number,
-                "date": inv.business_date.strftime("%Y-%m-%d"),
-                "date_display": inv.business_date.strftime("%d %b %Y"),
-                "total": amt,
-                "total_fmt": fmt_inr(amt),
-                "status": inv.status,
-            })
+    inv_rows = (
+        db.query(VasyInvoice)
+        .filter(VasyInvoice.customer_id == customer.id)
+        .order_by(VasyInvoice.invoice_date.desc())
+        .all()
+    )
+    for inv in inv_rows:
+        amt = float(inv.total or 0)
+        total_revenue += amt
+        if inv.invoice_date is not None:
+            monthly[_month_key(inv.invoice_date)] = monthly.get(_month_key(inv.invoice_date), 0.0) + amt
+        invoices.append({
+            "number": inv.voucher_no,
+            "date": inv.invoice_date.strftime("%Y-%m-%d") if inv.invoice_date else "",
+            "date_display": inv.invoice_date.strftime("%d %b %Y") if inv.invoice_date else "",
+            "total": amt,
+            "total_fmt": fmt_inr(amt),
+            "status": "",   # VasyInvoice header export carries no per-invoice status
+        })
 
     # ── revenue trend (last N months, gaps = 0) ──
     trend = [{"key": k, "label": _month_label(k), "revenue": round(monthly.get(k, 0.0), 2)}
@@ -1427,26 +1461,25 @@ def _order_dates_by_phone(db: Session, upto: date):
 
 def churn_risk(db: Session, today: date, min_orders: int = 3,
                ratio_threshold: float = 2.0, floor_days: int = 3) -> dict:
-    """P1-4 — customers overdue relative to their OWN ordering cadence.
+    """P1-4 — customers overdue relative to their OWN billing cadence.
 
-    Cadence = median gap (days) between a customer's distinct order dates.
-    A customer is flagged when days-since-last-order exceeds
-    `ratio_threshold` × cadence (and at least `floor_days`, to avoid
-    daily-order jitter). Needs `min_orders` distinct order days to derive a
-    stable cadence; customers with less history are excluded (no reliable
-    baseline — surfaced separately by other views, not guessed here).
+    Cadence = median gap (days) between a customer's Vasy invoice dates. A
+    customer is flagged when days-since-last-invoice exceeds
+    `ratio_threshold` × cadence (and at least `floor_days`). Needs `min_orders`
+    invoices for a stable cadence; fewer-history customers excluded. Uses Vasy
+    invoices (billing = actual business), not OrdeRR orders.
 
     ratio = days_since_last / cadence. Severity: ≥3 high, ≥2 medium.
     Returns only flagged customers, most-overdue (by ratio) first.
     """
-    dates_by_phone = _order_dates_by_phone(db, today)
+    dates_by_customer = _vasy_invoice_dates_by_customer(db, today)
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
-    customers = {c.phone_number: c for c in db.query(Customer).all() if c.phone_number}
+    customers = {c.id: c for c in db.query(Customer).all()}
 
     rows = []
     areas, salespeople = set(), set()
-    for phone, dates in dates_by_phone.items():
-        cust = customers.get(phone)
+    for cid, dates in dates_by_customer.items():
+        cust = customers.get(cid)
         if cust is None or len(dates) < min_orders:
             continue
         gaps = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
@@ -1470,8 +1503,8 @@ def churn_risk(db: Session, today: date, min_orders: int = 3,
 
         rows.append({
             "customer_id": cust.id,
-            "name": cust.restaurant_name or phone,
-            "phone": phone,
+            "name": cust.restaurant_name or (cust.phone_number or f"#{cid}"),
+            "phone": cust.phone_number or "",
             "area": area,
             "salesperson": sp,
             "orders": len(dates),
@@ -1507,29 +1540,33 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
     """P1-5 — overall revenue over time (with MoM %) plus a per-customer
     current-vs-previous-month comparison.
 
-    Revenue is OrdeRR invoice totals (non-void), bucketed by business-month.
+    Revenue is Vasy sales-invoice totals (the source of truth), bucketed by
+    invoice-month. Overall totals include unmatched invoices; the per-customer
+    table covers matched customers only.
     """
     keys = _last_n_months(today, months)
     key_set = set(keys)
 
-    # overall monthly totals + per-(phone,month) totals in one pass
+    # overall monthly totals + per-(customer,month) totals in one pass
     monthly = {k: 0.0 for k in keys}
-    per_cust = {}  # phone → {month_key: revenue}
+    per_cust = {}  # customer_id → {month_key: revenue}
     scan_start = date(int(keys[0][:4]), int(keys[0][5:]), 1)
 
     inv_rows = (
-        db.query(Invoice.customer_phone, Invoice.business_date, Invoice.total)
-        .filter(Invoice.status != "void",
-                Invoice.business_date >= scan_start,
-                Invoice.business_date <= today)
+        db.query(VasyInvoice.customer_id, VasyInvoice.invoice_date, VasyInvoice.total)
+        .filter(VasyInvoice.invoice_date >= scan_start,
+                VasyInvoice.invoice_date <= today)
         .all()
     )
-    for phone, bdate, total in inv_rows:
+    for cid, bdate, total in inv_rows:
+        if bdate is None:
+            continue
         mk = _month_key(bdate)
         amt = float(total or 0)
         if mk in monthly:
             monthly[mk] += amt
-        per_cust.setdefault(phone, {})[mk] = per_cust.get(phone, {}).get(mk, 0.0) + amt
+        if cid is not None:
+            per_cust.setdefault(cid, {})[mk] = per_cust.get(cid, {}).get(mk, 0.0) + amt
 
     # overall trend with MoM
     trend = []
@@ -1548,16 +1585,16 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
 
     # per-customer curr vs prev month
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
-    customers = {c.phone_number: c for c in db.query(Customer).all() if c.phone_number}
+    customers = {c.id: c for c in db.query(Customer).all()}
     cust_rows = []
     areas, salespeople = set(), set()
-    for phone, by_month in per_cust.items():
+    for cid, by_month in per_cust.items():
         curr = round(by_month.get(curr_key, 0.0), 2)
         prev = round(by_month.get(prev_key, 0.0), 2) if prev_key else 0.0
         if curr == 0 and prev == 0:
             continue
-        cust = customers.get(phone)
-        name = (cust.restaurant_name if cust else None) or phone or "(unattributed)"
+        cust = customers.get(cid)
+        name = (cust.restaurant_name if cust else None) or f"#{cid}"
         area = (cust.area if cust else "") or ""
         sp = (sp_name.get(cust.salesperson_id) if cust and cust.salesperson_id else "") or ""
         if area:
@@ -1576,7 +1613,7 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
         else:
             direction = "flat"
         cust_rows.append({
-            "customer_id": cust.id if cust else None,
+            "customer_id": cid,
             "name": name, "area": area, "salesperson": sp,
             "curr": curr, "curr_fmt": fmt_inr(curr),
             "prev": prev, "prev_fmt": fmt_inr(prev),
@@ -1607,18 +1644,17 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
 def new_vs_lost(db: Session, today: date, months: int = 12) -> dict:
     """P1-6 — monthly customer acquisitions vs attrition.
 
-    Acquisition[m] = customers whose FIRST order month == m.
-    Attrition[m]   = customers whose LAST order month == m, excluding the
-                     current month (a customer can't be declared lost in the
-                     month still in progress — they may yet order).
-    Derived from Order.business_date history (non-cancelled).
+    Acquisition[m] = customers whose FIRST Vasy invoice month == m.
+    Attrition[m]   = customers whose LAST invoice month == m, excluding the
+                     current month (can't be declared lost mid-month).
+    Derived from Vasy sales-invoice history (billing = actual business).
     """
     rows = (
-        db.query(Order.customer_phone,
-                 func.min(Order.business_date), func.max(Order.business_date))
-        .filter(Order.is_cancelled == False,        # noqa: E712
-                Order.business_date != None)        # noqa: E711
-        .group_by(Order.customer_phone)
+        db.query(VasyInvoice.customer_id,
+                 func.min(VasyInvoice.invoice_date), func.max(VasyInvoice.invoice_date))
+        .filter(VasyInvoice.customer_id != None,     # noqa: E711
+                VasyInvoice.invoice_date != None)    # noqa: E711
+        .group_by(VasyInvoice.customer_id)
         .all()
     )
 
@@ -1628,11 +1664,11 @@ def new_vs_lost(db: Session, today: date, months: int = 12) -> dict:
     acq = {k: 0 for k in keys}
     att = {k: 0 for k in keys}
 
-    for phone, first_ds, last_ds in rows:
+    for cid, first_d, last_d in rows:
         try:
-            fm = _month_key(date.fromisoformat(first_ds))
-            lm = _month_key(date.fromisoformat(last_ds))
-        except (TypeError, ValueError):
+            fm = _month_key(first_d)
+            lm = _month_key(last_d)
+        except (TypeError, ValueError, AttributeError):
             continue
         if fm in key_set:
             acq[fm] += 1
@@ -1950,34 +1986,23 @@ RFM_SEGMENTS = [
 def rfm(db: Session, today: date) -> dict:
     """P1-13 — Recency/Frequency/Monetary scoring & segmentation.
 
-    Recency = days since last order (all-time), Frequency = lifetime order
-    count, Monetary = lifetime invoice revenue. Each scored 1–5 by quintile
-    across the active base; a named segment is derived from the trio.
-    Only customers with at least one order are scored.
+    Recency = days since last Vasy invoice, Frequency = lifetime invoice count,
+    Monetary = lifetime Vasy revenue. Each scored 1–5 by quintile across the
+    active base; a named segment is derived from the trio. Uses Vasy invoices
+    (billing = actual business), not OrdeRR orders. Only customers with at
+    least one invoice are scored.
     """
-    dates_by_phone = _order_dates_by_phone(db, today)
-    # frequency = lifetime non-cancelled order count (not distinct days)
-    freq_rows = (
-        db.query(Order.customer_phone, func.count(Order.id))
-        .filter(Order.is_cancelled == False)               # noqa: E712
-        .group_by(Order.customer_phone).all()
-    )
-    freq = {ph: c for ph, c in freq_rows}
-    rev_rows = (
-        db.query(Invoice.customer_phone, func.coalesce(func.sum(Invoice.total), 0))
-        .filter(Invoice.status != "void")
-        .group_by(Invoice.customer_phone).all()
-    )
-    revenue = {ph: float(t) for ph, t in rev_rows}
-    customers = {c.phone_number: c for c in db.query(Customer).all() if c.phone_number}
+    dates_by_customer = _vasy_invoice_dates_by_customer(db, today)
+    revenue = _vasy_revenue_by_customer(db)              # all-time, by customer_id
+    customers = {c.id: c for c in db.query(Customer).all()}
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
 
-    base = []  # (phone, recency_days, frequency, monetary)
-    for phone, dates in dates_by_phone.items():
-        if phone not in customers or not dates:
+    base = []  # (customer_id, recency_days, frequency, monetary)
+    for cid, dates in dates_by_customer.items():
+        if cid not in customers or not dates:
             continue
         recency = (today - dates[-1]).days
-        base.append((phone, recency, freq.get(phone, 0), revenue.get(phone, 0.0)))
+        base.append((cid, recency, len(dates), revenue.get(cid, 0.0)))
 
     if not base:
         return {"rows": [], "segments": [], "areas": [], "salespeople": [], "total": 0}
@@ -1989,9 +2014,9 @@ def rfm(db: Session, today: date) -> dict:
     rows = []
     areas, salespeople = set(), set()
     seg_counts = {}
-    for phone, recency, frequency, monetary in base:
-        cust = customers[phone]
-        R, F, M = r_scores[phone], f_scores[phone], m_scores[phone]
+    for cid, recency, frequency, monetary in base:
+        cust = customers[cid]
+        R, F, M = r_scores[cid], f_scores[cid], m_scores[cid]
         seg = _rfm_segment(R, F, M)
         seg_counts[seg] = seg_counts.get(seg, 0) + 1
         sp = (sp_name.get(cust.salesperson_id) if cust.salesperson_id else "") or ""
@@ -2002,7 +2027,7 @@ def rfm(db: Session, today: date) -> dict:
             salespeople.add(sp)
         rows.append({
             "customer_id": cust.id,
-            "name": cust.restaurant_name or phone,
+            "name": cust.restaurant_name or (cust.phone_number or f"#{cid}"),
             "area": area, "salesperson": sp,
             "recency_days": recency, "frequency": frequency,
             "monetary": round(monetary, 2), "monetary_fmt": fmt_inr(monetary),
@@ -2036,18 +2061,13 @@ def team_performance(db: Session, today: date, days=30) -> dict:
     ws = window_start.strftime("%Y-%m-%d") if window_start else None
     today_str = today.strftime("%Y-%m-%d")
 
-    rev_q = db.query(
-        Invoice.customer_phone, func.coalesce(func.sum(Invoice.total), 0)
-    ).filter(Invoice.status != "void", Invoice.business_date <= today)
+    # revenue + invoice count by customer within window (Vasy = revenue truth)
+    revenue = _vasy_revenue_by_customer(db, window_start, today)
+    vc_q = db.query(VasyInvoice.customer_id, func.count(VasyInvoice.id)).filter(
+        VasyInvoice.customer_id != None, VasyInvoice.invoice_date <= today)  # noqa: E711
     if window_start:
-        rev_q = rev_q.filter(Invoice.business_date >= window_start)
-    revenue = {ph: float(t) for ph, t in rev_q.group_by(Invoice.customer_phone).all()}
-
-    oc_q = db.query(Order.customer_phone, func.count(Order.id)).filter(
-        Order.is_cancelled == False, Order.business_date <= today_str)  # noqa: E712
-    if ws:
-        oc_q = oc_q.filter(Order.business_date >= ws)
-    orders_win = {ph: c for ph, c in oc_q.group_by(Order.customer_phone).all()}
+        vc_q = vc_q.filter(VasyInvoice.invoice_date >= window_start)
+    inv_win = {cid: n for cid, n in vc_q.group_by(VasyInvoice.customer_id).all()}
 
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
 
@@ -2072,9 +2092,8 @@ def team_performance(db: Session, today: date, days=30) -> dict:
     by_sp, by_area = {}, {}
 
     for c in db.query(Customer).all():
-        ph = c.phone_number
-        rev = revenue.get(ph, 0.0) if ph else 0.0
-        no = orders_win.get(ph, 0) if ph else 0
+        rev = revenue.get(c.id, 0.0)
+        no = inv_win.get(c.id, 0)
         col = collected.get(c.id, 0.0)
         out = outstanding.get(c.id, 0.0)
         sp = (sp_name.get(c.salesperson_id) if c.salesperson_id else None) or "Unassigned"
