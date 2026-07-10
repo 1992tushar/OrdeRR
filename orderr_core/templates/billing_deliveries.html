@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enter Deliveries — Fluffy</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    color: #1a1a1a;
+    background: #f4f3ef;
+    padding: 0 0 60px;
+  }
+
+  /* ── App bar (not part of the printout look — lets the accountant get back) ── */
+  .appbar {
+    background: #fff;
+    border-bottom: 1px solid rgba(0,0,0,.09);
+    padding: 0 20px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .appbar a { font-size: 13px; color: #5a5a54; text-decoration: none; font-weight: 500; }
+  .appbar a:hover { color: #1a6b41; }
+  .appbar .sep { color: #ccc; }
+
+  .sheet {
+    max-width: 1000px;
+    margin: 18px auto;
+    background: #fff;
+    padding: 22px 26px 30px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    border-radius: 6px;
+  }
+
+  /* ── Header ── */
+  .header {
+    border-bottom: 3px solid #1a1a1a;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+  }
+  .header-plant {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: #666;
+  }
+  .header-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 2px 0;
+  }
+  .header-sub {
+    font-size: 12px;
+    color: #1a6b41;
+    font-weight: 600;
+    margin-top: 1px;
+  }
+  .header-meta {
+    font-size: 12px;
+    color: #555;
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .section-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #333;
+    border-bottom: 1.5px solid #333;
+    padding-bottom: 5px;
+    margin-bottom: 12px;
+  }
+
+  /* ── Tables ── */
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table td {
+    border-bottom: 1px solid #e8e8e8;
+    vertical-align: middle;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .product-name   { padding: 4px 8px 4px 24px; width: 52%; }
+  .qty-ordered    { padding: 4px 8px; width: 22%; font-weight: 600; white-space: nowrap; }
+  .qty-delivered  { padding: 4px 8px; width: 26%; }
+
+  /* ── Delivered input (was the pen write-box) ── */
+  .qty-inp {
+    width: 100%;
+    max-width: 120px;
+    padding: 5px 8px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .qty-inp:focus { outline: none; border-color: #1a6b41; box-shadow: 0 0 0 2px rgba(26,107,65,.12); }
+
+  .review-note { font-size: 10px; color: #92540a; padding: 0 8px 4px 24px; }
+  .unclear-note {
+    font-size: 11px; color: #92540a; background: #fef3c7;
+    border: 1px solid #f5cc6e; border-radius: 4px;
+    padding: 5px 9px; margin: 6px 0 2px;
+  }
+  .unclear-note a { color: #92540a; font-weight: 600; }
+
+  /* ── Hotel blocks — 2-column grid like the printout ── */
+  .hotel-grid { column-count: 2; column-gap: 22px; }
+  .hotel-block {
+    margin: 0 0 14px;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    display: inline-block;   /* keeps a block whole within a column */
+    width: 100%;
+    border: 1px solid #e5e5e5;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .hotel-name {
+    font-size: 12px;
+    font-weight: 700;
+    background: #f5f5f5;
+    padding: 5px 8px;
+    border-left: 4px solid #1a1a1a;
+  }
+  .block-actions { padding: 8px; text-align: right; border-top: 1px solid #eee; background: #fafafa; }
+  .confirm-btn {
+    font-size: 12px; font-weight: 700; color: #fff; background: #1a6b41;
+    border: none; border-radius: 5px; padding: 6px 16px; cursor: pointer;
+  }
+  .confirm-btn:hover { background: #155934; }
+  .confirm-btn:disabled { background: #9a9a90; cursor: not-allowed; }
+  .block-msg { font-size: 11px; margin-right: 10px; }
+  .block-msg.err { color: #b91c1c; }
+  .block-msg.ok  { color: #1a6b41; }
+
+  .empty-state {
+    text-align: center; padding: 50px 20px; color: #5a5a54;
+  }
+  .empty-state strong { display: block; font-size: 16px; color: #1a1a1a; margin-bottom: 6px; }
+  .empty-state a { color: #1a6b41; font-weight: 600; }
+
+  #toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(16px);
+    background: #1a1a18; color: #fff; padding: 10px 22px; border-radius: 8px;
+    font-size: 13px; opacity: 0; transition: all .28s; pointer-events: none; z-index: 999;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 720px) {
+    .hotel-grid { column-count: 1; }
+    .sheet { margin: 12px; padding: 16px 14px 22px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="appbar">
+  <a href="/billing">← Billing</a>
+  <span class="sep">·</span>
+  <a href="/billing">Today</a>
+</div>
+
+<div class="sheet">
+
+  <div class="header">
+    <div class="header-plant">Fluffy</div>
+    <div class="header-title">Daily Production Report</div>
+    <div class="header-sub">Enter delivered quantities</div>
+    <div class="header-meta">
+      <span>{{ date_label }}</span>
+      <span id="await-count">{{ hotels | length }} hotel{{ '' if hotels|length == 1 else 's' }} awaiting entry</span>
+    </div>
+  </div>
+
+  {% if hotels %}
+  <div class="section-title">Hotel-wise Orders</div>
+  <div class="hotel-grid" id="hotel-grid">
+    {% for h in hotels %}
+    <div class="hotel-block" id="block-{{ h.order_id }}">
+      <div class="hotel-name">{{ h.number }}.&nbsp; {{ h.hotel_name }}</div>
+      <table class="data-table">
+        <tbody>
+          {% for it in h['items'] %}
+          <tr>
+            <td class="product-name">{{ erp_name(it.product) }}</td>
+            <td class="qty-ordered">{{ "%g"|format(it.ordered_qty) if it.ordered_qty is not none else '—' }} {{ it.unit }}</td>
+            <td class="qty-delivered">
+              <input class="qty-inp" type="number" step="0.001" min="0"
+                     data-order="{{ h.order_id }}" data-actual="{{ it.actual_id }}"
+                     value="{% if it.actual_qty is not none %}{{ '%g'|format(it.actual_qty) }}{% endif %}"
+                     placeholder="qty"
+                     aria-label="Delivered quantity for {{ erp_name(it.product) }}">
+            </td>
+          </tr>
+          {% if it.needs_review and it.review_reason %}
+          <tr><td colspan="3" class="review-note">{{ it.review_reason }}</td></tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if h['unmatched'] %}
+      <div class="unclear-note">
+        {{ h['unmatched'] | length }} item{{ '' if h['unmatched']|length == 1 else 's' }} need attention —
+        <a href="/billing">resolve on the Today tab</a>.
+      </div>
+      {% endif %}
+      <div class="block-actions">
+        <span class="block-msg" id="msg-{{ h.order_id }}"></span>
+        <button class="confirm-btn" onclick="confirmHotel({{ h.order_id }})">Confirm</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <strong>All caught up</strong>
+    Every hotel's delivered quantities are entered.
+    <div style="margin-top:10px"><a href="/billing">← Back to Today to generate invoices</a></div>
+  </div>
+  {% endif %}
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+let toastT;
+function showToast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(()=>el.classList.remove('show'), 2600);
+}
+
+function setMsg(orderId, text, kind){
+  const el = document.getElementById('msg-'+orderId);
+  if(!el) return;
+  el.textContent = text || '';
+  el.className = 'block-msg' + (kind ? ' '+kind : '');
+}
+
+async function confirmHotel(orderId){
+  const inputs = document.querySelectorAll('input[data-order="'+orderId+'"]');
+  const payload = [];
+  for(const inp of inputs){
+    const qty = parseFloat(inp.value);
+    if(!qty || qty <= 0){
+      setMsg(orderId, 'Fill every delivered quantity (greater than 0) before confirming.', 'err');
+      inp.focus();
+      return;
+    }
+    payload.push({actual_id: Number(inp.dataset.actual), actual_qty: qty});
+  }
+  if(!payload.length){ setMsg(orderId, 'Nothing to confirm.', 'err'); return; }
+
+  const btn = document.querySelector('#block-'+orderId+' .confirm-btn');
+  if(btn){ btn.disabled = true; }
+  setMsg(orderId, 'Saving…', '');
+
+  try{
+    const r = await fetch('/billing/api/confirm-items', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({order_id: orderId, items: payload})
+    });
+    const d = await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error || 'Save failed');
+
+    // Confirmed → this hotel leaves the sheet.
+    const block = document.getElementById('block-'+orderId);
+    if(block) block.remove();
+    showToast('Confirmed ' + payload.length + ' item' + (payload.length>1?'s':''));
+    refreshCount();
+  }catch(e){
+    if(btn){ btn.disabled = false; }
+    setMsg(orderId, e.message, 'err');
+  }
+}
+
+function refreshCount(){
+  const remaining = document.querySelectorAll('.hotel-block').length;
+  const cnt = document.getElementById('await-count');
+  if(cnt) cnt.textContent = remaining + ' hotel' + (remaining===1?'':'s') + ' awaiting entry';
+  if(remaining === 0){
+    const grid = document.getElementById('hotel-grid');
+    if(grid){
+      grid.outerHTML =
+        '<div class="empty-state"><strong>All caught up</strong>' +
+        'Every hotel\'s delivered quantities are entered.' +
+        '<div style="margin-top:10px"><a href="/billing">← Back to Today to generate invoices</a></div></div>';
+    }
+  }
+}
+</script>
+</body>
+</html>

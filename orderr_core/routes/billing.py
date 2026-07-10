@@ -446,6 +446,56 @@ def api_today_results(db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# "Enter deliveries" screen — a report-styled sheet the accountant transcribes
+# hand-written delivered quantities into. Mirrors the printed Daily Production
+# Report so paper -> screen is a 1:1 read. Shows ONLY hotels still awaiting
+# delivered-quantity entry (not invoiced, at least one blank/unconfirmed item);
+# each hotel keeps its ORIGINAL number from the full day's order sequence so it
+# still matches the printout even though done hotels are hidden. Per-hotel
+# Confirm reuses /billing/api/confirm-items — no new write path.
+# ---------------------------------------------------------------------------
+
+@router.get("/billing/deliveries", response_class=HTMLResponse)
+def deliveries_entry(request: Request, db: Session = Depends(get_db)):
+    today = _today()
+
+    order_rows = db.execute(
+        text("""
+            SELECT id, customer_name FROM orders
+            WHERE business_date = :today
+              AND is_cancelled = FALSE
+              AND status != 'cancelled'
+            ORDER BY id
+        """),
+        {"today": today.isoformat()},
+    ).fetchall()
+
+    # Number every hotel by the full order sequence FIRST, then keep only those
+    # still awaiting entry. This preserves the printout's numbering (gaps where
+    # already-invoiced/confirmed hotels drop out).
+    awaiting = []
+    for idx, row in enumerate(order_rows, 1):
+        rec = _build_hotel_record(db, hotel_name=row[1], order_id=row[0])
+        needs_entry = rec["status"] != "invoiced" and any(
+            it["actual_qty"] is None or it["needs_review"] for it in rec["items"]
+        )
+        if needs_entry:
+            rec["number"] = idx
+            awaiting.append(rec)
+
+    try:
+        date_label = date.fromisoformat(today.isoformat()).strftime("%d %B %Y")
+    except Exception:
+        date_label = today.isoformat()
+
+    return templates.TemplateResponse(request, "billing_deliveries.html", {
+        "hotels":     awaiting,
+        "today":      today.isoformat(),
+        "date_label": date_label,
+    })
+
+
+# ---------------------------------------------------------------------------
 # fix-item (unchanged)
 # ---------------------------------------------------------------------------
 
