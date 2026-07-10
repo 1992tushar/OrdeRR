@@ -449,6 +449,41 @@ def analytics_receivables(
     )
 
 
+@router.post("/analytics/admin/reset")
+def analytics_admin_reset(
+    request: Request,
+    token: str = Query(default=None),
+    confirm: str = Query(default="false"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Token-gated destructive reset: clears transactional + analytics data,
+    PRESERVES customers/salespersons/staff.
+
+    Safety: disabled unless RESET_TOKEN env var is set; requires that token;
+    dry-run (returns counts) unless confirm=true. Explicit clear-list only.
+    """
+    import os
+    import secrets
+    from orderr_core.services import maintenance
+
+    reset_token = os.getenv("RESET_TOKEN", "")
+    if not reset_token:
+        raise HTTPException(status_code=403, detail="Reset disabled — RESET_TOKEN is not set on the server.")
+    if not token or not secrets.compare_digest(token, reset_token):
+        raise HTTPException(status_code=403, detail="Invalid or missing token.")
+
+    do = (confirm == "true")
+    counts = maintenance.reset_transactional_data(db, confirm=do)
+    return JSONResponse({
+        "status": "DELETED" if do else "dry-run",
+        "confirm": do,
+        "preserved": maintenance.PRESERVE_TABLES,
+        ("deleted" if do else "would_delete"): counts,
+        "total_rows": sum(counts.values()),
+    })
+
+
 @router.get("/analytics/imports", response_class=HTMLResponse)
 def analytics_imports(
     request: Request,
