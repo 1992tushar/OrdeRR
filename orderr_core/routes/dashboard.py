@@ -265,6 +265,31 @@ def analytics_export(
     )
 
 
+@router.get("/analytics/credit", response_class=HTMLResponse)
+def analytics_credit(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P3-1/2/4/5 — credit intelligence: risk score, classification, at-risk,
+    breach."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.credit_intelligence(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_credit.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "ci"         : data,
+            "analytics_view": "credit",
+        },
+    )
+
+
 @router.get("/analytics/reconcile", response_class=HTMLResponse)
 def analytics_reconcile(
     request: Request,

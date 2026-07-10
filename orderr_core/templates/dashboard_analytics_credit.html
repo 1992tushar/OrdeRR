@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Credit</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:0 2px 12px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:700}
+.section-sub{font-size:12px;color:var(--ink3)}
+.note{font-size:11px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--blue-border);border-radius:8px;padding:10px 14px;margin:12px 0}
+
+.segs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.seg-card{flex:1;min-width:120px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow);cursor:pointer;border-top:3px solid var(--border)}
+.seg-card.grow{border-top-color:var(--green)} .seg-card.watch{border-top-color:var(--blue)}
+.seg-card.chase{border-top-color:var(--amber)} .seg-card.hold{border-top-color:var(--red)}
+.seg-card.active{outline:2px solid var(--green);outline-offset:-1px}
+.seg-card .n{font-size:22px;font-weight:800;line-height:1}
+.seg-card .l{font-size:11px;color:var(--ink2);margin-top:4px;font-weight:600}
+
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar input,.toolbar select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.toolbar input{flex:1;min-width:150px}
+.count{font-size:12px;color:var(--ink3);margin-left:auto}
+.xlsx{font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--border)}
+th.num{text-align:right} th .arrow{color:var(--green);font-size:10px}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.cls{display:inline-block;font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;text-transform:uppercase}
+.cls.Grow{background:var(--green-bg);color:var(--green)} .cls.Watch{background:var(--blue-bg);color:var(--blue)}
+.cls.Chase{background:var(--amber-bg);color:var(--amber)} .cls\.Hold-credit,.cls.Hold{background:var(--red-bg);color:var(--red)}
+.score{font-weight:800;font-variant-numeric:tabular-nums}
+.gauge{display:inline-block;width:46px;height:6px;border-radius:3px;background:var(--bg);overflow:hidden;vertical-align:middle;margin-left:6px}
+.gauge > i{display:block;height:100%}
+.reasons{font-size:11px;color:var(--ink2);max-width:280px}
+.breach-badge{display:inline-block;font-size:9px;font-weight:800;color:#fff;background:var(--red);padding:1px 6px;border-radius:4px;margin-left:4px;text-transform:uppercase}
+.limit-in{width:92px;font-size:12px;padding:4px 6px;border:1px solid var(--border-strong);border-radius:6px}
+.cust-sub{font-size:11px;color:var(--ink3)}
+.empty{color:var(--ink3);text-align:center;padding:28px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  {% if not ci.has_data %}
+  <div class="section-title">Credit intelligence</div>
+  <div class="note">No money data imported yet. Upload receipts + outstanding on the <a href="/dashboard/analytics/imports">Imports</a> page.</div>
+  {% else %}
+
+  <div class="section-head">
+    <div class="section-title">Credit intelligence</div>
+    <div class="section-sub">{{ ci.scored }} scored · {{ ci.at_risk }} at-risk · {{ ci.breach }} over limit{% if ci.as_of %} · AR as of {{ ci.as_of }}{% endif %}</div>
+  </div>
+
+  <div class="segs" id="segs">
+    {% for cls, key, cnt in [("Grow","grow",ci.counts["Grow"]),("Watch","watch",ci.counts["Watch"]),("Chase","chase",ci.counts["Chase"]),("Hold-credit","hold",ci.counts["Hold-credit"])] %}
+    <div class="seg-card {{ key }}" data-seg="{{ cls }}" onclick="toggleSeg(this)">
+      <div class="n">{{ cnt }}</div><div class="l">{{ cls }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="note">
+    Risk score 0–100 (higher = riskier) fuses <b>payment lateness</b>, <b>exposure burden</b>
+    (outstanding ÷ ~{{ ci.span_months }}-month avg collections), <b>order slowdown</b> and
+    <b>rising balance</b>. Class: Hold-credit ≥70 or over-limit · Chase ≥50 · Watch ≥30 · Grow &lt;30.
+    Set a credit limit inline to arm the breach alert.{% if not ci.has_trend %} Balance-trend input activates once a 2nd outstanding snapshot is imported.{% endif %}
+  </div>
+  <div class="note" style="border-left-color:var(--amber-border)">
+    ⚠️ Scores depend on how much receipt history is imported. Receipts are a rolling window
+    (~{{ ci.span_months }} months), so a customer flagged “no payment in the imported receipts”
+    may simply have paid <em>before</em> that window — they’ll re-score as more history/daily
+    imports accrue. Treat today’s Hold-credit list as “verify”, not “cut off”.
+  </div>
+
+  <div class="toolbar">
+    <input id="q" type="text" placeholder="Search customer…" autocomplete="off">
+    <select id="fa"><option value="">All areas</option>{% for a in ci.areas %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select>
+    <select id="fs"><option value="">All salespersons</option>{% for s in ci.salespeople %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
+    <label style="font-size:12px;color:var(--ink2)"><input type="checkbox" id="frisk"> at-risk only</label>
+    <span class="count" id="count"></span>
+    <a class="xlsx" href="/dashboard/analytics/export/credit">⬇ Excel</a>
+  </div>
+
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th data-sort="name">Customer</th>
+        <th data-sort="outstanding" class="num">Outstanding</th>
+        <th data-sort="score" class="num">Risk</th>
+        <th data-sort="classification">Class</th>
+        <th data-sort="days_since_payment" class="num">Since pay</th>
+        <th data-sort="exposure_months" class="num">Exp. mo.</th>
+        <th>Credit limit</th>
+        <th>Why</th>
+      </tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div></div>
+  {% endif %}
+</main>
+
+{% if ci.has_data %}
+<script>
+const ROWS = {{ ci.rows | tojson }};
+let sortKey="score", sortDir=-1, segFilter="", riskOnly=false;
+
+function scoreColor(s){ return s>=70?'var(--red)':s>=50?'var(--amber)':s>=30?'var(--blue)':'var(--green)'; }
+function toggleSeg(el){
+  const s=el.getAttribute('data-seg');
+  segFilter=(segFilter===s)?"":s;
+  document.querySelectorAll('.seg-card').forEach(c=>c.classList.toggle('active',c.getAttribute('data-seg')===segFilter));
+  render();
+}
+async function setLimit(cid, val, inputEl){
+  inputEl.disabled=true;
+  try{
+    const r=await fetch('/dashboard/analytics/customer/'+cid+'/credit-limit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credit_limit:val})});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.detail||'error');
+    inputEl.style.borderColor='var(--green)';
+    setTimeout(()=>location.reload(),350);   // re-score with new limit
+  }catch(e){ inputEl.style.borderColor='var(--red)'; alert('Could not save: '+e.message); inputEl.disabled=false; }
+}
+function render(){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  const fa=document.getElementById('fa').value, fs=document.getElementById('fs').value;
+  riskOnly=document.getElementById('frisk').checked;
+  let rows=ROWS.filter(r=>(!q||r.name.toLowerCase().includes(q))&&(!fa||r.area===fa)&&(!fs||r.salesperson===fs)
+    &&(!segFilter||r.classification===segFilter)&&(!riskOnly||r.at_risk));
+  const numeric=['outstanding','score','days_since_payment','exposure_months'].includes(sortKey);
+  rows.sort((a,b)=>{let x=a[sortKey],y=b[sortKey];
+    if(numeric){x=(x===''||x===null)?-Infinity:+x;y=(y===''||y===null)?-Infinity:+y;return (x-y)*sortDir;}
+    return String(x).localeCompare(String(y))*sortDir;});
+  const body=document.getElementById('body');
+  body.innerHTML = rows.length ? rows.map(r=>
+    '<tr>'+
+      '<td><a href="/dashboard/analytics/customer/'+r.customer_id+'" style="font-weight:600;color:var(--ink);text-decoration:none">'+esc(r.name)+'</a>'+
+        (r.area?' <span class="chip">'+esc(r.area)+'</span>':'')+(r.salesperson?'<div class="cust-sub">🧑 '+esc(r.salesperson)+'</div>':'')+'</td>'+
+      '<td class="num">'+r.outstanding_fmt+(r.breach?'<span class="breach-badge">breach</span>':'')+'</td>'+
+      '<td class="num"><span class="score" style="color:'+scoreColor(r.score)+'">'+r.score+'</span>'+
+        '<span class="gauge"><i style="width:'+r.score+'%;background:'+scoreColor(r.score)+'"></i></span></td>'+
+      '<td><span class="cls '+r.classification.replace("-","")+'" style="'+clsStyle(r.classification)+'">'+r.classification+'</span></td>'+
+      '<td class="num">'+(r.days_since_payment===''?'—':r.days_since_payment+'d')+'</td>'+
+      '<td class="num">'+(r.exposure_months===''?'—':r.exposure_months)+'</td>'+
+      '<td><input class="limit-in" type="text" value="'+(r.credit_limit===''?'':r.credit_limit)+'" placeholder="none" '+
+        'onblur="if(this.value!=this.defaultValue)setLimit('+r.customer_id+',this.value,this)"></td>'+
+      '<td class="reasons">'+(r.reasons.length?esc(r.reasons.join(' · ')):'<span class="cust-sub">—</span>')+'</td>'+
+    '</tr>').join('') : '<tr><td colspan="8" class="empty">No customers match.</td></tr>';
+  document.getElementById('count').textContent = rows.length+' of '+ROWS.length;
+  document.querySelectorAll('th[data-sort]').forEach(th=>{
+    th.querySelector('.arrow')?.remove();
+    if(th.getAttribute('data-sort')===sortKey){const s=document.createElement('span');s.className='arrow';s.textContent=sortDir===1?' ▲':' ▼';th.appendChild(s);}
+  });
+}
+function clsStyle(c){ const m={'Grow':['var(--green-bg)','var(--green)'],'Watch':['var(--blue-bg)','var(--blue)'],'Chase':['var(--amber-bg)','var(--amber)'],'Hold-credit':['var(--red-bg)','var(--red)']}; const p=m[c]||['var(--bg)','var(--ink2)']; return 'background:'+p[0]+';color:'+p[1]; }
+function esc(s){return String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+document.querySelectorAll('th[data-sort]').forEach(th=>th.addEventListener('click',()=>{
+  const k=th.getAttribute('data-sort');
+  if(k===sortKey) sortDir=-sortDir; else {sortKey=k; sortDir=(k==='name'||k==='classification')?1:-1;}
+  render();
+}));
+['q','fa','fs'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+document.getElementById('frisk').addEventListener('change',render);
+render();
+</script>
+{% endif %}
+</body>
+</html>

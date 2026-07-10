@@ -320,6 +320,195 @@ def collections(db: Session, today: date, weeks: int = 12) -> dict:
     }
 
 
+# ── P3-1/2/4/5 Credit intelligence (risk score, classification, at-risk) ───
+
+def _lin(x, lo, hi):
+    """Map x in [lo,hi] → 0..100 (clamped). Below lo→0, above hi→100."""
+    if x is None:
+        return 0.0
+    if x <= lo:
+        return 0.0
+    if x >= hi:
+        return 100.0
+    return (x - lo) / (hi - lo) * 100.0
+
+
+def credit_intelligence(db: Session, today: date) -> dict:
+    """P3-4 credit-risk score (0–100, higher = riskier) fused from:
+      • payment lateness  — days since last payment (P2 receipts)
+      • exposure burden   — outstanding ÷ avg monthly collections (P3-2 ratio)
+      • order slowdown    — gap since last order ÷ own cadence (P1-4 signal)
+      • balance trend     — rising outstanding vs previous snapshot (P2-9)
+    → P3-5 classification (Grow / Watch / Chase / Hold-credit),
+    → P3-1 at-risk flag with human-readable reasons,
+    → P3-3 credit-limit breach.
+
+    Explainable: every row carries its sub-scores + reasons. Scored on
+    customers with any exposure / order / payment history.
+    """
+    latest_snap, prev_snap = _latest_two_snapshot_dates(db)
+    snap_now, snap_prev = {}, {}
+    if latest_snap:
+        snap_now = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
+                    .filter(OutstandingSnapshot.snapshot_date == latest_snap,
+                            OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    if prev_snap:
+        snap_prev = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
+                     .filter(OutstandingSnapshot.snapshot_date == prev_snap,
+                             OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    rstats = _receipt_stats_by_customer(db)
+    dates_by_phone = _order_dates_by_phone(db, today)
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+
+    # receipt window span in months (denominator for avg monthly collections)
+    rd = db.query(func.min(CustomerReceipt.receipt_date),
+                  func.max(CustomerReceipt.receipt_date)).one()
+    span_months = 1
+    if rd[0] and rd[1]:
+        span_months = max(1, (rd[1].year - rd[0].year) * 12 + (rd[1].month - rd[0].month) + 1)
+
+    if not latest_snap and not rstats:
+        return {"has_data": False}
+
+    rows = []
+    areas, salespeople = set(), set()
+    class_counts = {"Grow": 0, "Watch": 0, "Chase": 0, "Hold-credit": 0}
+    at_risk_count = breach_count = 0
+
+    for c in db.query(Customer).all():
+        outstanding = snap_now.get(c.id, 0.0)
+        rec = rstats.get(c.id)              # (last_date, count, total) or None
+        dates = dates_by_phone.get(c.phone_number) if c.phone_number else None
+        has_orders = bool(dates)
+        has_activity = outstanding != 0 or rec is not None or has_orders
+        if not has_activity:
+            continue
+
+        reasons = []
+
+        # ── payment lateness ──
+        if rec and rec[0]:
+            days_since_pay = (today - rec[0]).days
+            payment_lateness = _lin(days_since_pay, 7, 60)
+            if days_since_pay >= 30:
+                reasons.append(f"last paid {days_since_pay}d ago")
+        elif outstanding > 0:
+            days_since_pay = None
+            payment_lateness = 100.0
+            reasons.append("no payment in the imported receipts")
+        else:
+            days_since_pay = None
+            payment_lateness = 0.0
+
+        # ── exposure burden (P3-2 ratio) ──
+        collected = rec[2] if rec else 0.0
+        avg_monthly = collected / span_months if collected else 0.0
+        if outstanding <= 0:
+            exposure_burden = 0.0
+            exposure_months = 0.0
+        elif avg_monthly > 0:
+            exposure_months = outstanding / avg_monthly
+            exposure_burden = _lin(exposure_months, 0.5, 3.0)
+            if exposure_months >= 2:
+                reasons.append(f"exposure ≈ {round(exposure_months,1)} months of collections")
+        else:
+            exposure_months = None
+            exposure_burden = 100.0
+            reasons.append("owes money with no collections on record")
+
+        # ── order slowdown (cadence) ──
+        order_slowdown = None
+        if has_orders and len(dates) >= 3:
+            gaps = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
+            gaps = [g for g in gaps if g > 0] or gaps
+            cadence = median(gaps) if gaps else None
+            if cadence:
+                days_since_order = (today - dates[-1]).days
+                ratio = days_since_order / cadence
+                order_slowdown = _lin(ratio, 1.0, 3.0)
+                if ratio >= 2:
+                    reasons.append(f"orders slowed to {round(ratio,1)}× usual cadence")
+
+        # ── balance trend ──
+        rising = False
+        if c.id in snap_now and c.id in snap_prev:
+            if snap_now[c.id] > snap_prev[c.id]:
+                rising = True
+                reasons.append(f"balance rising (+{fmt_inr(snap_now[c.id]-snap_prev[c.id])})")
+
+        # ── composite score ──
+        comps = [(payment_lateness, 0.45), (exposure_burden, 0.35)]
+        if order_slowdown is not None:
+            comps.append((order_slowdown, 0.20))
+        wsum = sum(w for _, w in comps)
+        score = sum(v * w for v, w in comps) / wsum
+        if rising:
+            score = min(100.0, score + 5)
+        score = round(score)
+
+        # ── breach ──
+        limit = float(c.credit_limit) if c.credit_limit is not None else None
+        breach = limit is not None and outstanding > limit
+        if breach:
+            breach_count += 1
+            reasons.insert(0, f"over limit by {fmt_inr(outstanding - limit)}")
+
+        # ── classification ──
+        if breach or score >= 70:
+            cls = "Hold-credit"
+        elif score >= 50:
+            cls = "Chase"
+        elif score >= 30:
+            cls = "Watch"
+        else:
+            cls = "Grow"
+        class_counts[cls] += 1
+
+        at_risk = breach or score >= 55
+        if at_risk:
+            at_risk_count += 1
+
+        sp = (sp_name.get(c.salesperson_id) if c.salesperson_id else "") or ""
+        area = c.area or ""
+        if area:
+            areas.add(area)
+        if sp:
+            salespeople.add(sp)
+
+        rows.append({
+            "customer_id": c.id,
+            "name": c.restaurant_name or (c.phone_number or f"#{c.id}"),
+            "area": area, "salesperson": sp,
+            "outstanding": round(outstanding, 2), "outstanding_fmt": fmt_inr(outstanding),
+            "credit_limit": float(limit) if limit is not None else "",
+            "credit_limit_fmt": fmt_inr(limit) if limit is not None else "—",
+            "breach": breach,
+            "score": score,
+            "classification": cls,
+            "at_risk": at_risk,
+            "days_since_payment": days_since_pay if days_since_pay is not None else "",
+            "exposure_months": round(exposure_months, 1) if exposure_months is not None else "",
+            "sub": {"payment": round(payment_lateness), "exposure": round(exposure_burden),
+                    "orders": round(order_slowdown) if order_slowdown is not None else None},
+            "reasons": reasons,
+        })
+
+    rows.sort(key=lambda r: (r["breach"], r["score"], r["outstanding"]), reverse=True)
+
+    return {
+        "has_data": True,
+        "as_of": latest_snap.strftime("%d %b %Y") if latest_snap else None,
+        "has_trend": prev_snap is not None,
+        "span_months": span_months,
+        "rows": rows,
+        "counts": class_counts,
+        "at_risk": at_risk_count,
+        "breach": breach_count,
+        "scored": len(rows),
+        "areas": sorted(areas), "salespeople": sorted(salespeople),
+    }
+
+
 # ── P2-15/16 Vasy revenue + OrdeRR↔Vasy reconciliation ─────────────────────
 
 def reconciliation(db: Session, target_date: date = None) -> dict:
@@ -1331,6 +1520,20 @@ def export_dataset(db: Session, today: date, name: str, days=None):
                  r["direction"] or "", r["days_since_payment"], r["last_payment"],
                  r["avg_receipt_fmt"]] for r in data["rows"]]
         return (f"receivables_{tag}.xlsx", "Receivables", headers, rows)
+
+    if name == "credit":
+        data = credit_intelligence(db, today)
+        if not data.get("has_data"):
+            return (f"credit_{tag}.xlsx", "Credit", ["Note"], [["No money data imported yet."]])
+        headers = ["Customer", "Area", "Salesperson", "Outstanding (INR)", "Credit limit (INR)",
+                   "Breach", "Risk score", "Classification", "At risk",
+                   "Days since payment", "Exposure (months)", "Reasons"]
+        rows = [[r["name"], r["area"], r["salesperson"], r["outstanding"],
+                 (r["credit_limit"] if r["credit_limit"] != "" else ""),
+                 "Yes" if r["breach"] else "", r["score"], r["classification"],
+                 "Yes" if r["at_risk"] else "", r["days_since_payment"],
+                 r["exposure_months"], "; ".join(r["reasons"])] for r in data["rows"]]
+        return (f"credit_{tag}.xlsx", "Credit", headers, rows)
 
     if name == "rfm":
         data = rfm(db, today)
