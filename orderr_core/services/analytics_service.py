@@ -513,6 +513,50 @@ def credit_intelligence(db: Session, today: date) -> dict:
     }
 
 
+# ── Imports data-coverage (what's loaded, for the Imports page) ────────────
+
+def import_coverage(db: Session, today: date) -> list:
+    """Per-entity coverage for the Imports page: how many rows and over what
+    date range (ledgers), or how many daily snapshots (outstanding). Lets the
+    user see at a glance what's loaded and what's stale/missing."""
+    ledgers = [
+        ("Receipts", CustomerReceipt, CustomerReceipt.receipt_date, "receipts"),
+        ("Sales invoices", VasyInvoice, VasyInvoice.invoice_date, "sales-invoices"),
+        ("Purchases", VasyPurchase, VasyPurchase.bill_date, "purchases"),
+        ("Expenses", VasyExpense, VasyExpense.expense_date, "expenses"),
+        ("Payments", VasyPayment, VasyPayment.payment_date, "payments"),
+    ]
+    rows = []
+
+    def _push_ledger(label, model, dcol, key):
+        n = db.query(func.count(model.id)).scalar() or 0
+        lo, hi = db.query(func.min(dcol), func.max(dcol)).one()
+        stale_days = (today - hi).days if hi else None
+        rows.append({
+            "label": label, "key": key, "kind": "ledger", "rows": n,
+            "from": lo.strftime("%d %b %Y") if lo else None,
+            "to": hi.strftime("%d %b %Y") if hi else None,
+            "stale_days": stale_days,
+        })
+
+    # order: Receipts, Outstanding, Sales invoices, Purchases, Expenses, Payments
+    _push_ledger(*ledgers[0])
+    # Outstanding — snapshot entity
+    snap_dates = [d[0] for d in db.query(OutstandingSnapshot.snapshot_date).distinct().all()]
+    latest = max(snap_dates) if snap_dates else None
+    n_latest = (db.query(func.count(OutstandingSnapshot.id))
+                .filter(OutstandingSnapshot.snapshot_date == latest).scalar()) if latest else 0
+    rows.append({
+        "label": "Outstanding", "key": "outstanding", "kind": "snapshot",
+        "snapshots": len(snap_dates), "parties": n_latest,
+        "to": latest.strftime("%d %b %Y") if latest else None,
+        "stale_days": (today - latest).days if latest else None,
+    })
+    for l in ledgers[1:]:
+        _push_ledger(*l)
+    return rows
+
+
 # ── P3-11/12/13/14 Plant financials (P&L, cash-flow, margin, AP) ───────────
 
 def _monthly_bucket(db, model, date_col, amount_col, keys):

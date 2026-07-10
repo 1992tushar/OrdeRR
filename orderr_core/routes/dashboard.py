@@ -455,9 +455,11 @@ def analytics_imports(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    """P2-5 — manual Vasy file upload + import history."""
+    """P2-5 — manual Vasy file upload + import history + data coverage."""
     from orderr_core.models.import_log import ImportLog
+    from orderr_core.services import analytics_service
 
+    coverage = analytics_service.import_coverage(db, get_current_business_date())
     logs = db.query(ImportLog).order_by(ImportLog.imported_at.desc()).limit(25).all()
     rows = [{
         "entity": l.entity,
@@ -477,6 +479,7 @@ def analytics_imports(
             "plant_name" : PLANT_NAME,
             "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "logs"       : rows,
+            "coverage"   : coverage,
             "analytics_view": "imports",
         },
     )
