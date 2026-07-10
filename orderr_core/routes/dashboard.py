@@ -150,3 +150,30 @@ def analytics(
             "c360_days"  : c360_days,
         },
     )
+
+
+@router.get("/analytics/customer/{customer_id}", response_class=HTMLResponse)
+def analytics_customer(
+    request: Request,
+    customer_id: int,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P1-3 — single-customer sales detail (opens from a Customer 360 row)."""
+    from fastapi import HTTPException
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    detail = analytics_service.customer_detail(db, customer_id, today)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_customer.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "d"          : detail,
+        },
+    )

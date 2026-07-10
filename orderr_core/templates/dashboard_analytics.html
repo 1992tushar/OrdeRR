@@ -237,7 +237,7 @@ function renderC360(){
             '<div><div class="k">Last order</div><div class="v">'+(r.last_order||'never')+'</div></div>' +
             '<div style="flex:1;min-width:200px"><div class="k">Product mix</div><div class="v" style="font-weight:500">'+escapeHtml(r.mix_summary)+'</div></div>' +
           '</div>' +
-          '<div class="detail-note">Full order history, mix &amp; revenue-trend chart arrive with P1-3 (customer detail page).</div>' +
+          '<div class="detail-note"><a href="/dashboard/analytics/customer/'+r.customer_id+'" style="color:var(--green);font-weight:600;text-decoration:none">View full history & revenue trend →</a></div>' +
         '</td></tr>'
       );
     }).join('');

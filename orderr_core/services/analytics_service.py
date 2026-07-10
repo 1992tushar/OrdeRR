@@ -273,3 +273,141 @@ def customer_360(db: Session, today: date, days=30) -> dict:
         "days": days,
         "window_label": "All time" if days is None else f"Last {days} days",
     }
+
+
+# ── P1-3 Customer detail ───────────────────────────────────────────────────
+
+def _month_key(d: date) -> str:
+    return d.strftime("%Y-%m")
+
+
+def _last_n_months(today: date, n: int = 12):
+    """List of the last n month keys ('YYYY-MM'), oldest → newest, ending at
+    today's month."""
+    ym = today.year * 12 + (today.month - 1)
+    keys = []
+    for i in range(n - 1, -1, -1):
+        m = ym - i
+        keys.append(f"{m // 12:04d}-{(m % 12) + 1:02d}")
+    return keys
+
+
+def _month_label(key: str) -> str:
+    y, m = key.split("-")
+    return date(int(y), int(m), 1).strftime("%b %y")
+
+
+def customer_detail(db: Session, customer_id: int, today: date, months: int = 12):
+    """P1-3 — full sales-side detail for one customer.
+
+    Returns None if the customer id is unknown. Otherwise: header/KPIs, a
+    12-month revenue trend (from OrdeRR invoices, gaps filled with 0), an
+    all-time product mix (ERP names), and order + invoice history.
+    """
+    customer = db.query(Customer).get(customer_id)
+    if customer is None:
+        return None
+
+    phone = customer.phone_number
+    sp = None
+    if customer.salesperson_id:
+        sp_row = db.query(Salesperson).get(customer.salesperson_id)
+        sp = sp_row.name if sp_row else None
+
+    # ── invoices (revenue) ──
+    invoices = []
+    monthly = {}  # 'YYYY-MM' → revenue
+    total_revenue = 0.0
+    if phone:
+        inv_rows = (
+            db.query(Invoice)
+            .filter(Invoice.customer_phone == phone, Invoice.status != "void")
+            .order_by(Invoice.business_date.desc())
+            .all()
+        )
+        for inv in inv_rows:
+            amt = float(inv.total or 0)
+            total_revenue += amt
+            monthly[_month_key(inv.business_date)] = monthly.get(_month_key(inv.business_date), 0.0) + amt
+            invoices.append({
+                "number": inv.invoice_number,
+                "date": inv.business_date.strftime("%Y-%m-%d"),
+                "date_display": inv.business_date.strftime("%d %b %Y"),
+                "total": amt,
+                "total_fmt": fmt_inr(amt),
+                "status": inv.status,
+            })
+
+    # ── revenue trend (last N months, gaps = 0) ──
+    trend = [{"key": k, "label": _month_label(k), "revenue": round(monthly.get(k, 0.0), 2)}
+             for k in _last_n_months(today, months)]
+
+    # ── orders + product mix ──
+    orders = []
+    mix = {}  # (erp_name, unit) → qty
+    last_order = None
+    first_order = None
+    if phone:
+        ord_rows = (
+            db.query(Order)
+            .filter(Order.customer_phone == phone, Order.is_cancelled == False)  # noqa: E712
+            .order_by(Order.business_date.desc())
+            .all()
+        )
+        for o in ord_rows:
+            items = []
+            for it in safe_list(o.parsed_items):
+                if not isinstance(it, dict):
+                    continue
+                name = erp_display_name(it.get("product", "") or "Unknown")
+                unit = (it.get("unit", "kg") or "kg").lower()
+                try:
+                    qty = float(it.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    qty = 0
+                items.append({"name": name, "qty": fmt_qty(qty), "unit": unit})
+                mix[(name, unit)] = mix.get((name, unit), 0) + qty
+            orders.append({
+                "date": o.business_date or "",
+                "date_display": (date.fromisoformat(o.business_date).strftime("%d %b %Y")
+                                 if o.business_date else ""),
+                "status": o.status or "",
+                "line_items": items,
+            })
+        dates = [o.business_date for o in ord_rows if o.business_date]
+        if dates:
+            last_order, first_order = max(dates), min(dates)
+
+    mix_list = [{"name": n, "unit": u, "qty": fmt_qty(q), "qty_raw": q}
+                for (n, u), q in sorted(mix.items(), key=lambda kv: kv[1], reverse=True)]
+
+    recency_days = (today - date.fromisoformat(last_order)).days if last_order else None
+    n_invoices = len(invoices)
+    avg_order_value = (total_revenue / n_invoices) if n_invoices else 0.0
+
+    return {
+        "customer": {
+            "id": customer.id,
+            "name": customer.restaurant_name or (phone or f"#{customer.id}"),
+            "phone": phone or "",
+            "area": customer.area or "",
+            "salesperson": sp or "",
+            "is_active": bool(customer.is_active),
+            "outstanding_fmt": fmt_inr(customer.outstanding or 0),
+        },
+        "kpis": {
+            "total_revenue_fmt": fmt_inr(total_revenue),
+            "orders": len(orders),
+            "invoices": n_invoices,
+            "avg_order_value_fmt": fmt_inr(avg_order_value),
+            "recency_days": recency_days if recency_days is not None else "",
+            "last_order_display": (date.fromisoformat(last_order).strftime("%d %b %Y")
+                                   if last_order else "never"),
+            "first_order_display": (date.fromisoformat(first_order).strftime("%d %b %Y")
+                                    if first_order else "—"),
+        },
+        "trend": trend,
+        "mix": mix_list,
+        "orders": orders,
+        "invoices": invoices,
+    }

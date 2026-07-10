@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ d.customer.name }} · Analytics</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.hdr h1{font-size:22px;font-weight:800;letter-spacing:-.4px}
+.hdr .meta{margin-top:6px;display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--ink2)}
+.chip.on{background:var(--green-bg);border-color:var(--green-border);color:var(--green)}
+.chip.off{background:var(--red-bg);border-color:var(--red-border);color:var(--red)}
+
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px}
+@media(max-width:820px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:480px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 14px;box-shadow:var(--shadow)}
+.kpi .n{font-size:19px;font-weight:800;line-height:1.05;color:var(--ink);letter-spacing:-.3px}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+
+.section-title{font-size:15px;font-weight:700;margin:24px 2px 10px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.note{font-size:11px;color:var(--ink3);margin-top:8px}
+
+/* chart */
+.chart-wrap{position:relative}
+svg.trend{display:block;width:100%;height:220px}
+svg.trend .bar{fill:var(--green);transition:opacity .12s}
+svg.trend .bar:hover{opacity:.78;cursor:default}
+svg.trend .axis{stroke:var(--border-strong);stroke-width:1}
+svg.trend .xlab{fill:var(--ink3);font-size:10px}
+svg.trend .ylab{fill:var(--ink3);font-size:10px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;opacity:0;transform:translate(-50%,-100%);white-space:nowrap;z-index:5}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.st{display:inline-block;font-size:10px;padding:1px 8px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.mixline{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.mixline:last-child{border-bottom:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.empty{color:var(--ink3);font-size:13px;text-align:center;padding:22px}
+.items-inline{color:var(--ink2);font-size:12px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/analytics" class="nav-back">← Analytics</a>
+  <span class="nav-logo">📊 {{ plant_name }}</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  <div class="hdr">
+    <div>
+      <h1>{{ d.customer.name }}</h1>
+      <div class="meta">
+        {% if d.customer.is_active %}<span class="chip on">Active</span>{% else %}<span class="chip off">Inactive</span>{% endif %}
+        {% if d.customer.phone %}<span class="chip">{{ d.customer.phone }}</span>{% else %}<span class="chip off">no phone</span>{% endif %}
+        {% if d.customer.area %}<span class="chip">{{ d.customer.area }}</span>{% endif %}
+        {% if d.customer.salesperson %}<span class="chip">🧑 {{ d.customer.salesperson }}</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="n">{{ d.kpis.total_revenue_fmt }}</div><div class="l">Revenue (all time)</div></div>
+    <div class="kpi"><div class="n">{{ d.kpis.orders }}</div><div class="l">Orders</div></div>
+    <div class="kpi"><div class="n">{{ d.kpis.avg_order_value_fmt }}</div><div class="l">Avg invoice</div></div>
+    <div class="kpi"><div class="n">{% if d.kpis.recency_days == "" %}—{% else %}{{ d.kpis.recency_days }}d{% endif %}</div><div class="l">Since last order</div></div>
+    <div class="kpi"><div class="n" style="font-size:14px">{{ d.kpis.last_order_display }}</div><div class="l">Last order</div></div>
+    <div class="kpi"><div class="n" style="font-size:14px">{{ d.kpis.first_order_display }}</div><div class="l">First order</div></div>
+  </div>
+
+  <!-- Revenue trend -->
+  <div class="section-title">Revenue trend · last 12 months</div>
+  <div class="card">
+    <div class="chart-wrap">
+      <svg class="trend" id="trend" role="img" aria-label="Monthly revenue, last 12 months"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="note">Billed revenue from OrdeRR invoices (operational). Excludes void invoices.</div>
+  </div>
+
+  <div class="grid2" style="margin-top:22px">
+    <!-- Product mix -->
+    <div>
+      <div class="section-title">Product mix · all time</div>
+      <div class="card">
+        {% if d.mix %}
+          {% for m in d.mix %}
+          <div class="mixline"><span>{{ m.name }}</span><span class="num">{{ m.qty }} {{ m.unit }}</span></div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No ordered items yet.</div>
+        {% endif %}
+      </div>
+    </div>
+    <!-- Invoice history -->
+    <div>
+      <div class="section-title">Invoices ({{ d.invoices|length }})</div>
+      <div class="card" style="padding:0">
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Invoice</th><th>Date</th><th class="num">Total</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for i in d.invoices %}
+              <tr><td>{{ i.number }}</td><td>{{ i.date_display }}</td><td class="num">{{ i.total_fmt }}</td><td><span class="st">{{ i.status }}</span></td></tr>
+              {% else %}
+              <tr><td colspan="4" class="empty">No invoices.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Order history -->
+  <div class="section-title">Order history ({{ d.orders|length }})</div>
+  <div class="card" style="padding:0">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Status</th><th>Items</th></tr></thead>
+        <tbody>
+          {% for o in d.orders %}
+          <tr>
+            <td style="white-space:nowrap">{{ o.date_display }}</td>
+            <td><span class="st">{{ o.status }}</span></td>
+            <td class="items-inline">
+              {% for it in o.line_items %}{{ it.name }} ({{ it.qty }} {{ it.unit }}){% if not loop.last %} · {% endif %}{% endfor %}
+              {% if not o.line_items %}<span style="color:var(--ink3)">—</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="empty">No orders.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+const TREND = {{ d.trend | tojson }};
+
+function drawTrend(){
+  const svg = document.getElementById('trend');
+  const tip = document.getElementById('tip');
+  const W = svg.clientWidth || 900, H = 220;
+  const padL = 44, padR = 12, padT = 14, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(1, ...TREND.map(d => d.revenue));
+  // "nice" y-max: round up to 1/2/5 × 10^n
+  const pow = Math.pow(10, Math.floor(Math.log10(max)));
+  const niceMax = (max/pow <= 1 ? 1 : max/pow <= 2 ? 2 : max/pow <= 5 ? 5 : 10) * pow;
+
+  const n = TREND.length, gap = 8;
+  const bw = (plotW - gap*(n-1)) / n;
+  const inr = v => '₹' + Math.round(v).toLocaleString('en-IN');
+
+  let els = '';
+  // y gridlines/labels (0, mid, max)
+  [0, niceMax/2, niceMax].forEach(v => {
+    const y = padT + plotH - (v/niceMax)*plotH;
+    els += `<line class="axis" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" ${v===0?'':'stroke-opacity="0.35"'}/>`;
+    els += `<text class="ylab" x="${padL-6}" y="${y+3}" text-anchor="end">${inr(v)}</text>`;
+  });
+  // bars
+  TREND.forEach((d,i) => {
+    const x = padL + i*(bw+gap);
+    const h = (d.revenue/niceMax)*plotH;
+    const y = padT + plotH - h;
+    const r = Math.min(4, bw/2);
+    // rounded top only, anchored to baseline
+    const rr = h > r ? r : 0;
+    els += `<path class="bar" d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" `
+        +  `data-label="${d.label}" data-val="${inr(d.revenue)}" data-x="${x+bw/2}" data-y="${y}"></path>`;
+    if (i % (n>8?2:1) === 0)
+      els += `<text class="xlab" x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+  });
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = els;
+
+  svg.querySelectorAll('.bar').forEach(b => {
+    b.addEventListener('mouseenter', e => {
+      tip.style.opacity = 1;
+      tip.style.left = b.getAttribute('data-x') + 'px';
+      tip.style.top = (parseFloat(b.getAttribute('data-y')) - 6) + 'px';
+      tip.innerHTML = '<strong>' + b.getAttribute('data-val') + '</strong> · ' + b.getAttribute('data-label');
+    });
+    b.addEventListener('mouseleave', () => tip.style.opacity = 0);
+  });
+}
+drawTrend();
+window.addEventListener('resize', drawTrend);
+</script>
+
+</body>
+</html>
