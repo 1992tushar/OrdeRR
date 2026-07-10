@@ -502,6 +502,44 @@ async def analytics_import_sales_invoices(
     return JSONResponse({"status": "ok", "summary": summary})
 
 
+async def _import_cost_file(entity, importer, file, db):
+    fname = (file.filename or "").lower()
+    if not fname.endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail=f"Please upload the {entity} .xlsx export.")
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    try:
+        summary = importer(db, contents, source_file=file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse({"status": "ok", "summary": summary})
+
+
+@router.post("/analytics/import/purchases")
+async def analytics_import_purchases(file: UploadFile = File(...), db: Session = Depends(get_db),
+                                     username: str = Depends(require_auth)):
+    """Upload a Vasy purchase export (P3-10)."""
+    from orderr_core.services import vasy_import
+    return await _import_cost_file("purchases", vasy_import.import_purchases, file, db)
+
+
+@router.post("/analytics/import/expenses")
+async def analytics_import_expenses(file: UploadFile = File(...), db: Session = Depends(get_db),
+                                    username: str = Depends(require_auth)):
+    """Upload a Vasy expense export (P3-10)."""
+    from orderr_core.services import vasy_import
+    return await _import_cost_file("expenses", vasy_import.import_expenses, file, db)
+
+
+@router.post("/analytics/import/payments")
+async def analytics_import_payments(file: UploadFile = File(...), db: Session = Depends(get_db),
+                                    username: str = Depends(require_auth)):
+    """Upload a Vasy payment export (P3-10)."""
+    from orderr_core.services import vasy_import
+    return await _import_cost_file("payments", vasy_import.import_payments, file, db)
+
+
 @router.post("/analytics/import/outstanding")
 async def analytics_import_outstanding(
     file: UploadFile = File(...),

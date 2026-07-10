@@ -29,6 +29,9 @@ from orderr_core.models.customer_receipt import CustomerReceipt
 from orderr_core.models.outstanding_snapshot import OutstandingSnapshot
 from orderr_core.models.import_log import ImportLog
 from orderr_core.models.vasy_invoice import VasyInvoice, VasyInvoiceItem
+from orderr_core.models.vasy_purchase import VasyPurchase, VasyPurchaseItem
+from orderr_core.models.vasy_expense import VasyExpense
+from orderr_core.models.vasy_payment import VasyPayment
 from orderr_core.services.customer_service import (
     _to_amount, normalize_phone, import_customers_from_xlsx,
 )
@@ -80,7 +83,9 @@ def _find_header(ws, required_labels, max_scan=15):
                     colmap[key] = i
                     break
         if ("receipt_no" in colmap or ("closing" in colmap and "party" in colmap)
-                or ("voucher" in colmap and "party" in colmap)):
+                or ("voucher" in colmap and "party" in colmap)
+                or ("bill" in colmap and "party" in colmap)
+                or "expense_no" in colmap or "payment_no" in colmap):
             # header row found (heuristic: a distinctive column is present)
             return r_idx, colmap
     raise ValueError("Could not locate the header row in the export.")
@@ -460,3 +465,203 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
 def _fmt_inr_local(amount):
     from orderr_core.services.analytics_service import fmt_inr
     return fmt_inr(amount)
+
+
+def _is_total_row(v):
+    """True if a key cell is blank or the export's footer 'Total' marker."""
+    s = str(v or "").strip().lower()
+    return s in ("", "total")
+
+
+# ── P3-10 Purchases import (COGS; line-item, grouped by Bill No) ───────────
+
+def import_purchases(db: Session, file_bytes: bytes, source_file: str = None) -> dict:
+    """Import a Vasy purchase export into VasyPurchase + VasyPurchaseItem.
+    Grouped by Bill No; total = Σ line amount. Upsert on bill_no, replace lines.
+    Supplier party stored raw (no supplier master). Skips footer Total row."""
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as e:
+        raise ValueError(f"Could not read the purchase Excel file: {e}")
+    ws = wb.active
+    labels = {
+        "bill": ("bill no", "bill no.", "bill number"),
+        "date": ("bill date", "date"),
+        "party": ("party name", "party", "supplier", "name"),
+        "hsn": ("hsn",),
+        "product": ("product name", "product", "item name"),
+        "item_code": ("item code", "code"),
+        "rate": ("rate",),
+        "qty": ("qty", "quantity"),
+        "amount": ("total amount", "amount", "net amount"),
+    }
+    header_idx, col = _find_header(ws, labels)
+    if "bill" not in col or "amount" not in col:
+        raise ValueError("Purchase export must have 'Bill No' and 'Total Amount' columns.")
+
+    def cell(row, key):
+        i = col.get(key)
+        return row[i] if (i is not None and i < len(row)) else None
+
+    bills = {}
+    for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
+        if not row:
+            continue
+        bno = cell(row, "bill")
+        bno = str(bno).strip() if bno is not None else ""
+        if _is_total_row(bno):
+            continue
+        b = bills.get(bno)
+        if b is None:
+            b = bills[bno] = {"date": _parse_date(cell(row, "date")),
+                              "party": str(cell(row, "party") or "").strip(), "lines": []}
+        b["lines"].append({
+            "product": str(cell(row, "product") or "").strip() or None,
+            "item_code": str(cell(row, "item_code") or "").strip() or None,
+            "hsn": str(cell(row, "hsn") or "").strip() or None,
+            "rate": _to_amount(cell(row, "rate")), "qty": _to_amount(cell(row, "qty")),
+            "amount": _to_amount(cell(row, "amount")),
+        })
+    wb.close()
+
+    existing = {p.bill_no: p for p in db.query(VasyPurchase).all()}
+    created = updated = 0
+    total_amount = 0.0
+    for bno, b in bills.items():
+        total = sum(float(l["amount"]) for l in b["lines"])
+        total_amount += total
+        rec = existing.get(bno)
+        if rec is None:
+            rec = VasyPurchase(bill_no=bno); db.add(rec); created += 1
+        else:
+            rec.items.clear(); updated += 1
+        rec.bill_date = b["date"]
+        rec.party_name = b["party"]
+        rec.party_key = normalize_name(b["party"])
+        rec.total = round(total, 2)
+        rec.item_count = len(b["lines"])
+        for l in b["lines"]:
+            rec.items.append(VasyPurchaseItem(product_name=l["product"], item_code=l["item_code"],
+                                              hsn=l["hsn"], rate=l["rate"], qty=l["qty"], amount=l["amount"]))
+    db.add(ImportLog(entity="purchases", source_file=source_file, rows_total=created + updated,
+                     created=created, updated=updated, unmatched=0,
+                     notes=f"lines={sum(len(b['lines']) for b in bills.values())}; total={round(total_amount,2)}"))
+    db.commit()
+    return {"entity": "purchases", "rows": created + updated, "bills": created + updated,
+            "created": created, "updated": updated, "unmatched": 0,
+            "total_fmt": _fmt_inr_local(total_amount)}
+
+
+# ── P3-10 Expenses import (opex; header level) ─────────────────────────────
+
+def import_expenses(db: Session, file_bytes: bytes, source_file: str = None) -> dict:
+    """Import a Vasy expense export into VasyExpense (upsert on expense_no)."""
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as e:
+        raise ValueError(f"Could not read the expense Excel file: {e}")
+    ws = wb.active
+    labels = {
+        "expense_no": ("expense no.", "expense no", "expense number"),
+        "date": ("expense date", "date"),
+        "party": ("party name", "party", "name"),
+        "total": ("total",),
+        "paid": ("paid",),
+        "unpaid": ("unpaid",),
+    }
+    header_idx, col = _find_header(ws, labels)
+    if "expense_no" not in col:
+        raise ValueError("Expense export must have an 'Expense No.' column.")
+
+    def cell(row, key):
+        i = col.get(key)
+        return row[i] if (i is not None and i < len(row)) else None
+
+    existing = {e.expense_no: e for e in db.query(VasyExpense).all()}
+    created = updated = 0
+    total_amount = 0.0
+    seen = set()
+    for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
+        if not row:
+            continue
+        eno = cell(row, "expense_no")
+        eno = str(eno).strip() if eno is not None else ""
+        if _is_total_row(eno) or eno in seen:
+            continue
+        seen.add(eno)
+        total = _to_amount(cell(row, "total"))
+        total_amount += float(total)
+        rec = existing.get(eno)
+        if rec is None:
+            rec = VasyExpense(expense_no=eno); db.add(rec); created += 1
+        else:
+            updated += 1
+        rec.expense_date = _parse_date(cell(row, "date"))
+        rec.party_name = str(cell(row, "party") or "").strip()
+        rec.party_key = normalize_name(rec.party_name)
+        rec.total = total
+        rec.paid = _to_amount(cell(row, "paid"))
+        rec.unpaid = _to_amount(cell(row, "unpaid"))
+    db.add(ImportLog(entity="expenses", source_file=source_file, rows_total=created + updated,
+                     created=created, updated=updated, unmatched=0, notes=f"total={round(total_amount,2)}"))
+    db.commit()
+    return {"entity": "expenses", "rows": created + updated, "created": created,
+            "updated": updated, "unmatched": 0, "total_fmt": _fmt_inr_local(total_amount)}
+
+
+# ── P3-10 Payments import (money out; header level) ────────────────────────
+
+def import_payments(db: Session, file_bytes: bytes, source_file: str = None) -> dict:
+    """Import a Vasy payment export (money out) into VasyPayment (upsert on
+    payment_no). Distinct from CustomerReceipt despite the shared PAY prefix."""
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as e:
+        raise ValueError(f"Could not read the payment Excel file: {e}")
+    ws = wb.active
+    labels = {
+        "payment_no": ("payment no", "payment no.", "payment number"),
+        "party": ("party name", "party", "name"),
+        "mode": ("payment mode", "mode"),
+        "date": ("date", "payment date"),
+        "amount": ("amount",),
+        "status": ("status",),
+    }
+    header_idx, col = _find_header(ws, labels)
+    if "payment_no" not in col:
+        raise ValueError("Payment export must have a 'Payment No' column.")
+
+    def cell(row, key):
+        i = col.get(key)
+        return row[i] if (i is not None and i < len(row)) else None
+
+    existing = {p.payment_no: p for p in db.query(VasyPayment).all()}
+    created = updated = 0
+    total_amount = 0.0
+    seen = set()
+    for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
+        if not row:
+            continue
+        pno = cell(row, "payment_no")
+        pno = str(pno).strip() if pno is not None else ""
+        if _is_total_row(pno) or pno in seen:
+            continue
+        seen.add(pno)
+        amt = _to_amount(cell(row, "amount"))
+        total_amount += float(amt)
+        rec = existing.get(pno)
+        if rec is None:
+            rec = VasyPayment(payment_no=pno); db.add(rec); created += 1
+        else:
+            updated += 1
+        rec.party_name = str(cell(row, "party") or "").strip()
+        rec.party_key = normalize_name(rec.party_name)
+        rec.mode = (str(cell(row, "mode") or "").strip().lower() or None)
+        rec.payment_date = _parse_date(cell(row, "date"))
+        rec.amount = amt
+        rec.status = (str(cell(row, "status") or "").strip().lower() or None)
+    db.add(ImportLog(entity="payments", source_file=source_file, rows_total=created + updated,
+                     created=created, updated=updated, unmatched=0, notes=f"total={round(total_amount,2)}"))
+    db.commit()
+    return {"entity": "payments", "rows": created + updated, "created": created,
+            "updated": updated, "unmatched": 0, "total_fmt": _fmt_inr_local(total_amount)}
