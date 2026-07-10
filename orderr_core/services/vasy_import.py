@@ -28,9 +28,11 @@ from orderr_core.models.customer import Customer
 from orderr_core.models.customer_receipt import CustomerReceipt
 from orderr_core.models.outstanding_snapshot import OutstandingSnapshot
 from orderr_core.models.import_log import ImportLog
+from orderr_core.models.vasy_invoice import VasyInvoice, VasyInvoiceItem
 from orderr_core.services.customer_service import (
     _to_amount, normalize_phone, import_customers_from_xlsx,
 )
+from orderr_core.services.template_parser import ERP_ITEMS
 
 
 # ── shared helpers ──────────────────────────────────────────────────────────
@@ -77,10 +79,21 @@ def _find_header(ws, required_labels, max_scan=15):
                 if lbl in accepted:
                     colmap[key] = i
                     break
-        if "receipt_no" in colmap or ("closing" in colmap and "party" in colmap):
+        if ("receipt_no" in colmap or ("closing" in colmap and "party" in colmap)
+                or ("voucher" in colmap and "party" in colmap)):
             # header row found (heuristic: a distinctive column is present)
             return r_idx, colmap
     raise ValueError("Could not locate the header row in the export.")
+
+
+def _erp_code_to_name():
+    """{Vasy erp_code → erp display name} from the SKU catalog."""
+    out = {}
+    for _name, item in ERP_ITEMS.items():
+        code = item.get("erp_code")
+        if code:
+            out[str(code).strip()] = item.get("erp_name")
+    return out
 
 
 def _build_customer_lookup(db: Session):
@@ -310,3 +323,140 @@ def import_outstanding(db: Session, file_bytes: bytes, snapshot_date: date = Non
         "matched": created + updated - unmatched,
         "customers": cust_summary,
     }
+
+
+# ── P2-15 Vasy sales-invoice import (authoritative revenue) ────────────────
+
+def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = None) -> dict:
+    """Import a Vasy sales-invoice export (line-item level) into
+    VasyInvoice + VasyInvoiceItem.
+
+    Rows are grouped by Voucher No; the invoice header total = Σ line net.
+    Upsert on voucher_no and REPLACE its lines (clean idempotency — the export
+    always carries the full invoice). Join party → customer phone-first
+    (Mobile No. where present) then normalized name; unmatched → NULL.
+    """
+    try:
+        # NOT read_only: the Vasy sales export declares a bad sheet dimension,
+        # which makes openpyxl's read-only iterator truncate rows to 1 column.
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as e:
+        raise ValueError(f"Could not read the sales-invoice Excel file: {e}")
+    ws = wb.active
+
+    labels = {
+        "voucher": ("voucher no", "voucher no.", "voucher number", "invoice no", "invoice no."),
+        "date": ("date", "invoice date"),
+        "party": ("party name", "party", "customer name", "name"),
+        "mobile": ("mobile no.", "mobile no", "mobile", "contact no.", "phone"),
+        "category": ("category name", "category"),
+        "item_code": ("item code", "item", "code"),
+        "qty": ("qty", "quantity"),
+        "net": ("net amount", "amount", "net"),
+        "branch": ("branch",),
+        "address": ("address",),
+    }
+    header_idx, col = _find_header(ws, labels)
+    if "voucher" not in col or "party" not in col:
+        raise ValueError("Sales-invoice export must have 'Voucher No' and 'Party Name' columns.")
+
+    by_phone, by_name = _build_customer_lookup(db)
+    erp = _erp_code_to_name()
+
+    def cell(row, key):
+        i = col.get(key)
+        return row[i] if (i is not None and i < len(row)) else None
+
+    # group lines by voucher_no
+    invoices = {}
+    for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
+        if not row:
+            continue
+        vno = cell(row, "voucher")
+        vno = str(vno).strip() if vno is not None else ""
+        if not vno:
+            continue
+        inv = invoices.get(vno)
+        if inv is None:
+            party = str(cell(row, "party") or "").strip()
+            mobile = cell(row, "mobile")
+            inv = invoices[vno] = {
+                "date": _parse_date(cell(row, "date")),
+                "party": party,
+                "mobile": str(mobile).strip() if mobile not in (None, "", "null", "-") else None,
+                "branch": str(cell(row, "branch") or "").strip() or None,
+                "address": str(cell(row, "address") or "").strip() or None,
+                "lines": [],
+            }
+        code = str(cell(row, "item_code") or "").strip()
+        qty = _to_amount(cell(row, "qty"))
+        net = _to_amount(cell(row, "net"))
+        inv["lines"].append({
+            "item_code": code or None,
+            "erp_name": erp.get(code) or (str(cell(row, "category") or "").strip() or None),
+            "category": str(cell(row, "category") or "").strip() or None,
+            "qty": qty, "net": net,
+        })
+    wb.close()
+
+    existing = {v.voucher_no: v for v in db.query(VasyInvoice).all()}
+    created = updated = unmatched = 0
+    total_amount = 0.0
+
+    for vno, inv in invoices.items():
+        total = sum(float(l["net"]) for l in inv["lines"])
+        total_amount += total
+        key = normalize_name(inv["party"])
+        cust_id = None
+        p10 = _phone_last10(inv["mobile"])
+        if p10:
+            cust_id = by_phone.get(p10)
+        if cust_id is None:
+            cust_id = by_name.get(key)
+        if cust_id is None:
+            unmatched += 1
+
+        rec = existing.get(vno)
+        if rec is None:
+            rec = VasyInvoice(voucher_no=vno)
+            db.add(rec)
+            created += 1
+        else:
+            rec.items.clear()   # replace lines (cascade delete-orphan)
+            updated += 1
+        rec.invoice_date = inv["date"]
+        rec.party_name = inv["party"]
+        rec.party_key = key
+        rec.customer_id = cust_id
+        rec.total = round(total, 2)
+        rec.item_count = len(inv["lines"])
+        rec.branch = inv["branch"]
+        rec.address = inv["address"]
+        for l in inv["lines"]:
+            rec.items.append(VasyInvoiceItem(
+                item_code=l["item_code"], erp_name=l["erp_name"], category=l["category"],
+                qty=l["qty"], net_amount=l["net"],
+            ))
+
+    db.add(ImportLog(entity="sales_invoices", source_file=source_file,
+                     rows_total=created + updated, created=created,
+                     updated=updated, unmatched=unmatched,
+                     notes=f"lines={sum(len(i['lines']) for i in invoices.values())}; "
+                           f"total={round(total_amount, 2)}"))
+    db.commit()
+
+    return {
+        "entity": "sales_invoices",
+        "rows": created + updated,
+        "invoices": created + updated,
+        "created": created,
+        "updated": updated,
+        "unmatched": unmatched,
+        "matched": created + updated - unmatched,
+        "total_fmt": _fmt_inr_local(total_amount),
+    }
+
+
+def _fmt_inr_local(amount):
+    from orderr_core.services.analytics_service import fmt_inr
+    return fmt_inr(amount)

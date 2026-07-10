@@ -48,6 +48,7 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}
 tr:last-child td{border-bottom:none}
 .tag{display:inline-block;font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;text-transform:uppercase}
 .tag.receipts{background:var(--blue-bg);color:var(--blue)} .tag.outstanding{background:var(--amber-bg);color:var(--amber)}
+.tag.sales_invoices{background:var(--green-bg);color:var(--green)}
 .empty{color:var(--ink3);text-align:center;padding:22px}
 .warn{color:var(--amber);font-weight:600}
 </style>
@@ -85,6 +86,13 @@ tr:last-child td{border-bottom:none}
       <input type="file" id="f-outstanding" accept=".xlsx,.xlsm">
       <button class="btn" id="b-outstanding" onclick="upload('outstanding')">Upload outstanding</button>
       <div class="result" id="r-outstanding"></div>
+    </div>
+    <div class="card">
+      <h3>🧾 Sales Invoices</h3>
+      <p>Vasy → Sales invoice export (a day's invoices; authoritative revenue).</p>
+      <input type="file" id="f-sales-invoices" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-sales-invoices" onclick="upload('sales-invoices')">Upload invoices</button>
+      <div class="result" id="r-sales-invoices"></div>
     </div>
   </div>
 

@@ -369,6 +369,28 @@ async def analytics_import_receipts(
     return JSONResponse({"status": "ok", "summary": summary})
 
 
+@router.post("/analytics/import/sales-invoices")
+async def analytics_import_sales_invoices(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Upload a Vasy sales-invoice export → VasyInvoice/VasyInvoiceItem."""
+    from orderr_core.services import vasy_import
+
+    fname = (file.filename or "").lower()
+    if not fname.endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Please upload the sales-invoice .xlsx export.")
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    try:
+        summary = vasy_import.import_sales_invoices(db, contents, source_file=file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse({"status": "ok", "summary": summary})
+
+
 @router.post("/analytics/import/outstanding")
 async def analytics_import_outstanding(
     file: UploadFile = File(...),
