@@ -13,6 +13,7 @@ grouping to match the app standard (client screens use toLocaleString('en-IN')).
 All figures exclude cancelled orders and void invoices.
 """
 from datetime import date, timedelta
+from statistics import median
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -410,4 +411,97 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
         "mix": mix_list,
         "orders": orders,
         "invoices": invoices,
+    }
+
+
+# ── shared: distinct order dates per customer phone ────────────────────────
+
+def _order_dates_by_phone(db: Session, upto: date):
+    """{phone: [date, …] sorted ascending} of DISTINCT non-cancelled order
+    business-dates up to and including `upto`. Malformed date strings skipped."""
+    rows = (
+        db.query(Order.customer_phone, Order.business_date)
+        .filter(Order.is_cancelled == False,  # noqa: E712
+                Order.business_date != None,   # noqa: E711
+                Order.business_date <= upto.strftime("%Y-%m-%d"))
+        .all()
+    )
+    out = {}
+    for ph, ds in rows:
+        try:
+            d = date.fromisoformat(ds)
+        except (TypeError, ValueError):
+            continue
+        out.setdefault(ph, set()).add(d)
+    return {ph: sorted(s) for ph, s in out.items()}
+
+
+# ── P1-4 Silent-churn detector ─────────────────────────────────────────────
+
+def churn_risk(db: Session, today: date, min_orders: int = 3,
+               ratio_threshold: float = 2.0, floor_days: int = 3) -> dict:
+    """P1-4 — customers overdue relative to their OWN ordering cadence.
+
+    Cadence = median gap (days) between a customer's distinct order dates.
+    A customer is flagged when days-since-last-order exceeds
+    `ratio_threshold` × cadence (and at least `floor_days`, to avoid
+    daily-order jitter). Needs `min_orders` distinct order days to derive a
+    stable cadence; customers with less history are excluded (no reliable
+    baseline — surfaced separately by other views, not guessed here).
+
+    ratio = days_since_last / cadence. Severity: ≥3 high, ≥2 medium.
+    Returns only flagged customers, most-overdue (by ratio) first.
+    """
+    dates_by_phone = _order_dates_by_phone(db, today)
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+    customers = {c.phone_number: c for c in db.query(Customer).all() if c.phone_number}
+
+    rows = []
+    areas, salespeople = set(), set()
+    for phone, dates in dates_by_phone.items():
+        cust = customers.get(phone)
+        if cust is None or len(dates) < min_orders:
+            continue
+        gaps = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
+        gaps = [g for g in gaps if g > 0] or gaps  # guard all-zero
+        cadence = median(gaps) if gaps else None
+        if not cadence or cadence <= 0:
+            continue
+        last = dates[-1]
+        days_since = (today - last).days
+        ratio = days_since / cadence
+        if days_since < floor_days or ratio < ratio_threshold:
+            continue
+
+        severity = "high" if ratio >= 3 else "medium"
+        sp = sp_name.get(cust.salesperson_id) if cust.salesperson_id else ""
+        area = cust.area or ""
+        if area:
+            areas.add(area)
+        if sp:
+            salespeople.add(sp)
+
+        rows.append({
+            "customer_id": cust.id,
+            "name": cust.restaurant_name or phone,
+            "phone": phone,
+            "area": area,
+            "salesperson": sp,
+            "orders": len(dates),
+            "cadence_days": round(cadence, 1),
+            "days_since_last": days_since,
+            "last_order": last.strftime("%Y-%m-%d"),
+            "last_order_display": last.strftime("%d %b %Y"),
+            "ratio": round(ratio, 2),
+            "severity": severity,
+        })
+
+    rows.sort(key=lambda r: r["ratio"], reverse=True)
+    return {
+        "rows": rows,
+        "areas": sorted(areas),
+        "salespeople": sorted(salespeople),
+        "high": sum(1 for r in rows if r["severity"] == "high"),
+        "medium": sum(1 for r in rows if r["severity"] == "medium"),
+        "params": {"min_orders": min_orders, "ratio_threshold": ratio_threshold, "floor_days": floor_days},
     }

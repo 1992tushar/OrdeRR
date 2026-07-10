@@ -148,6 +148,32 @@ def analytics(
             "pulse"      : pulse,
             "c360"       : c360,
             "c360_days"  : c360_days,
+            "analytics_view": "overview",
+        },
+    )
+
+
+@router.get("/analytics/churn", response_class=HTMLResponse)
+def analytics_churn(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P1-4 — silent-churn detector: customers overdue vs their own cadence."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    churn = analytics_service.churn_risk(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_churn.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today_display": today.strftime("%d %b %Y"),
+            "churn"      : churn,
+            "analytics_view": "churn",
         },
     )
 

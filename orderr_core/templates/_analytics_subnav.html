@@ -1,0 +1,14 @@
+{# Shared Analytics sub-navigation. Include after the top nav on every
+   analytics page and pass `analytics_view` in context to highlight the
+   active module. Self-contained styles (each analytics page has its own
+   <style>, so this partial ships the .subnav rules with it). #}
+<style>
+.subnav{display:flex;gap:4px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:6px;margin-bottom:20px;box-shadow:var(--shadow)}
+.subnav a{font-size:12.5px;font-weight:600;color:var(--ink2);text-decoration:none;padding:7px 13px;border-radius:7px;white-space:nowrap}
+.subnav a:hover{background:var(--bg);color:var(--ink)}
+.subnav a.active{background:var(--green);color:#fff}
+</style>
+<div class="subnav">
+  <a href="/dashboard/analytics"           class="{{ 'active' if analytics_view=='overview' else '' }}">📊 Overview</a>
+  <a href="/dashboard/analytics/churn"      class="{{ 'active' if analytics_view=='churn' else '' }}">⚠️ Churn risk</a>
+</div>

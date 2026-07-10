@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Churn risk</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:0 2px 12px}
+.section-title{font-size:15px;font-weight:700}
+.note{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin-bottom:14px}
+
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 16px;box-shadow:var(--shadow)}
+.stat .n{font-size:24px;font-weight:800;line-height:1}
+.stat.hi .n{color:var(--red)} .stat.md .n{color:var(--amber)}
+.stat .l{font-size:11px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.4px}
+
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar input,.toolbar select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.toolbar input{flex:1;min-width:160px}
+.count{font-size:12px;color:var(--ink3);margin-left:auto}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:780px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--border)}
+th.num{text-align:right}
+th .arrow{color:var(--green);font-size:10px}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.row{cursor:pointer}
+tr.row:hover{background:var(--green-bg)}
+.cust-name{font-weight:600}
+.cust-sub{font-size:11px;color:var(--ink3);margin-top:2px}
+.chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.sev{display:inline-block;font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.3px}
+.sev.high{background:var(--red-bg);border:1px solid var(--red-border);color:var(--red)}
+.sev.medium{background:var(--amber-bg);border:1px solid var(--amber-border);color:var(--amber)}
+.empty{color:var(--ink3);font-size:13px;text-align:center;padding:28px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-head">
+    <div class="section-title">Silent-churn risk</div>
+    <div class="section-sub" style="font-size:12px;color:var(--ink3)">as of {{ today_display }}</div>
+  </div>
+  <div class="note">
+    A customer is flagged when the gap since their last order exceeds
+    <strong>{{ churn.params.ratio_threshold }}×</strong> their own median ordering
+    cadence (needs ≥{{ churn.params.min_orders }} orders for a stable baseline;
+    minimum {{ churn.params.floor_days }} days). Sales figures aside — this is a
+    pure ordering-rhythm signal from OrdeRR order history.
+  </div>
+
+  <div class="stat-row">
+    <div class="stat hi"><div class="n">{{ churn.high }}</div><div class="l">High risk (≥3× cadence)</div></div>
+    <div class="stat md"><div class="n">{{ churn.medium }}</div><div class="l">Medium (2–3×)</div></div>
+    <div class="stat"><div class="n">{{ churn.rows|length }}</div><div class="l">Total flagged</div></div>
+  </div>
+
+  <div class="toolbar">
+    <input id="q" type="text" placeholder="Search customer…" autocomplete="off">
+    <select id="fa"><option value="">All areas</option>
+      {% for a in churn.areas %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
+    </select>
+    <select id="fs"><option value="">All salespersons</option>
+      {% for s in churn.salespeople %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <select id="fsev"><option value="">All severity</option>
+      <option value="high">High</option><option value="medium">Medium</option>
+    </select>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th data-sort="name">Customer</th>
+        <th data-sort="area">Area</th>
+        <th data-sort="salesperson">Sales</th>
+        <th data-sort="orders" class="num">Orders</th>
+        <th data-sort="cadence_days" class="num">Cadence</th>
+        <th data-sort="days_since_last" class="num">Days since</th>
+        <th data-sort="ratio" class="num">Overdue ×</th>
+        <th data-sort="severity">Severity</th>
+      </tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div></div>
+</main>
+
+<script>
+const ROWS = {{ churn.rows | tojson }};
+let sortKey = "ratio", sortDir = -1;
+
+function render(){
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const fa = document.getElementById('fa').value, fs = document.getElementById('fs').value, fsev = document.getElementById('fsev').value;
+  let rows = ROWS.filter(r =>
+    (!q || r.name.toLowerCase().includes(q) || (r.phone||'').includes(q)) &&
+    (!fa || r.area === fa) && (!fs || r.salesperson === fs) && (!fsev || r.severity === fsev));
+  const numeric = ['orders','cadence_days','days_since_last','ratio'].includes(sortKey);
+  rows.sort((a,b) => {
+    if (sortKey === 'severity'){ const rank={high:2,medium:1}; return ((rank[a.severity]||0)-(rank[b.severity]||0))*sortDir; }
+    let x=a[sortKey], y=b[sortKey];
+    if (numeric) return (x-y)*sortDir;
+    return String(x).localeCompare(String(y))*sortDir;
+  });
+  const body = document.getElementById('body');
+  body.innerHTML = rows.length ? rows.map(r =>
+    '<tr class="row" onclick="location.href=\'/dashboard/analytics/customer/'+r.customer_id+'\'">' +
+      '<td><div class="cust-name">'+esc(r.name)+'</div>'+(r.phone?'<div class="cust-sub">'+esc(r.phone)+'</div>':'')+'</td>' +
+      '<td>'+(r.area?'<span class="chip">'+esc(r.area)+'</span>':'<span class="cust-sub">—</span>')+'</td>' +
+      '<td>'+(r.salesperson?esc(r.salesperson):'<span class="cust-sub">—</span>')+'</td>' +
+      '<td class="num">'+r.orders+'</td>' +
+      '<td class="num">'+r.cadence_days+'d</td>' +
+      '<td class="num">'+r.days_since_last+'d<div class="cust-sub">'+esc(r.last_order_display)+'</div></td>' +
+      '<td class="num"><strong>'+r.ratio.toFixed(1)+'×</strong></td>' +
+      '<td><span class="sev '+r.severity+'">'+r.severity+'</span></td>' +
+    '</tr>').join('')
+    : '<tr><td colspan="8" class="empty">No customers currently overdue vs their cadence. 🎉</td></tr>';
+  document.getElementById('count').textContent = rows.length + ' of ' + ROWS.length + ' flagged';
+  document.querySelectorAll('th[data-sort]').forEach(th => {
+    th.querySelector('.arrow')?.remove();
+    if (th.getAttribute('data-sort') === sortKey){
+      const s=document.createElement('span'); s.className='arrow'; s.textContent = sortDir===1?' ▲':' ▼'; th.appendChild(s);
+    }
+  });
+}
+function esc(s){return String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+document.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', () => {
+  const k = th.getAttribute('data-sort');
+  if (k === sortKey) sortDir = -sortDir;
+  else { sortKey = k; sortDir = (k==='name'||k==='area'||k==='salesperson') ? 1 : -1; }
+  render();
+}));
+['q','fa','fs','fsev'].forEach(id => document.getElementById(id).addEventListener('input', render));
+render();
+</script>
+</body>
+</html>
