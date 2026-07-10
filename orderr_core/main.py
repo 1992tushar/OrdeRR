@@ -258,6 +258,16 @@ def management_summary_job():
         db.close()
 
 
+def manager_digest_job():
+    db = SessionLocal()
+    try:
+        print("\n⏰ AUTO SCHEDULER — Manager Analytics Digest triggered")
+        from orderr_core.services.reporter import send_manager_digest
+        send_manager_digest(db)
+    finally:
+        db.close()
+
+
 def retry_failed_messages_job():
     retry_failed_messages()  # manages its own DB session internally
 
@@ -302,6 +312,15 @@ async def lifespan(app: FastAPI):
         management_summary_job,
         CronTrigger(hour=23, minute=17, timezone="Asia/Kolkata"),
         id="management_summary", name="Management Summary at 23:10 IST",
+    )
+
+    # Manager analytics digest — daily (configurable via DIGEST_TIME env var)
+    digest_time = os.getenv("DIGEST_TIME", "09:00")
+    d_hour, d_min = map(int, digest_time.split(":"))
+    scheduler.add_job(
+        manager_digest_job,
+        CronTrigger(hour=d_hour, minute=d_min, timezone="Asia/Kolkata"),
+        id="manager_digest", name=f"Manager Analytics Digest at {digest_time} IST",
     )
 
     # Keep-alive ping — every 10 min (prevents Render spin-down)

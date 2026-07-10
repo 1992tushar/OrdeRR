@@ -267,6 +267,35 @@ def analytics_export(
     )
 
 
+@router.get("/analytics/digest")
+def analytics_digest_preview(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P3-6 — preview the manager daily digest text (what gets WhatsApp'd)."""
+    from orderr_core.services import analytics_service
+    from orderr_core.config import MANAGER_PHONE
+
+    today = get_current_business_date()
+    digest = analytics_service.manager_digest(db, today)
+    return JSONResponse({"status": "ok", "manager_phone_set": bool(MANAGER_PHONE),
+                         "digest": digest})
+
+
+@router.post("/analytics/digest/send")
+def analytics_digest_send(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P3-6 — send the manager digest now (manual trigger)."""
+    from orderr_core.services.reporter import send_manager_digest
+    sent = send_manager_digest(db)
+    return JSONResponse({"status": "ok" if sent else "skipped",
+                         "sent": sent})
+
+
 @router.get("/analytics/chase", response_class=HTMLResponse)
 def analytics_chase(
     request: Request,

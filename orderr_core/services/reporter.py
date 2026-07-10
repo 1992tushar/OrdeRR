@@ -559,3 +559,20 @@ def send_daily_report(db: Session):
         _send_email_report(data, notes)
     except Exception as e:
         print(f"⚠️ Email report failed: {e}")
+
+
+# ── P3-6 Manager daily digest (analytics) ─────────────────────────────────
+
+def send_manager_digest(db: Session) -> bool:
+    """Compose and WhatsApp the analytics daily digest to MANAGER_PHONE.
+    Returns True if a message was sent. No-op (returns False) if MANAGER_PHONE
+    is unset. Composition lives in analytics_service.manager_digest (testable)."""
+    from orderr_core.services.analytics_service import manager_digest
+    from orderr_core.services.order_service import get_current_business_date
+
+    if not MANAGER_PHONE:
+        print("⚠️ Manager digest skipped — MANAGER_PHONE not set")
+        return False
+    digest = manager_digest(db, get_current_business_date())
+    resp = send_whatsapp_message(MANAGER_PHONE, digest["text"])
+    return resp is not None

@@ -510,6 +510,68 @@ def credit_intelligence(db: Session, today: date) -> dict:
     }
 
 
+# ── P3-6 Manager daily digest ──────────────────────────────────────────────
+
+def manager_digest(db: Session, today: date) -> dict:
+    """P3-6 — compose the manager's daily digest: today's pulse (sales +
+    collections), total outstanding, at-risk count + top names, top collection
+    chases, and churn risk. Returns a WhatsApp-friendly text + the structured
+    parts (for a preview page). Pure/testable — sending is done by the caller.
+    """
+    from orderr_core.config import PLANT_NAME
+
+    pulse = business_pulse(db, today)
+    money = money_pulse(db, today)
+    ci = credit_intelligence(db, today)
+    churn = churn_risk(db, today)
+
+    today_sales = next((p for p in pulse["periods"] if p["key"] == "today"), None)
+    today_coll = next((p for p in money["periods"] if p["key"] == "today"), None) if money.get("has_data") else None
+
+    at_risk_rows = sorted([r for r in ci.get("rows", []) if r["at_risk"]],
+                          key=lambda r: r["score"], reverse=True) if ci.get("has_data") else []
+    chases = sorted([r for r in ci.get("rows", []) if r["outstanding"] > 0],
+                    key=lambda r: r["outstanding"] * r["score"] / 100, reverse=True)[:5] \
+        if ci.get("has_data") else []
+
+    lines = [f"📊 {PLANT_NAME} — Daily Digest", today.strftime("%d %b %Y"), ""]
+    lines.append(f"Sales today: {today_sales['sales_rupees_fmt'] if today_sales else '₹0'}"
+                 f" · {today_sales['orders'] if today_sales else 0} orders")
+    if today_coll is not None:
+        lines.append(f"Collected today: {today_coll['collections_fmt']}")
+    if money.get("has_data"):
+        lines.append(f"Outstanding (AR): {money['total_outstanding_fmt']}")
+    lines.append("")
+
+    if ci.get("has_data"):
+        lines.append(f"⚠️ At-risk customers: {ci['at_risk']} ({ci['breach']} over limit)")
+        for r in at_risk_rows[:3]:
+            reason = r["reasons"][0] if r["reasons"] else f"risk {r['score']}"
+            lines.append(f"  • {r['name']} — {r['outstanding_fmt']} ({reason})")
+        lines.append("")
+        if chases:
+            lines.append("📞 Top collection calls:")
+            for r in chases[:5]:
+                lines.append(f"  • {r['name']} — {r['outstanding_fmt']}"
+                             + (f" ☎ {r['phone']}" if r["phone"] else ""))
+            lines.append("")
+
+    if churn.get("rows"):
+        lines.append(f"🔻 Silent-churn risk: {len(churn['rows'])} customers "
+                     f"({churn['high']} high)")
+
+    text = "\n".join(lines).strip()
+    return {
+        "text": text,
+        "date_display": today.strftime("%d %b %Y"),
+        "at_risk": ci.get("at_risk", 0),
+        "breach": ci.get("breach", 0),
+        "chase_count": len(chases),
+        "churn_count": len(churn.get("rows", [])),
+        "has_money": money.get("has_data", False),
+    }
+
+
 # ── P3-7 Collection chase list ("call today") ──────────────────────────────
 
 def chase_list(db: Session, today: date, top_n: int = 20) -> dict:
