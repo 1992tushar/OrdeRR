@@ -77,7 +77,7 @@ tr:last-child td{border-bottom:none}
       <div class="section-title" style="font-size:13px;margin:0 2px 8px">{{ title }} · {{ team.window_label }}</div>
       <div class="wrap"><div class="scroll">
         <table>
-          <thead><tr><th>{{ 'Salesperson' if loop.first else 'Area' }}</th><th class="num">Revenue</th><th class="num">Orders</th><th class="num">Active</th></tr></thead>
+          <thead><tr><th>{{ 'Salesperson' if loop.first else 'Area' }}</th><th class="num">Revenue</th>{% if team.has_money %}<th class="num">Collected</th><th class="num">Outstanding</th>{% endif %}<th class="num">Orders</th><th class="num">Active</th></tr></thead>
           <tbody>
             {% set maxrev = rows[0].revenue if rows and rows[0].revenue > 0 else 1 %}
             {% for r in rows %}
@@ -87,11 +87,12 @@ tr:last-child td{border-bottom:none}
                 <div class="rev-bar"><i style="width:{{ (r.revenue / maxrev * 100) }}%"></i></div>
               </td>
               <td class="num">{{ r.revenue_fmt }}</td>
+              {% if team.has_money %}<td class="num" style="color:var(--green)">{{ r.collected_fmt }}</td><td class="num" style="color:var(--amber)">{{ r.outstanding_fmt }}</td>{% endif %}
               <td class="num">{{ r.orders }}</td>
               <td class="num">{{ r.active }}<span class="sub">/{{ r.portfolio }}</span></td>
             </tr>
             {% else %}
-            <tr><td colspan="4" class="empty">No data.</td></tr>
+            <tr><td colspan="{{ 6 if team.has_money else 4 }}" class="empty">No data.</td></tr>
             {% endfor %}
           </tbody>
         </table>

@@ -1181,10 +1181,11 @@ def export_dataset(db: Session, today: date, name: str, days=None):
 
     if name == "team":
         data = team_performance(db, today, days=days if days is not None else 30)
-        headers = ["Group", "Name", "Revenue (INR)", "Orders", "Active", "Portfolio"]
-        rows = ([["Salesperson", r["name"], r["revenue"], r["orders"], r["active"], r["portfolio"]]
+        headers = ["Group", "Name", "Revenue (INR)", "Collected (INR)",
+                   "Outstanding (INR)", "Orders", "Active", "Portfolio"]
+        rows = ([["Salesperson", r["name"], r["revenue"], r["collected"], r["outstanding"], r["orders"], r["active"], r["portfolio"]]
                  for r in data["by_salesperson"]] +
-                [["Area", r["name"], r["revenue"], r["orders"], r["active"], r["portfolio"]]
+                [["Area", r["name"], r["revenue"], r["collected"], r["outstanding"], r["orders"], r["active"], r["portfolio"]]
                  for r in data["by_area"]])
         return (f"team_area_{tag}.xlsx", "Team & area", headers, rows)
 
@@ -1360,14 +1361,32 @@ def team_performance(db: Session, today: date, days=30) -> dict:
 
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
 
+    # collections (receipts in window) by customer_id
+    col_q = db.query(CustomerReceipt.customer_id, func.coalesce(func.sum(CustomerReceipt.amount), 0)) \
+        .filter(CustomerReceipt.customer_id != None, CustomerReceipt.receipt_date <= today)  # noqa: E711
+    if window_start:
+        col_q = col_q.filter(CustomerReceipt.receipt_date >= window_start)
+    collected = {cid: float(t) for cid, t in col_q.group_by(CustomerReceipt.customer_id).all()}
+
+    # current outstanding (latest snapshot) by customer_id
+    latest_snap, _ = _latest_two_snapshot_dates(db)
+    outstanding = {}
+    if latest_snap:
+        outstanding = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
+                       .filter(OutstandingSnapshot.snapshot_date == latest_snap,
+                               OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+
     def _bucket():
-        return {"revenue": 0.0, "orders": 0, "active": 0, "portfolio": 0}
+        return {"revenue": 0.0, "orders": 0, "active": 0, "portfolio": 0,
+                "collected": 0.0, "outstanding": 0.0}
     by_sp, by_area = {}, {}
 
     for c in db.query(Customer).all():
         ph = c.phone_number
         rev = revenue.get(ph, 0.0) if ph else 0.0
         no = orders_win.get(ph, 0) if ph else 0
+        col = collected.get(c.id, 0.0)
+        out = outstanding.get(c.id, 0.0)
         sp = (sp_name.get(c.salesperson_id) if c.salesperson_id else None) or "Unassigned"
         area = c.area or "Unassigned"
         for key, table in ((sp, by_sp), (area, by_area)):
@@ -1375,6 +1394,8 @@ def team_performance(db: Session, today: date, days=30) -> dict:
             b["revenue"] += rev
             b["orders"] += no
             b["portfolio"] += 1
+            b["collected"] += col
+            b["outstanding"] += out
             if no > 0:
                 b["active"] += 1
 
@@ -1383,6 +1404,8 @@ def team_performance(db: Session, today: date, days=30) -> dict:
             "name": k,
             "revenue": round(v["revenue"], 2), "revenue_fmt": fmt_inr(v["revenue"]),
             "orders": v["orders"], "active": v["active"], "portfolio": v["portfolio"],
+            "collected": round(v["collected"], 2), "collected_fmt": fmt_inr(v["collected"]),
+            "outstanding": round(v["outstanding"], 2), "outstanding_fmt": fmt_inr(v["outstanding"]),
         } for k, v in table.items()]
         rows.sort(key=lambda r: r["revenue"], reverse=True)
         return rows
@@ -1392,6 +1415,7 @@ def team_performance(db: Session, today: date, days=30) -> dict:
         "by_area": _rows(by_area),
         "days": days,
         "window_label": "All time" if days is None else f"Last {days} days",
+        "has_money": bool(collected) or bool(outstanding),
     }
 
 
