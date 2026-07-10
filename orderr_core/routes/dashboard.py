@@ -474,13 +474,16 @@ def analytics_admin_reset(
         raise HTTPException(status_code=403, detail="Invalid or missing token.")
 
     do = (confirm == "true")
-    counts = maintenance.reset_transactional_data(db, confirm=do)
+    result = maintenance.reset_transactional_data(db, confirm=do)
+    tables = result["tables"]
     return JSONResponse({
         "status": "DELETED" if do else "dry-run",
         "confirm": do,
-        "preserved": maintenance.PRESERVE_TABLES,
-        ("deleted" if do else "would_delete"): counts,
-        "total_rows": sum(counts.values()),
+        "preserved_tables": maintenance.PRESERVE_TABLES,
+        "customer_fields_kept": maintenance.CUSTOMER_KEEP_FIELDS,
+        ("deleted" if do else "would_delete"): tables,
+        "total_rows": sum(tables.values()),
+        ("customers_reset" if do else "customers_to_reset"): result["customers_reset"],
     })
 
 
