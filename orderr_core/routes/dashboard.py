@@ -121,6 +121,7 @@ def dashboard(
 @router.get("/analytics", response_class=HTMLResponse)
 def analytics(
     request: Request,
+    c360_days: str = Query(default="30", description="Customer-360 window: 7|30|90|all"),
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
@@ -134,6 +135,9 @@ def analytics(
     today = get_current_business_date()
     pulse = analytics_service.business_pulse(db, today)
 
+    days = analytics_service.C360_WINDOWS.get(c360_days, 30)
+    c360 = analytics_service.customer_360(db, today, days=days)
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard_analytics.html",
@@ -142,5 +146,7 @@ def analytics(
             "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "today_display": today.strftime("%d %b %Y"),
             "pulse"      : pulse,
+            "c360"       : c360,
+            "c360_days"  : c360_days,
         },
     )

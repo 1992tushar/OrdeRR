@@ -47,6 +47,38 @@ main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
 .pulse-metric .l{font-size:10px;color:var(--ink3);margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
 
 .empty{color:var(--ink3);font-size:13px;text-align:center;padding:28px}
+
+/* ── Customer 360 ── */
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar input,.toolbar select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.toolbar input{flex:1;min-width:160px}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.seg a{padding:7px 12px;font-size:12px;color:var(--ink2);text-decoration:none;border-right:1px solid var(--border)}
+.seg a:last-child{border-right:none}
+.seg a.active{background:var(--green);color:#fff;font-weight:600}
+.c360-count{font-size:12px;color:var(--ink3);margin-left:auto}
+
+.c360-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.c360-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table.c360{width:100%;border-collapse:collapse;font-size:13px;min-width:760px}
+table.c360 th{background:var(--bg);color:var(--ink2);text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--border)}
+table.c360 th.num{text-align:right}
+table.c360 th .arrow{color:var(--green);font-size:10px}
+table.c360 td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+table.c360 td.num{text-align:right;font-variant-numeric:tabular-nums}
+table.c360 tr.row{cursor:pointer}
+table.c360 tr.row:hover{background:var(--green-bg)}
+.cust-name{font-weight:600;color:var(--ink)}
+.cust-sub{font-size:11px;color:var(--ink3);margin-top:2px}
+.chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.pill-stale{color:var(--red);font-weight:600}
+.pill-warm{color:var(--amber);font-weight:600}
+.mix{color:var(--ink2);font-size:12px}
+tr.detail td{background:var(--bg);padding:14px 18px}
+.detail-grid{display:flex;gap:24px;flex-wrap:wrap;font-size:12px}
+.detail-grid .k{color:var(--ink3);text-transform:uppercase;letter-spacing:.4px;font-size:10px}
+.detail-grid .v{color:var(--ink);font-weight:600;margin-top:2px}
+.detail-note{margin-top:10px;font-size:11px;color:var(--ink3)}
 </style>
 </head>
 <body>
@@ -101,7 +133,147 @@ main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
     {% endfor %}
   </div>
 
+  <!-- ── P1-2 Customer 360 (sales side) ──────────────────────────────── -->
+  <div class="section-head">
+    <div class="section-title">Customer 360 <span style="font-weight:500;color:var(--ink3)">· sales</span></div>
+    <div class="seg">
+      {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
+      <a href="/dashboard/analytics?c360_days={{ opt }}"
+         class="{{ 'active' if c360_days == opt else '' }}">{{ lbl }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input id="c360-search" type="text" placeholder="Search customer…" autocomplete="off">
+    <select id="c360-area"><option value="">All areas</option>
+      {% for a in c360.areas %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
+    </select>
+    <select id="c360-sp"><option value="">All salespersons</option>
+      {% for s in c360.salespeople %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <span class="c360-count" id="c360-count"></span>
+  </div>
+
+  <div class="c360-wrap">
+    <div class="c360-scroll">
+      <table class="c360">
+        <thead>
+          <tr>
+            <th data-sort="name">Customer</th>
+            <th data-sort="area">Area</th>
+            <th data-sort="salesperson">Sales</th>
+            <th data-sort="revenue" class="num">Revenue ({{ c360.window_label }})</th>
+            <th data-sort="orders" class="num">Orders</th>
+            <th data-sort="recency_days" class="num">Last order</th>
+            <th>Product mix (top 3)</th>
+          </tr>
+        </thead>
+        <tbody id="c360-body"></tbody>
+      </table>
+    </div>
+  </div>
+
 </main>
+
+<script>
+const C360_ROWS = {{ c360.rows | tojson }};
+let sortKey = "revenue", sortDir = -1;   // -1 desc, 1 asc
+
+function recencyCell(r){
+  if (r.recency_days === "" || r.recency_days === null) return '<span class="cust-sub">never</span>';
+  const d = r.recency_days;
+  let cls = ""; if (d >= 14) cls = "pill-stale"; else if (d >= 7) cls = "pill-warm";
+  const label = d === 0 ? "today" : d === 1 ? "1 day ago" : d + " days ago";
+  return '<span class="'+cls+'">'+label+'</span><div class="cust-sub">'+(r.last_order||'')+'</div>';
+}
+
+function renderC360(){
+  const q  = document.getElementById('c360-search').value.trim().toLowerCase();
+  const fa = document.getElementById('c360-area').value;
+  const fs = document.getElementById('c360-sp').value;
+
+  let rows = C360_ROWS.filter(r =>
+    (!q  || r.name.toLowerCase().includes(q) || (r.phone||'').includes(q)) &&
+    (!fa || r.area === fa) &&
+    (!fs || r.salesperson === fs)
+  );
+
+  const numeric = (sortKey === 'revenue' || sortKey === 'orders' || sortKey === 'recency_days');
+  rows.sort((a,b) => {
+    let x = a[sortKey], y = b[sortKey];
+    if (numeric){
+      x = (x === "" || x === null) ? -Infinity : +x;
+      y = (y === "" || y === null) ? -Infinity : +y;
+      return (x - y) * sortDir;
+    }
+    return String(x).localeCompare(String(y)) * sortDir;
+  });
+
+  const body = document.getElementById('c360-body');
+  if (!rows.length){ body.innerHTML = '<tr><td colspan="7" class="empty">No customers match.</td></tr>'; }
+  else {
+    body.innerHTML = rows.map((r,i) => {
+      const detailId = 'd'+i;
+      return (
+        '<tr class="row" onclick="toggleDetail(\''+detailId+'\')">' +
+          '<td><div class="cust-name">'+escapeHtml(r.name)+'</div>' +
+              (r.phone ? '<div class="cust-sub">'+escapeHtml(r.phone)+'</div>' : '<div class="cust-sub" style="color:var(--red)">no phone</div>') + '</td>' +
+          '<td>'+(r.area ? '<span class="chip">'+escapeHtml(r.area)+'</span>' : '<span class="cust-sub">—</span>')+'</td>' +
+          '<td>'+(r.salesperson ? escapeHtml(r.salesperson) : '<span class="cust-sub">—</span>')+'</td>' +
+          '<td class="num">'+r.revenue_fmt+'</td>' +
+          '<td class="num">'+r.orders+'</td>' +
+          '<td class="num">'+recencyCell(r)+'</td>' +
+          '<td class="mix">'+escapeHtml(r.mix_summary)+'</td>' +
+        '</tr>' +
+        '<tr class="detail" id="'+detailId+'" style="display:none"><td colspan="7">' +
+          '<div class="detail-grid">' +
+            '<div><div class="k">Customer</div><div class="v">'+escapeHtml(r.name)+'</div></div>' +
+            '<div><div class="k">Phone</div><div class="v">'+escapeHtml(r.phone||'—')+'</div></div>' +
+            '<div><div class="k">Area</div><div class="v">'+escapeHtml(r.area||'—')+'</div></div>' +
+            '<div><div class="k">Salesperson</div><div class="v">'+escapeHtml(r.salesperson||'—')+'</div></div>' +
+            '<div><div class="k">Revenue</div><div class="v">'+r.revenue_fmt+'</div></div>' +
+            '<div><div class="k">Orders</div><div class="v">'+r.orders+'</div></div>' +
+            '<div><div class="k">Last order</div><div class="v">'+(r.last_order||'never')+'</div></div>' +
+            '<div style="flex:1;min-width:200px"><div class="k">Product mix</div><div class="v" style="font-weight:500">'+escapeHtml(r.mix_summary)+'</div></div>' +
+          '</div>' +
+          '<div class="detail-note">Full order history, mix &amp; revenue-trend chart arrive with P1-3 (customer detail page).</div>' +
+        '</td></tr>'
+      );
+    }).join('');
+  }
+  document.getElementById('c360-count').textContent = rows.length + ' of ' + C360_ROWS.length + ' customers';
+
+  document.querySelectorAll('table.c360 th[data-sort]').forEach(th => {
+    const k = th.getAttribute('data-sort');
+    th.querySelector('.arrow')?.remove();
+    if (k === sortKey){
+      const s = document.createElement('span'); s.className='arrow';
+      s.textContent = sortDir === 1 ? ' ▲' : ' ▼'; th.appendChild(s);
+    }
+  });
+}
+
+function toggleDetail(id){
+  const el = document.getElementById(id);
+  if (el) el.style.display = (el.style.display === 'none') ? '' : 'none';
+}
+function escapeHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.querySelectorAll('table.c360 th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.getAttribute('data-sort');
+    if (k === sortKey) sortDir = -sortDir;
+    else { sortKey = k; sortDir = (k === 'name' || k === 'area' || k === 'salesperson') ? 1 : -1; }
+    renderC360();
+  });
+});
+['c360-search','c360-area','c360-sp'].forEach(id =>
+  document.getElementById(id).addEventListener('input', renderC360));
+renderC360();
+</script>
 
 </body>
 </html>
