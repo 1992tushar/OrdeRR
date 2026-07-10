@@ -265,6 +265,30 @@ def analytics_export(
     )
 
 
+@router.get("/analytics/collections", response_class=HTMLResponse)
+def analytics_collections(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P2-10 collection velocity + P2-4 unattributed receipts."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.collections(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_collections.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "col"        : data,
+            "analytics_view": "collections",
+        },
+    )
+
+
 @router.get("/analytics/receivables", response_class=HTMLResponse)
 def analytics_receivables(
     request: Request,

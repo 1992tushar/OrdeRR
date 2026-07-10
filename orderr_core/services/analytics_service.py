@@ -234,6 +234,91 @@ def money_pulse(db: Session, today: date) -> dict:
     }
 
 
+# ── P2-10 Collection velocity + P2-4 Unattributed receipts ─────────────────
+
+def collections(db: Session, today: date, weeks: int = 12) -> dict:
+    """P2-10 — weekly collection velocity (₹/week, cash vs bank) over the last
+    `weeks` weeks, plus P2-4 unattributed receipts (customer_id NULL).
+
+    Reconciliation: attributed + unattributed = grand total collected.
+    """
+    has_receipts = db.query(CustomerReceipt.id).first() is not None
+    if not has_receipts:
+        return {"has_data": False}
+
+    window_start = today - timedelta(days=7 * weeks - 1)
+
+    # weekly buckets (oldest → newest, each ending on a 7-day boundary at today)
+    buckets = []
+    for i in range(weeks - 1, -1, -1):
+        wk_end = today - timedelta(days=7 * i)
+        wk_start = wk_end - timedelta(days=6)
+        buckets.append({"start": wk_start, "end": wk_end,
+                        "label": wk_start.strftime("%d %b"),
+                        "total": 0.0, "cash": 0.0, "bank": 0.0})
+
+    rows = (
+        db.query(CustomerReceipt.receipt_date, CustomerReceipt.mode,
+                 func.coalesce(func.sum(CustomerReceipt.amount), 0))
+        .filter(CustomerReceipt.receipt_date >= window_start,
+                CustomerReceipt.receipt_date <= today)
+        .group_by(CustomerReceipt.receipt_date, CustomerReceipt.mode).all()
+    )
+    for rdate, mode, amt in rows:
+        amt = float(amt or 0)
+        # find bucket
+        idx = (rdate - window_start).days // 7
+        if 0 <= idx < len(buckets):
+            b = buckets[idx]
+            b["total"] += amt
+            if (mode or "").lower() == "cash":
+                b["cash"] += amt
+            elif (mode or "").lower() == "bank":
+                b["bank"] += amt
+
+    win_total = sum(b["total"] for b in buckets)
+    win_cash = sum(b["cash"] for b in buckets)
+    win_bank = sum(b["bank"] for b in buckets)
+
+    series = [{"label": b["label"],
+               "total": round(b["total"], 2), "total_fmt": fmt_inr(b["total"]),
+               "cash": round(b["cash"], 2), "bank": round(b["bank"], 2)}
+              for b in buckets]
+
+    # P2-4 unattributed receipts (all time, customer_id NULL)
+    un_rows = (
+        db.query(CustomerReceipt.party_name,
+                 func.count(CustomerReceipt.id),
+                 func.coalesce(func.sum(CustomerReceipt.amount), 0))
+        .filter(CustomerReceipt.customer_id == None)   # noqa: E711
+        .group_by(CustomerReceipt.party_name)
+        .order_by(func.sum(CustomerReceipt.amount).desc()).all()
+    )
+    unattributed = [{"party_name": p, "count": n, "total": round(float(t), 2),
+                     "total_fmt": fmt_inr(t)} for p, n, t in un_rows]
+    un_total = float(db.query(func.coalesce(func.sum(CustomerReceipt.amount), 0))
+                     .filter(CustomerReceipt.customer_id == None).scalar() or 0)  # noqa: E711
+    grand_total = float(db.query(func.coalesce(func.sum(CustomerReceipt.amount), 0)).scalar() or 0)
+
+    return {
+        "has_data": True,
+        "weeks": weeks,
+        "window_from": window_start.strftime("%d %b %Y"),
+        "series": series,
+        "win_total_fmt": fmt_inr(win_total),
+        "win_cash_fmt": fmt_inr(win_cash),
+        "win_bank_fmt": fmt_inr(win_bank),
+        "win_cash_pct": round(win_cash / win_total * 100) if win_total else 0,
+        "win_bank_pct": round(win_bank / win_total * 100) if win_total else 0,
+        "avg_per_week_fmt": fmt_inr(win_total / weeks) if weeks else fmt_inr(0),
+        "unattributed": unattributed,
+        "unattributed_total_fmt": fmt_inr(un_total),
+        "unattributed_count": len(unattributed),
+        "attributed_total_fmt": fmt_inr(grand_total - un_total),
+        "grand_total_fmt": fmt_inr(grand_total),
+    }
+
+
 # ── P2-8/9/11/12 Receivables (AR exposure, debtors, aging proxy) ───────────
 
 def _receipt_stats_by_customer(db: Session):

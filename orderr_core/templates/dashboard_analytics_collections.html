@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Collections</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 12px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:700}
+.section-sub{font-size:12px;color:var(--ink3)}
+.note{font-size:11px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--blue-border);border-radius:8px;padding:10px 14px;margin:14px 0}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .n{font-size:20px;font-weight:800;line-height:1;letter-spacing:-.3px}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.legend{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--ink2);margin-bottom:8px}
+.legend b{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:middle;margin-right:5px}
+.chart-wrap{position:relative}
+svg.vel{display:block;width:100%;height:240px}
+svg.vel .axis{stroke:var(--border-strong);stroke-width:1}
+svg.vel .ylab,svg.vel .xlab{fill:var(--ink3);font-size:10px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;opacity:0;transform:translate(-50%,-100%);white-space:nowrap;z-index:5}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tfoot td{font-weight:700;background:var(--bg)}
+.recon{display:flex;gap:20px;flex-wrap:wrap;font-size:13px;margin-top:10px}
+.recon div{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px}
+.recon .k{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px}
+.recon .v{font-weight:700}
+.empty{color:var(--ink3);text-align:center;padding:22px}
+.ok{color:var(--green);font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  {% if not col.has_data %}
+  <div class="section-title">Collections</div>
+  <div class="note">No receipts imported yet. Upload a receipt export on the <a href="/dashboard/analytics/imports">Imports</a> page.</div>
+  {% else %}
+
+  <div class="section-head">
+    <div class="section-title">Collection velocity</div>
+    <div class="section-sub">last {{ col.weeks }} weeks · since {{ col.window_from }}</div>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="n">{{ col.win_total_fmt }}</div><div class="l">Collected ({{ col.weeks }}w)</div></div>
+    <div class="kpi"><div class="n">{{ col.avg_per_week_fmt }}</div><div class="l">Avg / week</div></div>
+    <div class="kpi"><div class="n" style="color:var(--green)">{{ col.win_cash_fmt }}</div><div class="l">Cash ({{ col.win_cash_pct }}%)</div></div>
+    <div class="kpi"><div class="n" style="color:var(--blue)">{{ col.win_bank_fmt }}</div><div class="l">Bank ({{ col.win_bank_pct }}%)</div></div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="legend">
+      <span><b style="background:var(--blue)"></b>Bank</span>
+      <span><b style="background:var(--green)"></b>Cash</span>
+    </div>
+    <div class="chart-wrap">
+      <svg class="vel" id="vel" role="img" aria-label="Weekly collections, cash vs bank"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+  </div>
+
+  <!-- P2-4 Unattributed receipts -->
+  <div class="section-head" style="margin-top:30px">
+    <div class="section-title">Unattributed receipts</div>
+    <div class="section-sub">{{ col.unattributed_count }} parties · {{ col.unattributed_total_fmt }}</div>
+  </div>
+  <div class="note">
+    Receipts that didn't match a customer (walk-ins like Cash Customer / Gupta Gas, or a
+    name Vasy hasn't aligned yet). They're counted in total collections, never dropped —
+    the reconciliation below always holds.
+  </div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Party (raw from Vasy)</th><th class="num">Receipts</th><th class="num">Total</th></tr></thead>
+      <tbody>
+        {% for u in col.unattributed %}
+        <tr><td>{{ u.party_name }}</td><td class="num">{{ u.count }}</td><td class="num">{{ u.total_fmt }}</td></tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">🎉 Every receipt is attributed to a customer.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if col.unattributed %}<tfoot><tr><td>Total unattributed</td><td class="num"></td><td class="num">{{ col.unattributed_total_fmt }}</td></tr></tfoot>{% endif %}
+    </table>
+  </div></div>
+  <div class="recon">
+    <div><div class="k">Attributed</div><div class="v">{{ col.attributed_total_fmt }}</div></div>
+    <div><div class="k">Unattributed</div><div class="v">{{ col.unattributed_total_fmt }}</div></div>
+    <div><div class="k">= Grand total collected</div><div class="v ok">{{ col.grand_total_fmt }}</div></div>
+  </div>
+  {% endif %}
+</main>
+
+{% if col.has_data %}
+<script>
+const SERIES = {{ col.series | tojson }};
+function draw(){
+  const svg=document.getElementById('vel'), tip=document.getElementById('tip');
+  const W=svg.clientWidth||900,H=240,padL=52,padR=12,padT=14,padB=26;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const max=Math.max(1,...SERIES.map(d=>d.total));
+  const pow=Math.pow(10,Math.floor(Math.log10(max)));
+  const niceMax=(max/pow<=1?1:max/pow<=2?2:max/pow<=5?5:10)*pow;
+  const n=SERIES.length, gap=8, bw=(plotW-gap*(n-1))/n;
+  const inr=v=>'₹'+Math.round(v).toLocaleString('en-IN');
+  let els='';
+  [0,niceMax/2,niceMax].forEach(v=>{const y=padT+plotH-(v/niceMax)*plotH;
+    els+=`<line class="axis" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" ${v===0?'':'stroke-opacity="0.35"'}/>`;
+    els+=`<text class="ylab" x="${padL-6}" y="${y+3}" text-anchor="end">${inr(v)}</text>`;});
+  SERIES.forEach((d,i)=>{
+    const x=padL+i*(bw+gap);
+    const hBank=(d.bank/niceMax)*plotH, hCash=(d.cash/niceMax)*plotH;
+    const yBankTop=padT+plotH-hBank;
+    const yCashTop=yBankTop-hCash;
+    // bank (bottom), cash (stacked on top), 2px gap
+    els+=`<rect x="${x}" y="${yBankTop}" width="${bw}" height="${Math.max(0,hBank)}" fill="var(--blue)"></rect>`;
+    if (hCash>0) els+=`<rect x="${x}" y="${yCashTop}" width="${bw}" height="${Math.max(0,hCash-2)}" fill="var(--green)"></rect>`;
+    els+=`<rect x="${x}" y="${padT}" width="${bw}" height="${plotH}" fill="transparent" data-l="${d.label}" data-t="${inr(d.total)}" data-c="${inr(d.cash)}" data-b="${inr(d.bank)}" data-x="${x+bw/2}" data-y="${Math.min(yBankTop,yCashTop)}" class="hit"></rect>`;
+    if (i%(n>8?2:1)===0) els+=`<text class="xlab" x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+  });
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=els;
+  svg.querySelectorAll('.hit').forEach(b=>{
+    b.addEventListener('mouseenter',()=>{tip.style.opacity=1;tip.style.left=b.getAttribute('data-x')+'px';tip.style.top=(parseFloat(b.getAttribute('data-y'))-6)+'px';
+      tip.innerHTML='<strong>'+b.getAttribute('data-t')+'</strong> · bank '+b.getAttribute('data-b')+' · cash '+b.getAttribute('data-c')+'<br>'+b.getAttribute('data-l');});
+    b.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+draw(); window.addEventListener('resize',draw);
+</script>
+{% endif %}
+</body>
+</html>
