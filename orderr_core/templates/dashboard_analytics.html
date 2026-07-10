@@ -155,6 +155,8 @@ tr.detail td{background:var(--bg);padding:14px 18px}
       {% for s in c360.salespeople %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
     </select>
     <span class="c360-count" id="c360-count"></span>
+    <a href="/dashboard/analytics/export/customers?days={{ c360_days }}"
+       style="font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px">⬇ Excel</a>
   </div>
 
   <div class="c360-wrap">

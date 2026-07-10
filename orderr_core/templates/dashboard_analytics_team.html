@@ -60,10 +60,14 @@ tr:last-child td{border-bottom:none}
 
   <div class="section-head">
     <div class="section-title">Salesperson &amp; area performance</div>
-    <div class="seg">
-      {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
-      <a href="/dashboard/analytics/team?team_days={{ opt }}" class="{{ 'active' if team_days == opt else '' }}">{{ lbl }}</a>
-      {% endfor %}
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="seg">
+        {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
+        <a href="/dashboard/analytics/team?team_days={{ opt }}" class="{{ 'active' if team_days == opt else '' }}">{{ lbl }}</a>
+        {% endfor %}
+      </div>
+      <a href="/dashboard/analytics/export/team?days={{ team_days }}"
+         style="font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px">⬇ Excel</a>
     </div>
   </div>
 

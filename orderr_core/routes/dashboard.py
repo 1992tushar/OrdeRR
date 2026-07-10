@@ -235,6 +235,34 @@ def analytics_products(
     )
 
 
+@router.get("/analytics/export/{name}")
+def analytics_export(
+    request: Request,
+    name: str,
+    days: str = Query(default=None, description="Optional window: 7|30|90|all"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P1-12 — download any analytics list as .xlsx."""
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    window = analytics_service.C360_WINDOWS.get(days, None) if days else None
+    result = analytics_service.export_dataset(db, today, name, days=window)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Unknown export")
+
+    filename, sheet, headers, rows = result
+    content = analytics_service.build_xlsx(sheet, headers, rows)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/analytics/rfm", response_class=HTMLResponse)
 def analytics_rfm(
     request: Request,

@@ -786,6 +786,94 @@ def demand_trend(db: Session, today: date, months: int = 12) -> dict:
     }
 
 
+# ── P1-12 Excel export ─────────────────────────────────────────────────────
+
+def build_xlsx(sheet_name: str, headers: list, rows: list) -> bytes:
+    """Serialise headers + rows to .xlsx bytes (openpyxl). Bold header row,
+    auto-ish column widths. Numbers stay numbers so the sheet is usable."""
+    import io
+    import openpyxl
+    from openpyxl.styles import Font
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = (sheet_name or "Sheet1")[:31]
+    ws.append(headers)
+    for c in ws[1]:
+        c.font = Font(bold=True)
+    for row in rows:
+        ws.append(row)
+    ws.freeze_panes = "A2"
+    for i, h in enumerate(headers, start=1):
+        width = max(len(str(h)), *(len(str(r[i - 1])) for r in rows)) if rows else len(str(h))
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = min(48, width + 2)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def export_dataset(db: Session, today: date, name: str, days=None):
+    """Return (filename, sheet_name, headers, rows) for an analytics list, so
+    the export route can serialise it. Mirrors what each screen shows.
+    Unknown name → None.
+    """
+    tag = today.strftime("%Y%m%d")
+
+    if name == "customers":
+        data = customer_360(db, today, days=days if days is not None else 30)
+        headers = ["Customer", "Phone", "Area", "Salesperson", "Active",
+                   "Revenue (INR)", "Orders", "Last order", "Days since", "Product mix"]
+        rows = [[r["name"], r["phone"], r["area"], r["salesperson"],
+                 "Yes" if r["is_active"] else "No", r["revenue"], r["orders"],
+                 r["last_order"], r["recency_days"], r["mix_summary"]] for r in data["rows"]]
+        return (f"customers_{tag}.xlsx", "Customer 360", headers, rows)
+
+    if name == "churn":
+        data = churn_risk(db, today)
+        headers = ["Customer", "Phone", "Area", "Salesperson", "Orders",
+                   "Cadence (days)", "Days since last", "Last order", "Overdue x", "Severity"]
+        rows = [[r["name"], r["phone"], r["area"], r["salesperson"], r["orders"],
+                 r["cadence_days"], r["days_since_last"], r["last_order"],
+                 r["ratio"], r["severity"]] for r in data["rows"]]
+        return (f"churn_{tag}.xlsx", "Churn risk", headers, rows)
+
+    if name == "revenue":
+        data = revenue_trends(db, today)
+        headers = ["Customer", "Area", "Salesperson",
+                   f"{data['prev_label']} (INR)", f"{data['current_label']} (INR)",
+                   "Delta (INR)", "MoM %", "Movement"]
+        rows = [[r["name"], r["area"], r["salesperson"], r["prev"], r["curr"],
+                 r["delta"], ("" if r["pct"] is None else r["pct"]), r["direction"]]
+                for r in data["customers"]]
+        return (f"revenue_mom_{tag}.xlsx", "Revenue MoM", headers, rows)
+
+    if name == "products":
+        data = product_mix(db, today, days=days if days is not None else 30)
+        headers = ["SKU", "kg", "nos", "Value (INR)", "% of value"]
+        rows = [[r["product"], r["kg"], r["nos"], r["value"], r["pct"]] for r in data["rows"]]
+        return (f"product_mix_{tag}.xlsx", "Product mix", headers, rows)
+
+    if name == "team":
+        data = team_performance(db, today, days=days if days is not None else 30)
+        headers = ["Group", "Name", "Revenue (INR)", "Orders", "Active", "Portfolio"]
+        rows = ([["Salesperson", r["name"], r["revenue"], r["orders"], r["active"], r["portfolio"]]
+                 for r in data["by_salesperson"]] +
+                [["Area", r["name"], r["revenue"], r["orders"], r["active"], r["portfolio"]]
+                 for r in data["by_area"]])
+        return (f"team_area_{tag}.xlsx", "Team & area", headers, rows)
+
+    if name == "rfm":
+        data = rfm(db, today)
+        headers = ["Customer", "Area", "Salesperson", "Recency (days)",
+                   "Frequency", "Monetary (INR)", "R", "F", "M", "Segment"]
+        rows = [[r["name"], r["area"], r["salesperson"], r["recency_days"],
+                 r["frequency"], r["monetary"], r["R"], r["F"], r["M"], r["segment"]]
+                for r in data["rows"]]
+        return (f"rfm_{tag}.xlsx", "RFM", headers, rows)
+
+    return None
+
+
 # ── P1-13 RFM segmentation ─────────────────────────────────────────────────
 
 def _quintile_scores(pairs, higher_better=True):

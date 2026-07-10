@@ -131,6 +131,8 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
     <select id="fs"><option value="">All salespersons</option>{% for s in rev.salespeople %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
     <select id="fd"><option value="">All movement</option><option value="up">Growing</option><option value="down">Declining</option><option value="new">New</option><option value="lost">Lost</option></select>
     <span class="count" id="count"></span>
+    <a href="/dashboard/analytics/export/revenue"
+       style="font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px">⬇ Excel</a>
   </div>
   <div class="wrap"><div class="scroll">
     <table>
