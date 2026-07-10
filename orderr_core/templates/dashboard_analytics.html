@@ -213,6 +213,7 @@ tr.detail td{background:var(--bg);padding:14px 18px}
             <th data-sort="area">Area</th>
             <th data-sort="salesperson">Sales</th>
             <th data-sort="revenue" class="num">Revenue ({{ c360.window_label }})</th>
+            <th data-sort="outstanding" class="num">Outstanding</th>
             <th data-sort="orders" class="num">Orders</th>
             <th data-sort="recency_days" class="num">Last order</th>
             <th>Product mix (top 3)</th>
@@ -228,6 +229,14 @@ tr.detail td{background:var(--bg);padding:14px 18px}
 <script>
 const C360_ROWS = {{ c360.rows | tojson }};
 let sortKey = "revenue", sortDir = -1;   // -1 desc, 1 asc
+
+function outstandingCell(r){
+  if (r.outstanding === "" || r.outstanding === null) return '<span class="cust-sub">—</span>';
+  let arrow = "";
+  if (r.balance_dir === "up") arrow = ' <span style="color:var(--red)">▲</span>';
+  else if (r.balance_dir === "down") arrow = ' <span style="color:var(--green)">▼</span>';
+  return r.outstanding_fmt + arrow;
+}
 
 function recencyCell(r){
   if (r.recency_days === "" || r.recency_days === null) return '<span class="cust-sub">never</span>';
@@ -248,7 +257,7 @@ function renderC360(){
     (!fs || r.salesperson === fs)
   );
 
-  const numeric = (sortKey === 'revenue' || sortKey === 'orders' || sortKey === 'recency_days');
+  const numeric = (sortKey === 'revenue' || sortKey === 'outstanding' || sortKey === 'orders' || sortKey === 'recency_days');
   rows.sort((a,b) => {
     let x = a[sortKey], y = b[sortKey];
     if (numeric){
@@ -260,7 +269,7 @@ function renderC360(){
   });
 
   const body = document.getElementById('c360-body');
-  if (!rows.length){ body.innerHTML = '<tr><td colspan="7" class="empty">No customers match.</td></tr>'; }
+  if (!rows.length){ body.innerHTML = '<tr><td colspan="8" class="empty">No customers match.</td></tr>'; }
   else {
     body.innerHTML = rows.map((r,i) => {
       const detailId = 'd'+i;
@@ -271,11 +280,12 @@ function renderC360(){
           '<td>'+(r.area ? '<span class="chip">'+escapeHtml(r.area)+'</span>' : '<span class="cust-sub">—</span>')+'</td>' +
           '<td>'+(r.salesperson ? escapeHtml(r.salesperson) : '<span class="cust-sub">—</span>')+'</td>' +
           '<td class="num">'+r.revenue_fmt+'</td>' +
+          '<td class="num">'+outstandingCell(r)+'</td>' +
           '<td class="num">'+r.orders+'</td>' +
           '<td class="num">'+recencyCell(r)+'</td>' +
           '<td class="mix">'+escapeHtml(r.mix_summary)+'</td>' +
         '</tr>' +
-        '<tr class="detail" id="'+detailId+'" style="display:none"><td colspan="7">' +
+        '<tr class="detail" id="'+detailId+'" style="display:none"><td colspan="8">' +
           '<div class="detail-grid">' +
             '<div><div class="k">Customer</div><div class="v">'+escapeHtml(r.name)+'</div></div>' +
             '<div><div class="k">Phone</div><div class="v">'+escapeHtml(r.phone||'—')+'</div></div>' +
@@ -284,6 +294,10 @@ function renderC360(){
             '<div><div class="k">Revenue</div><div class="v">'+r.revenue_fmt+'</div></div>' +
             '<div><div class="k">Orders</div><div class="v">'+r.orders+'</div></div>' +
             '<div><div class="k">Last order</div><div class="v">'+(r.last_order||'never')+'</div></div>' +
+            '<div><div class="k">Outstanding</div><div class="v">'+r.outstanding_fmt+'</div></div>' +
+            '<div><div class="k">Last payment</div><div class="v">'+r.last_payment_display+'</div></div>' +
+            '<div><div class="k">Since payment</div><div class="v">'+(r.days_since_payment===""?"—":r.days_since_payment+"d")+'</div></div>' +
+            '<div><div class="k">Avg receipt</div><div class="v">'+r.avg_receipt_fmt+'</div></div>' +
             '<div style="flex:1;min-width:200px"><div class="k">Product mix</div><div class="v" style="font-weight:500">'+escapeHtml(r.mix_summary)+'</div></div>' +
           '</div>' +
           '<div class="detail-note"><a href="/dashboard/analytics/customer/'+r.customer_id+'" style="color:var(--green);font-weight:600;text-decoration:none">View full history & revenue trend →</a></div>' +

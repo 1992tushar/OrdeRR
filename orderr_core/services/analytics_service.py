@@ -470,6 +470,21 @@ def customer_360(db: Session, today: date, days=30) -> dict:
     # salesperson id → name
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
 
+    # ── P2-7 payment enrichment: outstanding + receipt behaviour per customer ──
+    latest_snap, prev_snap = _latest_two_snapshot_dates(db)
+    snap_now = {}
+    if latest_snap:
+        snap_now = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
+                    .filter(OutstandingSnapshot.snapshot_date == latest_snap,
+                            OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    snap_prev = {}
+    if prev_snap:
+        snap_prev = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
+                     .filter(OutstandingSnapshot.snapshot_date == prev_snap,
+                             OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    rstats = _receipt_stats_by_customer(db)
+    has_money = bool(latest_snap) or bool(rstats)
+
     # revenue by phone within window (non-void invoices)
     rev_q = db.query(
         Invoice.customer_phone, func.coalesce(func.sum(Invoice.total), 0)
@@ -536,6 +551,20 @@ def customer_360(db: Session, today: date, days=30) -> dict:
         if sp:
             salespeople.add(sp)
 
+        # payment enrichment
+        outstanding = snap_now.get(c.id)
+        bal_dir = None
+        if c.id in snap_now and c.id in snap_prev:
+            bal_dir = ("up" if snap_now[c.id] > snap_prev[c.id]
+                       else "down" if snap_now[c.id] < snap_prev[c.id] else "flat")
+        last_pay = last_pay_days = avg_receipt = None
+        if c.id in rstats:
+            lp, cnt, tot = rstats[c.id]
+            avg_receipt = tot / cnt if cnt else 0
+            if lp:
+                last_pay = lp
+                last_pay_days = (today - lp).days
+
         rows.append({
             "customer_id": c.id,
             "phone": ph or "",
@@ -549,6 +578,13 @@ def customer_360(db: Session, today: date, days=30) -> dict:
             "last_order": last or "",
             "recency_days": recency_days if recency_days is not None else "",
             "mix_summary": mix_summary,
+            # P2-7 payment columns
+            "outstanding": round(outstanding, 2) if outstanding is not None else "",
+            "outstanding_fmt": fmt_inr(outstanding) if outstanding is not None else "—",
+            "balance_dir": bal_dir,
+            "last_payment_display": last_pay.strftime("%d %b %Y") if last_pay else "—",
+            "days_since_payment": last_pay_days if last_pay_days is not None else "",
+            "avg_receipt_fmt": fmt_inr(avg_receipt) if avg_receipt is not None else "—",
         })
 
     # default sort: revenue desc, then most-recent
@@ -560,6 +596,7 @@ def customer_360(db: Session, today: date, days=30) -> dict:
         "salespeople": sorted(salespeople),
         "days": days,
         "window_label": "All time" if days is None else f"Last {days} days",
+        "has_money": has_money,   # whether Vasy payment columns have data
     }
 
 
@@ -1107,10 +1144,14 @@ def export_dataset(db: Session, today: date, name: str, days=None):
     if name == "customers":
         data = customer_360(db, today, days=days if days is not None else 30)
         headers = ["Customer", "Phone", "Area", "Salesperson", "Active",
-                   "Revenue (INR)", "Orders", "Last order", "Days since", "Product mix"]
+                   "Revenue (INR)", "Outstanding (INR)", "Orders", "Last order",
+                   "Days since order", "Last payment", "Days since payment",
+                   "Avg receipt", "Product mix"]
         rows = [[r["name"], r["phone"], r["area"], r["salesperson"],
-                 "Yes" if r["is_active"] else "No", r["revenue"], r["orders"],
-                 r["last_order"], r["recency_days"], r["mix_summary"]] for r in data["rows"]]
+                 "Yes" if r["is_active"] else "No", r["revenue"], r["outstanding"],
+                 r["orders"], r["last_order"], r["recency_days"],
+                 r["last_payment_display"], r["days_since_payment"],
+                 r["avg_receipt_fmt"], r["mix_summary"]] for r in data["rows"]]
         return (f"customers_{tag}.xlsx", "Customer 360", headers, rows)
 
     if name == "churn":
