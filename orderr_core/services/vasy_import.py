@@ -20,6 +20,7 @@ import re
 from datetime import date, datetime
 
 import openpyxl
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from orderr_core.dates import get_current_business_date
@@ -160,10 +161,8 @@ def import_receipts(db: Session, file_bytes: bytes, source_file: str = None) -> 
             continue
         rno = cell(row, "receipt_no")
         rno = str(rno).strip() if rno is not None else ""
-        if not rno:
+        if _is_total_row(rno) or rno in seen:  # skip footer Total / blank / dup
             continue
-        if rno in seen:
-            continue  # duplicate row within the file
         seen.add(rno)
 
         party = str(cell(row, "party") or "").strip()
@@ -269,7 +268,7 @@ def import_outstanding(db: Session, file_bytes: bytes, snapshot_date: date = Non
         if not row:
             continue
         party = str(cell(row, "party") or "").strip()
-        if not party:
+        if _is_total_row(party):        # skip footer Total / blank
             continue
         key = normalize_name(party)
         if not key or key in seen:
@@ -381,7 +380,7 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
             continue
         vno = cell(row, "voucher")
         vno = str(vno).strip() if vno is not None else ""
-        if not vno:
+        if _is_total_row(vno):          # skip footer Total row / blank voucher
             continue
         inv = invoices.get(vno)
         if inv is None:
@@ -406,7 +405,14 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
         })
     wb.close()
 
-    existing = {v.voucher_no: v for v in db.query(VasyInvoice).all()}
+    # self-heal: remove any footer-artifact invoice left by the earlier import
+    # bug (a "Total" row imported as a fake invoice with the grand total).
+    for bad in db.query(VasyInvoice).filter(
+            func.upper(VasyInvoice.voucher_no).in_(("TOTAL", ""))).all():
+        db.delete(bad)
+
+    existing = {v.voucher_no: v for v in db.query(VasyInvoice).all()
+                if not _is_total_row(v.voucher_no)}
     created = updated = unmatched = 0
     total_amount = 0.0
 
