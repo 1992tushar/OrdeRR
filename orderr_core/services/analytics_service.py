@@ -505,3 +505,111 @@ def churn_risk(db: Session, today: date, min_orders: int = 3,
         "medium": sum(1 for r in rows if r["severity"] == "medium"),
         "params": {"min_orders": min_orders, "ratio_threshold": ratio_threshold, "floor_days": floor_days},
     }
+
+
+# ── P1-5 Revenue trend + MoM ───────────────────────────────────────────────
+
+def _pct_change(curr: float, prev: float):
+    """MoM % change; None when there is no prior base (prev == 0)."""
+    if prev == 0:
+        return None
+    return round((curr - prev) / prev * 100, 1)
+
+
+def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
+    """P1-5 — overall revenue over time (with MoM %) plus a per-customer
+    current-vs-previous-month comparison.
+
+    Revenue is OrdeRR invoice totals (non-void), bucketed by business-month.
+    """
+    keys = _last_n_months(today, months)
+    key_set = set(keys)
+
+    # overall monthly totals + per-(phone,month) totals in one pass
+    monthly = {k: 0.0 for k in keys}
+    per_cust = {}  # phone → {month_key: revenue}
+    scan_start = date(int(keys[0][:4]), int(keys[0][5:]), 1)
+
+    inv_rows = (
+        db.query(Invoice.customer_phone, Invoice.business_date, Invoice.total)
+        .filter(Invoice.status != "void",
+                Invoice.business_date >= scan_start,
+                Invoice.business_date <= today)
+        .all()
+    )
+    for phone, bdate, total in inv_rows:
+        mk = _month_key(bdate)
+        amt = float(total or 0)
+        if mk in monthly:
+            monthly[mk] += amt
+        per_cust.setdefault(phone, {})[mk] = per_cust.get(phone, {}).get(mk, 0.0) + amt
+
+    # overall trend with MoM
+    trend = []
+    prev_rev = None
+    for k in keys:
+        rev = round(monthly[k], 2)
+        mom = _pct_change(rev, prev_rev) if prev_rev is not None else None
+        trend.append({
+            "key": k, "label": _month_label(k),
+            "revenue": rev, "revenue_fmt": fmt_inr(rev), "mom_pct": mom,
+        })
+        prev_rev = rev
+
+    curr_key = keys[-1]
+    prev_key = keys[-2] if len(keys) >= 2 else None
+
+    # per-customer curr vs prev month
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+    customers = {c.phone_number: c for c in db.query(Customer).all() if c.phone_number}
+    cust_rows = []
+    areas, salespeople = set(), set()
+    for phone, by_month in per_cust.items():
+        curr = round(by_month.get(curr_key, 0.0), 2)
+        prev = round(by_month.get(prev_key, 0.0), 2) if prev_key else 0.0
+        if curr == 0 and prev == 0:
+            continue
+        cust = customers.get(phone)
+        name = (cust.restaurant_name if cust else None) or phone or "(unattributed)"
+        area = (cust.area if cust else "") or ""
+        sp = (sp_name.get(cust.salesperson_id) if cust and cust.salesperson_id else "") or ""
+        if area:
+            areas.add(area)
+        if sp:
+            salespeople.add(sp)
+        pct = _pct_change(curr, prev)
+        if prev == 0 and curr > 0:
+            direction = "new"
+        elif curr == 0 and prev > 0:
+            direction = "lost"
+        elif curr > prev:
+            direction = "up"
+        elif curr < prev:
+            direction = "down"
+        else:
+            direction = "flat"
+        cust_rows.append({
+            "customer_id": cust.id if cust else None,
+            "name": name, "area": area, "salesperson": sp,
+            "curr": curr, "curr_fmt": fmt_inr(curr),
+            "prev": prev, "prev_fmt": fmt_inr(prev),
+            "delta": round(curr - prev, 2), "delta_fmt": fmt_inr(curr - prev),
+            "pct": pct, "direction": direction,
+        })
+
+    cust_rows.sort(key=lambda r: r["delta"], reverse=True)
+
+    curr_total = monthly[curr_key]
+    prev_total = monthly[prev_key] if prev_key else 0.0
+
+    return {
+        "trend": trend,
+        "current_label": _month_label(curr_key),
+        "prev_label": _month_label(prev_key) if prev_key else "",
+        "current_revenue_fmt": fmt_inr(curr_total),
+        "prev_revenue_fmt": fmt_inr(prev_total),
+        "current_mom_pct": _pct_change(curr_total, prev_total),
+        "customers": cust_rows,
+        "areas": sorted(areas),
+        "salespeople": sorted(salespeople),
+    }
