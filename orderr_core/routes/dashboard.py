@@ -449,6 +449,67 @@ def analytics_receivables(
     )
 
 
+@router.get("/analytics/admin/diagnose-matching")
+def analytics_diagnose_matching(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Read-only: why are Vasy invoices/receipts unmatched to customers?
+    Compares customer names to the unmatched invoice/receipt party names so we
+    can see if it's name divergence, genuine non-customers, or something else."""
+    import re
+    from difflib import get_close_matches
+    from sqlalchemy import func
+    from orderr_core.models.customer import Customer
+    from orderr_core.models.vasy_invoice import VasyInvoice
+    from orderr_core.models.customer_receipt import CustomerReceipt
+
+    def norm(s):
+        return re.sub(r"[^A-Z0-9]", "", str(s or "").upper())
+
+    customers = db.query(Customer).all()
+    cust_norm = {}
+    for c in customers:
+        if c.restaurant_name:
+            cust_norm.setdefault(norm(c.restaurant_name), c.restaurant_name)
+
+    def unmatched_report(model, party_col, amt_col, limit=25):
+        rows = (db.query(party_col, func.count(model.id), func.coalesce(func.sum(amt_col), 0))
+                .filter(model.customer_id == None)                     # noqa: E711
+                .group_by(party_col)
+                .order_by(func.sum(amt_col).desc()).limit(limit).all())
+        out = []
+        for p, n, t in rows:
+            close = get_close_matches(norm(p), list(cust_norm.keys()), n=1, cutoff=0.5)
+            out.append({
+                "party": p, "count": int(n), "total": round(float(t), 2),
+                "closest_customer": cust_norm[close[0]] if close else None,
+            })
+        return out
+
+    inv_total = db.query(func.count(VasyInvoice.id)).scalar()
+    inv_unmatched = db.query(func.count(VasyInvoice.id)).filter(VasyInvoice.customer_id == None).scalar()  # noqa: E711
+    rec_total = db.query(func.count(CustomerReceipt.id)).scalar()
+    rec_unmatched = db.query(func.count(CustomerReceipt.id)).filter(CustomerReceipt.customer_id == None).scalar()  # noqa: E711
+
+    # customers that never got an invoice matched (their name isn't on any invoice)
+    matched_cust_ids = {cid for (cid,) in db.query(VasyInvoice.customer_id).distinct()
+                        .filter(VasyInvoice.customer_id != None).all()}  # noqa: E711
+    cust_no_invoice = [c.restaurant_name for c in customers if c.id not in matched_cust_ids]
+
+    return JSONResponse({
+        "customers_total": len(customers),
+        "sample_customer_names": sorted([c.restaurant_name or "" for c in customers])[:25],
+        "invoices_total": inv_total, "invoices_unmatched": inv_unmatched,
+        "receipts_total": rec_total, "receipts_unmatched": rec_unmatched,
+        "customers_with_no_matched_invoice": len(cust_no_invoice),
+        "sample_customers_no_invoice": sorted(cust_no_invoice)[:25],
+        "top_unmatched_invoice_parties": unmatched_report(VasyInvoice, VasyInvoice.party_name, VasyInvoice.total),
+        "top_unmatched_receipt_parties": unmatched_report(CustomerReceipt, CustomerReceipt.party_name, CustomerReceipt.amount),
+    })
+
+
 @router.post("/analytics/admin/reset")
 def analytics_admin_reset(
     request: Request,
