@@ -24,6 +24,8 @@ from orderr_core.models.invoice import Invoice, InvoiceItem
 from orderr_core.models.customer import Customer
 from orderr_core.models.salesperson import Salesperson
 from orderr_core.models.actuals import OrderItemActual
+from orderr_core.models.customer_receipt import CustomerReceipt
+from orderr_core.models.outstanding_snapshot import OutstandingSnapshot
 from orderr_core.services.template_parser import erp_display_name
 from orderr_core.utils import safe_list, fmt_qty
 
@@ -159,6 +161,77 @@ def business_pulse(db: Session, today: date) -> dict:
             "active_customers": customers,
         })
     return {"periods": periods}
+
+
+# ── P2 money helpers: latest / previous outstanding snapshot ───────────────
+
+def _latest_two_snapshot_dates(db: Session):
+    """The two most recent snapshot_dates present (latest, previous|None)."""
+    dates = [d[0] for d in db.query(OutstandingSnapshot.snapshot_date)
+             .distinct().order_by(OutstandingSnapshot.snapshot_date.desc()).limit(2).all()]
+    latest = dates[0] if dates else None
+    prev = dates[1] if len(dates) > 1 else None
+    return latest, prev
+
+
+def _outstanding_total(db: Session, snapshot_date):
+    if snapshot_date is None:
+        return 0.0
+    return float(db.query(func.coalesce(func.sum(OutstandingSnapshot.closing), 0))
+                 .filter(OutstandingSnapshot.snapshot_date == snapshot_date).scalar() or 0)
+
+
+def _collections_for_range(db: Session, start: date, end: date):
+    """(total, cash, bank) collections from receipts with receipt_date in range."""
+    q = db.query(CustomerReceipt.mode, func.coalesce(func.sum(CustomerReceipt.amount), 0)) \
+        .filter(CustomerReceipt.receipt_date >= start, CustomerReceipt.receipt_date <= end) \
+        .group_by(CustomerReceipt.mode).all()
+    total = cash = bank = 0.0
+    for mode, amt in q:
+        amt = float(amt or 0)
+        total += amt
+        if (mode or "").lower() == "cash":
+            cash += amt
+        elif (mode or "").lower() == "bank":
+            bank += amt
+    return total, cash, bank
+
+
+def money_pulse(db: Session, today: date) -> dict:
+    """P2-6 — money KPIs: collections per period (from receipts), billed vs
+    collected (this month), and total outstanding + trend vs the previous
+    snapshot. Returns has_data=False when no receipts/snapshots imported yet.
+    """
+    has_receipts = db.query(CustomerReceipt.id).first() is not None
+    latest_snap, prev_snap = _latest_two_snapshot_dates(db)
+
+    periods = []
+    for key, label, sublabel, start, end in _period_bounds(today):
+        total, cash, bank = _collections_for_range(db, start, end)
+        billed, _ = _sales_for_range(db, start, end)   # OrdeRR invoices (operational)
+        periods.append({
+            "key": key, "label": label, "sublabel": sublabel,
+            "collections": total, "collections_fmt": fmt_inr(total),
+            "cash_fmt": fmt_inr(cash), "bank_fmt": fmt_inr(bank),
+            "billed": billed, "billed_fmt": fmt_inr(billed),
+            "net": billed - total, "net_fmt": fmt_inr(billed - total),
+        })
+
+    total_ar = _outstanding_total(db, latest_snap)
+    prev_ar = _outstanding_total(db, prev_snap) if prev_snap else None
+    ar_delta = (total_ar - prev_ar) if prev_ar is not None else None
+
+    return {
+        "has_data": has_receipts or latest_snap is not None,
+        "periods": periods,
+        "total_outstanding": total_ar,
+        "total_outstanding_fmt": fmt_inr(total_ar),
+        "outstanding_as_of": latest_snap.strftime("%d %b %Y") if latest_snap else None,
+        "outstanding_delta_fmt": (fmt_inr(ar_delta) if ar_delta is not None else None),
+        "outstanding_direction": (None if ar_delta is None else
+                                  ("up" if ar_delta > 0 else "down" if ar_delta < 0 else "flat")),
+        "prev_snap": prev_snap.strftime("%d %b %Y") if prev_snap else None,
+    }
 
 
 # ── P1-2 Customer 360 (sales side) ─────────────────────────────────────────

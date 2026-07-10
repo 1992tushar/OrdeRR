@@ -135,6 +135,51 @@ tr.detail td{background:var(--bg);padding:14px 18px}
     {% endfor %}
   </div>
 
+  <!-- ── P2-6 Business Pulse (money) ─────────────────────────────────── -->
+  {% if money.has_data %}
+  <div class="section-head" style="margin-top:26px">
+    <div class="section-title">Collections &amp; receivables</div>
+    <div class="section-sub">from Vasy{% if money.outstanding_as_of %} · outstanding as of {{ money.outstanding_as_of }}{% endif %}</div>
+  </div>
+  <div class="pulse-grid">
+    {% for p in money.periods %}
+    <div class="pulse-card">
+      <div class="pulse-card-head">
+        <span class="pulse-card-title" style="color:var(--blue)">{{ p.label }}</span>
+        <span class="pulse-card-sub">{{ p.sublabel }}</span>
+      </div>
+      <div class="pulse-hero">
+        <div class="n">{{ p.collections_fmt }}</div>
+        <div class="l">Collected</div>
+      </div>
+      <div class="pulse-metrics">
+        <div class="pulse-metric"><div class="n">{{ p.cash_fmt }}</div><div class="l">cash</div></div>
+        <div class="pulse-metric"><div class="n">{{ p.bank_fmt }}</div><div class="l">bank</div></div>
+        <div class="pulse-metric"><div class="n">{{ p.billed_fmt }}</div><div class="l">billed</div></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div style="margin-top:12px">
+    <div class="pulse-card" style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:26px;font-weight:800;color:var(--amber);line-height:1">{{ money.total_outstanding_fmt }}</div>
+        <div class="l" style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total outstanding (AR){% if money.outstanding_as_of %} · {{ money.outstanding_as_of }}{% endif %}</div>
+      </div>
+      {% if money.outstanding_direction %}
+        <div style="text-align:right">
+          <div style="font-size:14px;font-weight:700;color:{{ 'var(--red)' if money.outstanding_direction=='up' else 'var(--green)' if money.outstanding_direction=='down' else 'var(--ink2)' }}">
+            {{ '▲' if money.outstanding_direction=='up' else '▼' if money.outstanding_direction=='down' else '■' }} {{ money.outstanding_delta_fmt }}
+          </div>
+          <div class="l" style="font-size:11px;color:var(--ink3)">vs {{ money.prev_snap }}</div>
+        </div>
+      {% else %}
+        <div class="section-sub" style="font-size:11px;color:var(--ink3)">trend appears once a 2nd daily snapshot is imported</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- ── P1-2 Customer 360 (sales side) ──────────────────────────────── -->
   <div class="section-head">
     <div class="section-title">Customer 360 <span style="font-weight:500;color:var(--ink3)">· sales</span></div>

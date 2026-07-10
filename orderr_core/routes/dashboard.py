@@ -134,6 +134,7 @@ def analytics(
 
     today = get_current_business_date()
     pulse = analytics_service.business_pulse(db, today)
+    money = analytics_service.money_pulse(db, today)
 
     days = analytics_service.C360_WINDOWS.get(c360_days, 30)
     c360 = analytics_service.customer_360(db, today, days=days)
@@ -146,6 +147,7 @@ def analytics(
             "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "today_display": today.strftime("%d %b %Y"),
             "pulse"      : pulse,
+            "money"      : money,
             "c360"       : c360,
             "c360_days"  : c360_days,
             "analytics_view": "overview",
