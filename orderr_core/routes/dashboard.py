@@ -235,6 +235,31 @@ def analytics_products(
     )
 
 
+@router.get("/analytics/rfm", response_class=HTMLResponse)
+def analytics_rfm(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P1-13 — RFM segmentation."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.rfm(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_rfm.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today_display": today.strftime("%d %b %Y"),
+            "rfm"        : data,
+            "analytics_view": "rfm",
+        },
+    )
+
+
 @router.get("/analytics/team", response_class=HTMLResponse)
 def analytics_team(
     request: Request,

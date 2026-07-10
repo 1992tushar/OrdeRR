@@ -12,6 +12,7 @@ utils.fmt_qty for quantities. Money is rendered ₹ with en-IN (Indian) digit
 grouping to match the app standard (client screens use toLocaleString('en-IN')).
 All figures exclude cancelled orders and void invoices.
 """
+import bisect
 from datetime import date, timedelta
 from statistics import median
 
@@ -782,6 +783,126 @@ def demand_trend(db: Session, today: date, months: int = 12) -> dict:
     return {
         "months": [{"key": k, "label": _month_label(k)} for k in keys],
         "skus": skus,
+    }
+
+
+# ── P1-13 RFM segmentation ─────────────────────────────────────────────────
+
+def _quintile_scores(pairs, higher_better=True):
+    """Map each (id, value) to a 1–5 score by rank-based quintile.
+    higher_better=False inverts (used for recency, where fewer days = better).
+    Robust to ties and tiny samples."""
+    vals = sorted(v for _, v in pairs)
+    n = len(vals) or 1
+    out = {}
+    for cid, v in pairs:
+        rank = bisect.bisect_right(vals, v)        # count of values ≤ v (1..n)
+        score = min(5, max(1, int((rank / n - 1e-9) * 5) + 1))
+        out[cid] = (6 - score) if not higher_better else score
+    return out
+
+
+def _rfm_segment(r: int, f: int, m: int) -> str:
+    """Name a segment from R/F/M scores (1–5). Standard RFM matrix, simplified
+    and explainable."""
+    fm = round((f + m) / 2)
+    if r >= 4 and fm >= 4:
+        return "Champions"
+    if r >= 3 and fm >= 4:
+        return "Loyal"
+    if r >= 4 and fm >= 2:
+        return "Potential loyalist"
+    if r >= 4 and fm < 2:
+        return "New"
+    if r <= 2 and fm >= 4:
+        return "Can't lose"
+    if r <= 2 and fm == 3:
+        return "At risk"
+    if r <= 2 and fm <= 2:
+        return "Hibernating"
+    return "Needs attention"
+
+
+# display order + accent for segments
+RFM_SEGMENTS = [
+    ("Champions", "good"), ("Loyal", "good"), ("Potential loyalist", "blue"),
+    ("New", "blue"), ("Needs attention", "amber"), ("At risk", "amber"),
+    ("Can't lose", "red"), ("Hibernating", "red"),
+]
+
+
+def rfm(db: Session, today: date) -> dict:
+    """P1-13 — Recency/Frequency/Monetary scoring & segmentation.
+
+    Recency = days since last order (all-time), Frequency = lifetime order
+    count, Monetary = lifetime invoice revenue. Each scored 1–5 by quintile
+    across the active base; a named segment is derived from the trio.
+    Only customers with at least one order are scored.
+    """
+    dates_by_phone = _order_dates_by_phone(db, today)
+    # frequency = lifetime non-cancelled order count (not distinct days)
+    freq_rows = (
+        db.query(Order.customer_phone, func.count(Order.id))
+        .filter(Order.is_cancelled == False)               # noqa: E712
+        .group_by(Order.customer_phone).all()
+    )
+    freq = {ph: c for ph, c in freq_rows}
+    rev_rows = (
+        db.query(Invoice.customer_phone, func.coalesce(func.sum(Invoice.total), 0))
+        .filter(Invoice.status != "void")
+        .group_by(Invoice.customer_phone).all()
+    )
+    revenue = {ph: float(t) for ph, t in rev_rows}
+    customers = {c.phone_number: c for c in db.query(Customer).all() if c.phone_number}
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+
+    base = []  # (phone, recency_days, frequency, monetary)
+    for phone, dates in dates_by_phone.items():
+        if phone not in customers or not dates:
+            continue
+        recency = (today - dates[-1]).days
+        base.append((phone, recency, freq.get(phone, 0), revenue.get(phone, 0.0)))
+
+    if not base:
+        return {"rows": [], "segments": [], "areas": [], "salespeople": [], "total": 0}
+
+    r_scores = _quintile_scores([(p, rec) for p, rec, _, _ in base], higher_better=False)
+    f_scores = _quintile_scores([(p, fr) for p, _, fr, _ in base], higher_better=True)
+    m_scores = _quintile_scores([(p, mo) for p, _, _, mo in base], higher_better=True)
+
+    rows = []
+    areas, salespeople = set(), set()
+    seg_counts = {}
+    for phone, recency, frequency, monetary in base:
+        cust = customers[phone]
+        R, F, M = r_scores[phone], f_scores[phone], m_scores[phone]
+        seg = _rfm_segment(R, F, M)
+        seg_counts[seg] = seg_counts.get(seg, 0) + 1
+        sp = (sp_name.get(cust.salesperson_id) if cust.salesperson_id else "") or ""
+        area = cust.area or ""
+        if area:
+            areas.add(area)
+        if sp:
+            salespeople.add(sp)
+        rows.append({
+            "customer_id": cust.id,
+            "name": cust.restaurant_name or phone,
+            "area": area, "salesperson": sp,
+            "recency_days": recency, "frequency": frequency,
+            "monetary": round(monetary, 2), "monetary_fmt": fmt_inr(monetary),
+            "R": R, "F": F, "M": M, "rfm": f"{R}{F}{M}", "segment": seg,
+        })
+    rows.sort(key=lambda x: (x["R"] + x["F"] + x["M"], x["monetary"]), reverse=True)
+
+    segments = [{"name": name, "accent": accent, "count": seg_counts.get(name, 0)}
+                for name, accent in RFM_SEGMENTS if seg_counts.get(name, 0)]
+
+    return {
+        "rows": rows,
+        "segments": segments,
+        "areas": sorted(areas),
+        "salespeople": sorted(salespeople),
+        "total": len(rows),
     }
 
 
