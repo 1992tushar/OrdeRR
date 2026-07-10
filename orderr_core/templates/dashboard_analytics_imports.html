@@ -155,17 +155,11 @@ details.help ul{margin:6px 0 6px 18px} details.help li{margin:3px 0}
       <div class="result" id="r-outstanding"></div>
     </div>
     <div class="card">
-      <h3>🧾 Sales Invoices</h3>
-      <p>Vasy → Sales invoice export (a day's invoices; authoritative revenue).</p>
-      <input type="file" id="f-sales-invoices" accept=".xlsx,.xlsm">
-      <button class="btn" id="b-sales-invoices" onclick="upload('sales-invoices')">Upload invoices</button>
-      <div class="result" id="r-sales-invoices"></div>
-    </div>
-    <div class="card">
-      <h3>🍗 Sales Items</h3>
-      <p>Vasy → Sales &amp; Sales Return Item Register (line-item SKU sales → product mix).</p>
+      <h3>🍗 Sales (items + revenue)</h3>
+      <p>Vasy → Sales &amp; Sales Return Item Register (<b>All Data Excel</b>). Line-item SKU sales →
+         product mix, aggregated per voucher → invoice revenue. Source of truth for sales.</p>
       <input type="file" id="f-sales-items" accept=".xlsx,.xlsm">
-      <button class="btn" id="b-sales-items" onclick="upload('sales-items')">Upload sales items</button>
+      <button class="btn" id="b-sales-items" onclick="upload('sales-items')">Upload sales</button>
       <div class="result" id="r-sales-items"></div>
     </div>
     <div class="card">

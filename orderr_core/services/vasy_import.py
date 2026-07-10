@@ -601,21 +601,19 @@ def import_sales_items(db: Session, file_bytes: bytes, source_file: str = None) 
         i = col.get(key)
         return row[i] if (i is not None and i < len(row)) else None
 
-    db.query(VasySalesItem).delete()   # snapshot-replace whole entity
-
-    mappings = []
+    # ── Pass 1: read every line + accumulate per-voucher aggregates ──────────
+    lines = []
+    vouchers = {}   # voucher_no -> {party, party_key, date, total, count}
     total_net = 0.0
-    matched = unmatched = 0
     skus = set()
     for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
         if not row:
             continue
         vno = str(cell(row, "voucher") or "").strip()
         party = str(cell(row, "party") or "").strip()
-        if not party and _is_total_row(vno):   # footer Total row / blank line
+        if not party and _is_total_row(vno):    # footer Total row / blank line
             continue
         pkey = normalize_name(party)
-        cid = by_name.get(pkey)
         stype = str(cell(row, "sale_type") or "").strip()
         sign = -1.0 if ("return" in stype.lower() or "credit" in stype.lower()) else 1.0
         qty = float(_to_amount(cell(row, "qty"))) * sign
@@ -624,51 +622,110 @@ def import_sales_items(db: Session, file_bytes: bytes, source_file: str = None) 
         code = str(cell(row, "item_code") or "").strip() or None
         product = str(cell(row, "product") or "").strip() or None
         disp = (erp.get(code) if code else None) or product
+        d = _parse_date(cell(row, "date"))
         total_net += net
-        if cid is not None:
-            matched += 1
-        else:
-            unmatched += 1
         if disp:
             skus.add(disp)
-        mappings.append(dict(
-            invoice_date=_parse_date(cell(row, "date")),
-            voucher_no=vno or None,
-            sale_type=stype or None,
-            party_name=party or None,
-            party_key=pkey or None,
-            customer_id=cid,
-            product_name=disp,
-            item_code=code,
+        lines.append(dict(
+            invoice_date=d, voucher_no=vno or None, sale_type=stype or None,
+            party_name=party or None, party_key=pkey or None, customer_id=None,
+            product_name=disp, item_code=code,
             batch_no=(str(cell(row, "batch") or "").strip() or None),
             landing_cost=float(_to_amount(cell(row, "landing"))),
             mrp=float(_to_amount(cell(row, "mrp"))),
-            qty=qty,
-            taxable_amount=taxable,
+            qty=qty, taxable_amount=taxable,
             discount=float(_to_amount(cell(row, "discount"))),
             tax_amount=float(_to_amount(cell(row, "tax"))),
-            net_amount=net,
-            state=(str(cell(row, "state") or "").strip() or None),
+            net_amount=net, state=(str(cell(row, "state") or "").strip() or None),
         ))
+        if vno:
+            v = vouchers.get(vno)
+            if v is None:
+                v = vouchers[vno] = {"party": party, "party_key": pkey,
+                                     "date": d, "total": 0.0, "count": 0}
+            v["total"] += net
+            v["count"] += 1
     wb.close()
 
-    if mappings:
-        db.bulk_insert_mappings(VasySalesItem, mappings)
+    # ── Pass 2: resolve each voucher → customer (auto-create billed parties) ──
+    # A billed party with no customer record yet (a zero-outstanding customer,
+    # absent from the outstanding export) gets one created from its clean Vasy
+    # name — gated on total>0 so ₹0 internal accounts (PLANT WASTAGE, WORKERS
+    # DAILY FOOD) never become customers. Matching is exact, never fuzzy.
+    voucher_cid = {}
+    new_by_key = {}
+    auto_created = 0
+    for vno, v in vouchers.items():
+        pkey = v["party_key"]
+        cid = by_name.get(pkey)
+        if cid is None and v["total"] > 0 and pkey:
+            cid = new_by_key.get(pkey)
+            if cid is None:
+                newc = Customer(restaurant_name=(v["party"] or "").strip(),
+                                phone_number=None, onboarding_status="active",
+                                is_active=True, is_daily_order_customer=False)
+                db.add(newc)
+                db.flush()
+                cid = newc.id
+                new_by_key[pkey] = cid
+                by_name.setdefault(pkey, cid)
+                auto_created += 1
+        voucher_cid[vno] = cid
+
+    # ── Rebuild the line mirror (VasySalesItem) with resolved customer_id ────
+    db.query(VasySalesItem).delete()             # snapshot-replace
+    for ln in lines:
+        ln["customer_id"] = voucher_cid.get(ln["voucher_no"])
+    if lines:
+        db.bulk_insert_mappings(VasySalesItem, lines)
+
+    # ── Rebuild VasyInvoice (revenue source of truth) from voucher totals ────
+    # Replaces the flaky client-side /sales/invoice export: identical revenue,
+    # but sourced from the reliable server-side register.
+    db.query(VasyInvoiceItem).delete()           # legacy child rows, if any
+    db.query(VasyInvoice).delete()
+    unmatched = zero_internal = 0
+    inv_objs = []
+    for vno, v in vouchers.items():
+        cid = voucher_cid.get(vno)
+        if cid is None:
+            if v["total"] > 0:
+                unmatched += 1
+            else:
+                zero_internal += 1
+        inv_objs.append(dict(
+            voucher_no=vno, invoice_date=v["date"], party_name=(v["party"] or vno),
+            party_key=(v["party_key"] or ""), customer_id=cid,
+            total=round(v["total"], 2), item_count=v["count"],
+        ))
+    if inv_objs:
+        db.bulk_insert_mappings(VasyInvoice, inv_objs)
+
+    # Receipts imported before this step get linked now that customers exist.
+    relinked = _backfill_receipt_links(db)
+
+    matched = len(vouchers) - unmatched - zero_internal
     db.add(ImportLog(entity="sales_items", source_file=source_file,
-                     rows_total=len(mappings), created=len(mappings), updated=0,
+                     rows_total=len(lines), created=len(lines), updated=0,
                      unmatched=unmatched,
-                     notes=f"total_net={round(total_net, 2)}; skus={len(skus)}"))
+                     notes=(f"invoices={len(vouchers)}; total_net={round(total_net, 2)}; "
+                            f"skus={len(skus)}; auto_created={auto_created}; "
+                            f"zero_internal={zero_internal}; receipts_relinked={relinked}")))
     db.commit()
 
     return {
         "entity": "sales_items",
-        "rows": len(mappings),
-        "created": len(mappings),   # snapshot-replace: every row is (re)inserted
+        "rows": len(lines),
+        "created": len(lines),
         "updated": 0,
-        "line_items": len(mappings),
+        "line_items": len(lines),
+        "invoices": len(vouchers),
         "skus": len(skus),
-        "matched": matched,
-        "unmatched": unmatched,
+        "matched": matched,                 # invoices attributed to a customer
+        "unmatched": unmatched,             # revenue invoices unattributed (target 0)
+        "zero_internal": zero_internal,     # ₹0 internal accounts, expected
+        "customers_created": auto_created,
+        "receipts_relinked": relinked,
         "total_fmt": _fmt_inr_local(total_net),
     }
 
