@@ -283,7 +283,11 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
             existing.outstanding = outstanding
             if normalized and not existing.phone_number:
                 existing.phone_number = normalized
-            if not existing.restaurant_name:
+            # Refresh the name from Vasy (source of truth). Previously only set
+            # when empty, which meant corrected Vasy names never overwrote an
+            # existing (possibly glued Name+Company) customer name. Vasy is
+            # authoritative for the party name, so keep OrdeRR in sync.
+            if name:
                 existing.restaurant_name = name
             updated += 1
         else:

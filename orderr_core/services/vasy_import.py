@@ -105,7 +105,16 @@ def _erp_code_to_name():
 
 
 def _build_customer_lookup(db: Session):
-    """Return (by_phone, by_name) dicts → customer_id, from the customers table."""
+    """Return (by_phone, by_name) dicts → customer_id.
+
+    by_name is keyed by normalized name. It's built from BOTH the customer
+    master AND the latest OutstandingSnapshot's clean Vasy party names. The
+    latter matters because the customer master sometimes stores glued
+    Name+Company names ("CHAINESE KATTA  CHAINESE KATTA") that don't match the
+    single Vasy name on invoices/receipts — but the outstanding import already
+    linked each clean party name to the right customer (phone-anchored), so
+    that mapping recovers the join. Customer-master names take precedence.
+    """
     by_phone, by_name = {}, {}
     for c in db.query(Customer.id, Customer.phone_number, Customer.restaurant_name).all():
         if c.phone_number:
@@ -114,6 +123,15 @@ def _build_customer_lookup(db: Session):
                 by_phone.setdefault(p, c.id)
         if c.restaurant_name:
             by_name.setdefault(normalize_name(c.restaurant_name), c.id)
+
+    # augment with the latest outstanding snapshot's clean party→customer links
+    latest = db.query(func.max(OutstandingSnapshot.snapshot_date)).scalar()
+    if latest is not None:
+        for party_key, cid in (db.query(OutstandingSnapshot.party_key, OutstandingSnapshot.customer_id)
+                               .filter(OutstandingSnapshot.snapshot_date == latest,
+                                       OutstandingSnapshot.customer_id != None).all()):  # noqa: E711
+            if party_key:
+                by_name.setdefault(party_key, cid)
     return by_phone, by_name
 
 
