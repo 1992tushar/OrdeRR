@@ -527,6 +527,39 @@ def analytics_quality(
     )
 
 
+@router.post("/analytics/customer/{customer_id}/credit-limit")
+async def analytics_set_credit_limit(
+    request: Request,
+    customer_id: int,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P3-3 — set/clear a customer's credit limit (₹). Empty/blank clears it."""
+    from decimal import Decimal, InvalidOperation
+    from orderr_core.models.customer import Customer
+
+    customer = db.query(Customer).get(customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    body = await request.json()
+    raw = body.get("credit_limit")
+    if raw in (None, "", "null"):
+        customer.credit_limit = None
+    else:
+        try:
+            val = Decimal(str(raw).replace(",", "").strip())
+        except (InvalidOperation, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid credit limit amount.")
+        if val < 0:
+            raise HTTPException(status_code=400, detail="Credit limit cannot be negative.")
+        customer.credit_limit = val
+    db.commit()
+    return JSONResponse({"status": "ok",
+                         "credit_limit": (float(customer.credit_limit)
+                                          if customer.credit_limit is not None else None)})
+
+
 @router.get("/analytics/customer/{customer_id}", response_class=HTMLResponse)
 def analytics_customer(
     request: Request,

@@ -192,6 +192,26 @@ def _ensure_customer_outstanding_and_nullable_phone():
 
 _ensure_customer_outstanding_and_nullable_phone()
 
+
+def _ensure_customer_credit_limit_column():
+    """Add customers.credit_limit (nullable) if missing — Phase-3 credit
+    limit / breach alert. Nullable, so a plain ADD COLUMN works on both SQLite
+    and PostgreSQL. Idempotent."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "customers" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("customers")}
+    if "credit_limit" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE customers ADD COLUMN credit_limit NUMERIC(12,2)"))
+    print("✅ Migration: added customers.credit_limit column")
+
+
+_ensure_customer_credit_limit_column()
+
 from orderr_core.constants import IST
 
 # Track last report time for health check
