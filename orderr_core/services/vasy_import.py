@@ -503,6 +503,11 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
                      notes=f"lines={sum(len(i['lines']) for i in invoices.values())}; "
                            f"total={round(total_amount, 2)}; auto_created={auto_created}; "
                            f"zero_internal={zero_internal}"))
+
+    # The bot imports receipts BEFORE sales, so receipts for a customer that only
+    # gets auto-created here (a zero-balance party) were left unattributed. Backfill
+    # them now that those customers exist — exact normalized-name match only.
+    relinked = _backfill_receipt_links(db)
     db.commit()
 
     return {
@@ -515,8 +520,27 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
         "zero_internal": zero_internal,               # ₹0 internal accounts, expected
         "matched": created + updated - unmatched - zero_internal,
         "customers_created": auto_created,
+        "receipts_relinked": relinked,
         "total_fmt": _fmt_inr_local(total_amount),
     }
+
+
+def _backfill_receipt_links(db: Session) -> int:
+    """Attach any still-unattributed receipts to a customer that now exists,
+    by EXACT normalized-name match (never fuzzy). Fixes the ordering gap where a
+    receipt is imported before its customer is auto-created from the sales step.
+    Returns the number of receipts newly linked."""
+    cust = {}
+    for c in db.query(Customer.id, Customer.restaurant_name).all():
+        if c.restaurant_name:
+            cust.setdefault(normalize_name(c.restaurant_name), c.id)
+    linked = 0
+    for r in db.query(CustomerReceipt).filter(CustomerReceipt.customer_id == None).all():  # noqa: E711
+        cid = cust.get(normalize_name(r.party_name))
+        if cid:
+            r.customer_id = cid
+            linked += 1
+    return linked
 
 
 def _fmt_inr_local(amount):
