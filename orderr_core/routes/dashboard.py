@@ -203,6 +203,36 @@ def analytics_revenue(
     )
 
 
+@router.get("/analytics/products", response_class=HTMLResponse)
+def analytics_products(
+    request: Request,
+    mix_days: str = Query(default="30", description="Product-mix window: 7|30|90|all"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P1-7 product mix (billed value/volume) + P1-8 demand trend (ordered)."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    days = analytics_service.C360_WINDOWS.get(mix_days, 30)
+    mix = analytics_service.product_mix(db, today, days=days)
+    demand = analytics_service.demand_trend(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_products.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today_display": today.strftime("%d %b %Y"),
+            "mix"        : mix,
+            "mix_days"   : mix_days,
+            "demand"     : demand,
+            "analytics_view": "products",
+        },
+    )
+
+
 @router.get("/analytics/customer/{customer_id}", response_class=HTMLResponse)
 def analytics_customer(
     request: Request,

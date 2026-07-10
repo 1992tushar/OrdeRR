@@ -613,3 +613,124 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
         "areas": sorted(areas),
         "salespeople": sorted(salespeople),
     }
+
+
+# ── P1-7 Product mix (value + volume) ──────────────────────────────────────
+
+def product_mix(db: Session, today: date, days=30) -> dict:
+    """P1-7 — per-SKU billed value (₹) and volume (kg / nos) over a window,
+    from invoice items (the billed truth). ERP display names; % of total value.
+    `days` bounds the window; None = all time.
+    """
+    window_start = None if days is None else today - timedelta(days=days - 1)
+
+    q = (
+        db.query(InvoiceItem.product, InvoiceItem.unit,
+                 func.coalesce(func.sum(InvoiceItem.quantity), 0),
+                 func.coalesce(func.sum(InvoiceItem.amount), 0))
+        .join(Invoice, InvoiceItem.invoice_id == Invoice.id)
+        .filter(Invoice.status != "void", Invoice.business_date <= today)
+    )
+    if window_start:
+        q = q.filter(Invoice.business_date >= window_start)
+    q = q.group_by(InvoiceItem.product, InvoiceItem.unit)
+
+    agg = {}  # erp_name → {kg, nos, value}
+    for product, unit, qty, amount in q.all():
+        name = erp_display_name(product or "Unknown")
+        u = (unit or "kg").lower()
+        row = agg.setdefault(name, {"kg": 0.0, "nos": 0.0, "value": 0.0})
+        if u == "nos":
+            row["nos"] += float(qty or 0)
+        else:
+            row["kg"] += float(qty or 0)
+        row["value"] += float(amount or 0)
+
+    total_value = sum(r["value"] for r in agg.values()) or 0.0
+    rows = []
+    for name, r in agg.items():
+        pct = round(r["value"] / total_value * 100, 1) if total_value else 0.0
+        rows.append({
+            "product": name,
+            "kg": r["kg"], "kg_fmt": fmt_kg(r["kg"]),
+            "nos": r["nos"], "nos_fmt": fmt_qty(r["nos"]),
+            "value": round(r["value"], 2), "value_fmt": fmt_inr(r["value"]),
+            "pct": pct,
+        })
+    rows.sort(key=lambda x: x["value"], reverse=True)
+
+    return {
+        "rows": rows,
+        "total_value": round(total_value, 2),
+        "total_value_fmt": fmt_inr(total_value),
+        "days": days,
+        "window_label": "All time" if days is None else f"Last {days} days",
+    }
+
+
+# ── P1-8 Demand trend (per SKU, over time) ─────────────────────────────────
+
+def demand_trend(db: Session, today: date, months: int = 12) -> dict:
+    """P1-8 — ordered demand per SKU per month (production-planning signal),
+    from order parsed_items (what customers asked for, not what was billed).
+
+    Returns month labels, and per-SKU monthly quantity series. Quantity is
+    summed across units (SKUs are single-unit in practice); the dominant unit
+    is reported per SKU for labelling.
+    """
+    keys = _last_n_months(today, months)
+    scan_start = date(int(keys[0][:4]), int(keys[0][5:]), 1)
+    key_set = set(keys)
+
+    rows = (
+        db.query(Order.business_date, Order.parsed_items)
+        .filter(Order.is_cancelled == False,                 # noqa: E712
+                Order.business_date != None,                 # noqa: E711
+                Order.business_date >= scan_start.strftime("%Y-%m-%d"),
+                Order.business_date <= today.strftime("%Y-%m-%d"))
+        .all()
+    )
+
+    # sku → {month_key: qty}, sku → unit counts
+    series = {}
+    unit_votes = {}
+    for bdate, parsed in rows:
+        try:
+            mk = _month_key(date.fromisoformat(bdate))
+        except (TypeError, ValueError):
+            continue
+        if mk not in key_set:
+            continue
+        for it in safe_list(parsed):
+            if not isinstance(it, dict):
+                continue
+            name = erp_display_name(it.get("product", "") or "Unknown")
+            unit = (it.get("unit", "kg") or "kg").lower()
+            try:
+                qty = float(it.get("quantity") or 0)
+            except (TypeError, ValueError):
+                qty = 0
+            series.setdefault(name, {}).setdefault(mk, 0.0)
+            series[name][mk] += qty
+            uv = unit_votes.setdefault(name, {})
+            uv[unit] = uv.get(unit, 0) + 1
+
+    skus = []
+    for name, by_month in series.items():
+        months_series = [{"key": k, "label": _month_label(k),
+                          "qty": round(by_month.get(k, 0.0), 2)} for k in keys]
+        total = sum(by_month.values())
+        unit = max(unit_votes.get(name, {"kg": 1}).items(), key=lambda kv: kv[1])[0]
+        skus.append({
+            "product": name,
+            "unit": unit,
+            "total": round(total, 2),
+            "total_fmt": fmt_qty(total),
+            "series": months_series,
+        })
+    skus.sort(key=lambda s: s["total"], reverse=True)
+
+    return {
+        "months": [{"key": k, "label": _month_label(k)} for k in keys],
+        "skus": skus,
+    }
