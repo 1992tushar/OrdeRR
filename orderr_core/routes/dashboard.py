@@ -116,3 +116,31 @@ def dashboard(
             "reliability_stats"  : reliability_stats,
         },
     )
+
+
+@router.get("/analytics", response_class=HTMLResponse)
+def analytics(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Analytics home — sales/ops insight layer (Phase 1).
+
+    Sales figures here come from OrdeRR's own (operational) invoices; Vasy
+    remains the money source-of-truth once the Phase-2 mirror lands.
+    """
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    pulse = analytics_service.business_pulse(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today_display": today.strftime("%d %b %Y"),
+            "pulse"      : pulse,
+        },
+    )

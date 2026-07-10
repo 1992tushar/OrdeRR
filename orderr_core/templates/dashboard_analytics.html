@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} Analytics</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+
+.nav{display:flex;align-items:center;gap:0;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px;white-space:nowrap}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);margin-right:20px;display:flex;align-items:center;gap:6px;letter-spacing:-.2px}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:26px 2px 12px}
+.section-title{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:-.2px}
+.section-sub{font-size:12px;color:var(--ink3)}
+
+.note{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--blue-border);border-radius:8px;padding:10px 14px;margin-bottom:8px}
+
+/* ── Business Pulse ── */
+.pulse-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:720px){.pulse-grid{grid-template-columns:1fr}}
+.pulse-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.pulse-card-head{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:baseline;justify-content:space-between}
+.pulse-card-title{font-size:13px;font-weight:700;color:var(--green)}
+.pulse-card-sub{font-size:11px;color:var(--ink3)}
+.pulse-hero{padding:16px 16px 6px}
+.pulse-hero .n{font-size:28px;font-weight:800;line-height:1;color:var(--ink);letter-spacing:-.5px}
+.pulse-hero .l{font-size:11px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.5px}
+.pulse-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:12px 16px 16px}
+.pulse-metric .n{font-size:16px;font-weight:700;color:var(--ink)}
+.pulse-metric .l{font-size:10px;color:var(--ink3);margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
+
+.empty{color:var(--ink3);font-size:13px;text-align:center;padding:28px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right">
+    <span class="date-chip">{{ current_time }}</span>
+  </div>
+</div>
+
+<main>
+
+  <!-- ── P1-1 Business Pulse ─────────────────────────────────────────── -->
+  <div class="section-head">
+    <div class="section-title">Business Pulse</div>
+    <div class="section-sub">as of {{ today_display }}</div>
+  </div>
+  <div class="note">
+    Sales figures are from OrdeRR invoices (operational). Vasy ERP remains the
+    money source-of-truth — reconciled in Phase&nbsp;2. Excludes cancelled orders
+    &amp; void invoices.
+  </div>
+
+  <div class="pulse-grid">
+    {% for p in pulse.periods %}
+    <div class="pulse-card">
+      <div class="pulse-card-head">
+        <span class="pulse-card-title">{{ p.label }}</span>
+        <span class="pulse-card-sub">{{ p.sublabel }}</span>
+      </div>
+      <div class="pulse-hero">
+        <div class="n">{{ p.sales_rupees_fmt }}</div>
+        <div class="l">Sales</div>
+      </div>
+      <div class="pulse-metrics">
+        <div class="pulse-metric">
+          <div class="n">{{ p.sales_kg_fmt }}</div>
+          <div class="l">kg sold</div>
+        </div>
+        <div class="pulse-metric">
+          <div class="n">{{ p.orders }}</div>
+          <div class="l">orders</div>
+        </div>
+        <div class="pulse-metric">
+          <div class="n">{{ p.active_customers }}</div>
+          <div class="l">customers</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+</main>
+
+</body>
+</html>
