@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Financials</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
+.section-title{font-size:15px;font-weight:700;margin:24px 2px 12px}
+.note{font-size:11px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin:12px 0}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+@media(max-width:820px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:480px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;box-shadow:var(--shadow)}
+.kpi .n{font-size:18px;font-weight:800;line-height:1.05;letter-spacing:-.3px}
+.kpi.rev .n{color:var(--green)} .kpi.cogs .n{color:var(--amber)} .kpi.net .n{color:var(--blue)}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tfoot td{font-weight:700;background:var(--bg)}
+.pos{color:var(--green)} .neg{color:var(--red)} .mut{color:var(--ink3)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+.cov{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--ink3)}
+.cov b{color:var(--ink2)}
+.empty{color:var(--ink3);text-align:center;padding:24px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  {% if not fin.has_data %}
+  <div class="section-title">Plant financials</div>
+  <div class="note">No financial data imported yet. Upload sales invoices, purchases, expenses & payments on the <a href="/dashboard/analytics/imports">Imports</a> page.</div>
+  {% else %}
+
+  <div class="section-title" style="margin-top:6px">Plant P&amp;L &amp; cash — last 12 months</div>
+  <div class="kpis">
+    <div class="kpi rev"><div class="n">{{ fin.totals.revenue_fmt }}</div><div class="l">Revenue (Vasy)</div></div>
+    <div class="kpi cogs"><div class="n">{{ fin.totals.cogs_fmt }}</div><div class="l">COGS (purchases)</div></div>
+    <div class="kpi"><div class="n">{{ fin.totals.gross_profit_fmt }}</div><div class="l">Gross profit{% if fin.totals.margin_pct is not none %} · {{ fin.totals.margin_pct }}%{% endif %}</div></div>
+    <div class="kpi"><div class="n">{{ fin.totals.expenses_fmt }}</div><div class="l">Expenses (opex)</div></div>
+    <div class="kpi net"><div class="n">{{ fin.totals.net_fmt }}</div><div class="l">Net (GP − opex)</div></div>
+    <div class="kpi"><div class="n">{{ fin.totals.net_cash_fmt }}</div><div class="l">Net cash (in − out)</div></div>
+  </div>
+
+  <div class="note">
+    ⚠️ Entities are imported over <b>different date ranges</b>, so period P&amp;L is indicative until they align.
+    Coverage —
+    <span class="cov">
+      <span><b>Revenue</b> {{ fin.coverage.revenue[0] or '—' }}→{{ fin.coverage.revenue[1] or '—' }}</span>
+      <span><b>COGS</b> {{ fin.coverage.cogs[0] or '—' }}→{{ fin.coverage.cogs[1] or '—' }}</span>
+      <span><b>Expenses</b> {{ fin.coverage.expenses[0] or '—' }}→{{ fin.coverage.expenses[1] or '—' }}</span>
+      <span><b>Payments</b> {{ fin.coverage.payments[0] or '—' }}→{{ fin.coverage.payments[1] or '—' }}</span>
+    </span>
+    Revenue = Vasy sales invoices; COGS = purchases; cash-out = payments (expenses are realized via payments — not double-counted). Per-SKU/per-customer margin needs per-item costing Vasy doesn't export.
+  </div>
+
+  <!-- P3-11 P&L + P3-13 margin -->
+  <div class="section-title">Profit &amp; Loss</div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Month</th><th class="num">Revenue</th><th class="num">COGS</th><th class="num">Gross profit</th><th class="num">Margin</th><th class="num">Expenses</th><th class="num">Net</th></tr></thead>
+      <tbody>
+        {% for m in fin.pnl %}
+        <tr>
+          <td>{{ m.label }}</td>
+          <td class="num">{{ m.revenue_fmt }}</td>
+          <td class="num">{{ m.cogs_fmt }}</td>
+          <td class="num">{{ m.gross_profit_fmt }}</td>
+          <td class="num">{% if m.margin_pct is none %}<span class="mut">—</span>{% else %}{{ m.margin_pct }}%{% endif %}</td>
+          <td class="num">{{ m.expenses_fmt }}</td>
+          <td class="num {{ 'pos' if m.net > 0 else 'neg' if m.net < 0 else '' }}">{{ m.net_fmt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td>Total</td><td class="num">{{ fin.totals.revenue_fmt }}</td><td class="num">{{ fin.totals.cogs_fmt }}</td><td class="num">{{ fin.totals.gross_profit_fmt }}</td><td class="num">{{ fin.totals.margin_pct }}%</td><td class="num">{{ fin.totals.expenses_fmt }}</td><td class="num">{{ fin.totals.net_fmt }}</td></tr></tfoot>
+    </table>
+  </div></div>
+
+  <!-- P3-12 Cash flow -->
+  <div class="section-title">Cash flow</div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Month</th><th class="num">Cash in (receipts)</th><th class="num">Cash out (payments)</th><th class="num">Net</th><th class="num">Running balance</th></tr></thead>
+      <tbody>
+        {% for m in fin.cash %}
+        <tr>
+          <td>{{ m.label }}</td>
+          <td class="num pos">{{ m.cash_in_fmt }}</td>
+          <td class="num neg">{{ m.cash_out_fmt }}</td>
+          <td class="num {{ 'pos' if m.net_cash > 0 else 'neg' if m.net_cash < 0 else '' }}">{{ m.net_cash_fmt }}</td>
+          <td class="num">{{ m.running_fmt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td>Total</td><td class="num">{{ fin.totals.cash_in_fmt }}</td><td class="num">{{ fin.totals.cash_out_fmt }}</td><td class="num">{{ fin.totals.net_cash_fmt }}</td><td class="num"></td></tr></tfoot>
+    </table>
+  </div></div>
+
+  <!-- P3-14 Payables / AP -->
+  <div class="section-title">Payables (AP)</div>
+  <div class="note" style="border-left-color:var(--blue-border)">
+    Partial AP view: <b>unpaid expenses = {{ fin.payables.unpaid_total_fmt }}</b> (from the expense ledger's UnPaid column) plus who we pay most (below).
+    True supplier outstanding needs a Vasy <b>creditor/supplier-outstanding</b> export (not yet available) — purchases don't carry a paid/unpaid split.
+  </div>
+  <div class="grid2">
+    <div>
+      <div class="section-title" style="font-size:13px;margin-top:4px">Unpaid expenses</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>Expense</th><th>Party</th><th>Date</th><th class="num">Unpaid</th></tr></thead>
+          <tbody>
+            {% for u in fin.payables.unpaid_rows %}
+            <tr><td>{{ u.expense_no }}</td><td>{{ u.party }}</td><td style="white-space:nowrap">{{ u.date }}</td><td class="num">{{ u.unpaid_fmt }}</td></tr>
+            {% else %}
+            <tr><td colspan="4" class="empty">No unpaid expenses. 🎉</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+    <div>
+      <div class="section-title" style="font-size:13px;margin-top:4px">Top payees (money out)</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>Party</th><th class="num">Payments</th><th class="num">Total paid</th></tr></thead>
+          <tbody>
+            {% for p in fin.payables.top_payees %}
+            <tr><td>{{ p.party }}</td><td class="num">{{ p.count }}</td><td class="num">{{ p.total_fmt }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="empty">No payments.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+  </div>
+  {% endif %}
+</main>
+</body>
+</html>

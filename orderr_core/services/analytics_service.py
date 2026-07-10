@@ -27,6 +27,9 @@ from orderr_core.models.actuals import OrderItemActual
 from orderr_core.models.customer_receipt import CustomerReceipt
 from orderr_core.models.outstanding_snapshot import OutstandingSnapshot
 from orderr_core.models.vasy_invoice import VasyInvoice
+from orderr_core.models.vasy_purchase import VasyPurchase
+from orderr_core.models.vasy_expense import VasyExpense
+from orderr_core.models.vasy_payment import VasyPayment
 from orderr_core.services.template_parser import erp_display_name, ERP_ITEMS
 from orderr_core.utils import safe_list, fmt_qty
 
@@ -507,6 +510,123 @@ def credit_intelligence(db: Session, today: date) -> dict:
         "breach": breach_count,
         "scored": len(rows),
         "areas": sorted(areas), "salespeople": sorted(salespeople),
+    }
+
+
+# ── P3-11/12/13/14 Plant financials (P&L, cash-flow, margin, AP) ───────────
+
+def _monthly_bucket(db, model, date_col, amount_col, keys):
+    """Sum `amount_col` by business-month for `model`, restricted to `keys`
+    (list of 'YYYY-MM'). Returns {month_key: total}."""
+    key_set = set(keys)
+    start = date(int(keys[0][:4]), int(keys[0][5:]), 1)
+    end = date(int(keys[-1][:4]), int(keys[-1][5:]), 28) + timedelta(days=7)
+    out = {k: 0.0 for k in keys}
+    for d, amt in db.query(date_col, amount_col).filter(date_col != None,           # noqa: E711
+                                                        date_col >= start,
+                                                        date_col <= end).all():
+        try:
+            mk = _month_key(d)
+        except Exception:
+            continue
+        if mk in key_set:
+            out[mk] += float(amt or 0)
+    return out
+
+
+def _date_range(db, date_col):
+    lo, hi = db.query(func.min(date_col), func.max(date_col)).one()
+    return (lo.strftime("%d %b %Y") if lo else None, hi.strftime("%d %b %Y") if hi else None)
+
+
+def plant_financials(db: Session, today: date, months: int = 12) -> dict:
+    """P3-11 P&L (revenue − COGS − expenses), P3-13 gross margin, P3-12 cash
+    flow (receipts − payments, running balance), P3-14 payables.
+
+    Revenue = Vasy sales invoices; COGS = Vasy purchases; expenses = Vasy
+    expenses (accrual); cash-in = receipts, cash-out = payments (NOT expenses —
+    they're realized via payments; adding both double-counts). Monthly series
+    for the last `months`. Entities are imported over different date ranges, so
+    the UI shows per-entity coverage and treats period P&L as indicative until
+    ranges align.
+    """
+    has_any = any(db.query(m.id).first() is not None
+                  for m in (VasyInvoice, VasyPurchase, VasyExpense, VasyPayment, CustomerReceipt))
+    if not has_any:
+        return {"has_data": False}
+
+    keys = _last_n_months(today, months)
+    rev = _monthly_bucket(db, VasyInvoice, VasyInvoice.invoice_date, VasyInvoice.total, keys)
+    cogs = _monthly_bucket(db, VasyPurchase, VasyPurchase.bill_date, VasyPurchase.total, keys)
+    exp = _monthly_bucket(db, VasyExpense, VasyExpense.expense_date, VasyExpense.total, keys)
+    cin = _monthly_bucket(db, CustomerReceipt, CustomerReceipt.receipt_date, CustomerReceipt.amount, keys)
+    cout = _monthly_bucket(db, VasyPayment, VasyPayment.payment_date, VasyPayment.amount, keys)
+
+    pnl, cash = [], []
+    running = 0.0
+    for k in keys:
+        r, c, e = round(rev[k], 2), round(cogs[k], 2), round(exp[k], 2)
+        gp = r - c
+        net = gp - e
+        pnl.append({
+            "key": k, "label": _month_label(k),
+            "revenue": r, "revenue_fmt": fmt_inr(r),
+            "cogs": c, "cogs_fmt": fmt_inr(c),
+            "gross_profit": round(gp, 2), "gross_profit_fmt": fmt_inr(gp),
+            "expenses": e, "expenses_fmt": fmt_inr(e),
+            "net": round(net, 2), "net_fmt": fmt_inr(net),
+            "margin_pct": round(gp / r * 100, 1) if r else None,
+        })
+        ci, co = round(cin[k], 2), round(cout[k], 2)
+        running += ci - co
+        cash.append({
+            "key": k, "label": _month_label(k),
+            "cash_in": ci, "cash_in_fmt": fmt_inr(ci),
+            "cash_out": co, "cash_out_fmt": fmt_inr(co),
+            "net_cash": round(ci - co, 2), "net_cash_fmt": fmt_inr(ci - co),
+            "running_fmt": fmt_inr(running),
+        })
+
+    # totals (over the window)
+    t_rev, t_cogs, t_exp = sum(rev.values()), sum(cogs.values()), sum(exp.values())
+    t_gp = t_rev - t_cogs
+    t_in, t_out = sum(cin.values()), sum(cout.values())
+
+    # ── P3-14 payables ──
+    unpaid_total = float(db.query(func.coalesce(func.sum(VasyExpense.unpaid), 0)).scalar() or 0)
+    unpaid_rows = [{"expense_no": e.expense_no, "party": e.party_name,
+                    "date": e.expense_date.strftime("%d %b %Y") if e.expense_date else "",
+                    "unpaid_fmt": fmt_inr(e.unpaid)}
+                   for e in db.query(VasyExpense).filter(VasyExpense.unpaid > 0)
+                   .order_by(VasyExpense.unpaid.desc()).limit(50).all()]
+    payee_rows = db.query(VasyPayment.party_name, func.count(VasyPayment.id),
+                          func.coalesce(func.sum(VasyPayment.amount), 0)) \
+        .group_by(VasyPayment.party_name).order_by(func.sum(VasyPayment.amount).desc()).limit(15).all()
+    top_payees = [{"party": p, "count": n, "total_fmt": fmt_inr(t)} for p, n, t in payee_rows]
+
+    return {
+        "has_data": True,
+        "pnl": pnl, "cash": cash,
+        "totals": {
+            "revenue_fmt": fmt_inr(t_rev), "cogs_fmt": fmt_inr(t_cogs),
+            "gross_profit_fmt": fmt_inr(t_gp),
+            "margin_pct": round(t_gp / t_rev * 100, 1) if t_rev else None,
+            "expenses_fmt": fmt_inr(t_exp), "net_fmt": fmt_inr(t_gp - t_exp),
+            "cash_in_fmt": fmt_inr(t_in), "cash_out_fmt": fmt_inr(t_out),
+            "net_cash_fmt": fmt_inr(t_in - t_out),
+        },
+        "coverage": {
+            "revenue": _date_range(db, VasyInvoice.invoice_date),
+            "cogs": _date_range(db, VasyPurchase.bill_date),
+            "expenses": _date_range(db, VasyExpense.expense_date),
+            "receipts": _date_range(db, CustomerReceipt.receipt_date),
+            "payments": _date_range(db, VasyPayment.payment_date),
+        },
+        "payables": {
+            "unpaid_total_fmt": fmt_inr(unpaid_total),
+            "unpaid_rows": unpaid_rows,
+            "top_payees": top_payees,
+        },
     }
 
 

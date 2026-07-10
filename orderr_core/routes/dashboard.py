@@ -345,6 +345,30 @@ def analytics_credit(
     )
 
 
+@router.get("/analytics/financials", response_class=HTMLResponse)
+def analytics_financials(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P3-11/12/13/14 — plant P&L, cash-flow, gross margin, payables."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.plant_financials(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_financials.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "fin"        : data,
+            "analytics_view": "financials",
+        },
+    )
+
+
 @router.get("/analytics/reconcile", response_class=HTMLResponse)
 def analytics_reconcile(
     request: Request,
