@@ -478,6 +478,7 @@ def credit_intelligence(db: Session, today: date) -> dict:
         rows.append({
             "customer_id": c.id,
             "name": c.restaurant_name or (c.phone_number or f"#{c.id}"),
+            "phone": c.phone_number or "",
             "area": area, "salesperson": sp,
             "outstanding": round(outstanding, 2), "outstanding_fmt": fmt_inr(outstanding),
             "credit_limit": float(limit) if limit is not None else "",
@@ -506,6 +507,54 @@ def credit_intelligence(db: Session, today: date) -> dict:
         "breach": breach_count,
         "scored": len(rows),
         "areas": sorted(areas), "salespeople": sorted(salespeople),
+    }
+
+
+# ── P3-7 Collection chase list ("call today") ──────────────────────────────
+
+def chase_list(db: Session, today: date, top_n: int = 20) -> dict:
+    """P3-7 — auto-ranked "call today" list: outstanding × risk = ₹-at-risk.
+
+    Reuses the credit-intelligence signals; ranks debtors (outstanding > 0) by
+    expected ₹-at-risk (outstanding × score/100) so the biggest, riskiest
+    exposures surface first. Top `top_n` flagged as today's calls.
+    """
+    ci = credit_intelligence(db, today)
+    if not ci.get("has_data"):
+        return {"has_data": False}
+
+    rows = []
+    for r in ci["rows"]:
+        if r["outstanding"] <= 0:
+            continue
+        priority = round(r["outstanding"] * r["score"] / 100, 2)
+        rows.append({
+            "customer_id": r["customer_id"],
+            "name": r["name"], "phone": r["phone"],
+            "area": r["area"], "salesperson": r["salesperson"],
+            "outstanding": r["outstanding"], "outstanding_fmt": r["outstanding_fmt"],
+            "score": r["score"], "classification": r["classification"],
+            "days_since_payment": r["days_since_payment"],
+            "breach": r["breach"],
+            "priority": priority, "priority_fmt": fmt_inr(priority),
+            "reason": " · ".join(r["reasons"][:2]) if r["reasons"] else "",
+        })
+    rows.sort(key=lambda r: r["priority"], reverse=True)
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+        r["call_today"] = i < top_n
+
+    today_value = sum(r["priority"] for r in rows[:top_n])
+    total_value = sum(r["priority"] for r in rows)
+    return {
+        "has_data": True,
+        "as_of": ci.get("as_of"),
+        "rows": rows,
+        "top_n": top_n,
+        "call_today_count": min(top_n, len(rows)),
+        "today_value_fmt": fmt_inr(today_value),
+        "total_at_risk_fmt": fmt_inr(total_value),
+        "areas": ci["areas"], "salespeople": ci["salespeople"],
     }
 
 
@@ -1520,6 +1569,19 @@ def export_dataset(db: Session, today: date, name: str, days=None):
                  r["direction"] or "", r["days_since_payment"], r["last_payment"],
                  r["avg_receipt_fmt"]] for r in data["rows"]]
         return (f"receivables_{tag}.xlsx", "Receivables", headers, rows)
+
+    if name == "chase":
+        data = chase_list(db, today)
+        if not data.get("has_data"):
+            return (f"chase_{tag}.xlsx", "Chase", ["Note"], [["No money data imported yet."]])
+        headers = ["Rank", "Call today", "Customer", "Phone", "Area", "Salesperson",
+                   "Outstanding (INR)", "Risk", "Class", "Days since payment",
+                   "Rs at risk", "Reason"]
+        rows = [[r["rank"], "Yes" if r["call_today"] else "", r["name"], r["phone"],
+                 r["area"], r["salesperson"], r["outstanding"], r["score"],
+                 r["classification"], r["days_since_payment"], r["priority"], r["reason"]]
+                for r in data["rows"]]
+        return (f"chase_{tag}.xlsx", "Chase", headers, rows)
 
     if name == "credit":
         data = credit_intelligence(db, today)

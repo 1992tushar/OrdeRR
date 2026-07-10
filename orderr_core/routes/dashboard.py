@@ -265,6 +265,30 @@ def analytics_export(
     )
 
 
+@router.get("/analytics/chase", response_class=HTMLResponse)
+def analytics_chase(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P3-7 — collection chase list ("call today")."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.chase_list(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_chase.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "ch"         : data,
+            "analytics_view": "chase",
+        },
+    )
+
+
 @router.get("/analytics/credit", response_class=HTMLResponse)
 def analytics_credit(
     request: Request,
