@@ -626,6 +626,14 @@ async def _import_cost_file(entity, importer, file, db):
     return JSONResponse({"status": "ok", "summary": summary})
 
 
+@router.post("/analytics/import/sales-items")
+async def analytics_import_sales_items(file: UploadFile = File(...), db: Session = Depends(get_db),
+                                       username: str = Depends(require_auth)):
+    """Upload a Vasy Sales & Sales Return Item Register (line-item SKU sales)."""
+    from orderr_core.services import vasy_import
+    return await _import_cost_file("sales items", vasy_import.import_sales_items, file, db)
+
+
 @router.post("/analytics/import/purchases")
 async def analytics_import_purchases(file: UploadFile = File(...), db: Session = Depends(get_db),
                                      username: str = Depends(require_auth)):

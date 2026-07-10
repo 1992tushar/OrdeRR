@@ -107,18 +107,18 @@ svg.line .dot{fill:var(--surface);stroke:var(--green);stroke-width:2}
     {% else %}
       <div class="empty">No billed items in this window.</div>
     {% endif %}
-    <div class="note">Billed value & volume from OrdeRR invoice items (ERP SKU names). Excludes void invoices.</div>
+    <div class="note">Billed value & volume from <b>Vasy sales item register</b> (source of truth). Qty is per-SKU (units differ across SKUs — kg for cuts, nos for whole birds — so no cross-SKU volume total).</div>
   </div>
 
   <div class="wrap"><div class="scroll">
     <table>
-      <thead><tr><th>SKU</th><th class="num">kg</th><th class="num">nos</th><th class="num">Value</th><th class="num">% value</th></tr></thead>
+      <thead><tr><th>SKU</th><th class="num">Qty</th><th class="num">Lines</th><th class="num">Value</th><th class="num">% value</th></tr></thead>
       <tbody>
         {% for r in mix.rows %}
         <tr>
           <td>{{ r.product }}</td>
-          <td class="num">{{ r.kg_fmt if r.kg else '—' }}</td>
-          <td class="num">{{ r.nos_fmt if r.nos else '—' }}</td>
+          <td class="num">{{ r.qty_fmt if r.qty else '—' }}</td>
+          <td class="num">{{ r.lines }}</td>
           <td class="num">{{ r.value_fmt }}</td>
           <td class="num">{{ r.pct }}%</td>
         </tr>

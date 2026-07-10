@@ -554,6 +554,123 @@ def _is_total_row(v):
     return s in ("", "total")
 
 
+# ── Sales item register (line-item sales; SKU mix + landing cost) ───────────
+
+def import_sales_items(db: Session, file_bytes: bytes, source_file: str = None) -> dict:
+    """Import Vasy's "Sales and Sales Return Item Register" — line-item sales with
+    per-unit Landing Cost. Powers billed product-mix (value & volume by SKU) and,
+    later, true per-SKU / per-customer gross margin.
+
+    Snapshot-replace: line items carry no stable document key and the bot
+    re-exports the whole FY every run, so we clear the table and re-insert. Sales
+    Return rows (Sale Type) are stored with negated qty/value so they net down.
+    Attributes each line to a customer by exact normalized party name.
+    """
+    from orderr_core.models.vasy_sales_item import VasySalesItem
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=False)
+    except Exception as e:
+        raise ValueError(f"Could not read the sales-item-register Excel file: {e}")
+    ws = wb.active
+
+    labels = {
+        "voucher": ("voucher no", "voucher no.", "voucher number", "invoice no", "invoice no."),
+        "party": ("party name", "party", "customer name", "name"),
+        "date": ("date", "invoice date"),
+        "sale_type": ("sale type", "type"),
+        "product": ("product name", "product", "item name"),
+        "item_code": ("item code", "item", "code"),
+        "batch": ("batch no", "batch no.", "batch"),
+        "landing": ("landing cost", "land cost", "landing"),
+        "mrp": ("mrp",),
+        "qty": ("qty", "quantity"),
+        "taxable": ("taxable amount", "taxable"),
+        "discount": ("discount",),
+        "tax": ("tax amount", "tax"),
+        "net": ("net amount", "net", "amount"),
+        "state": ("state name", "state"),
+    }
+    header_idx, col = _find_header(ws, labels)
+    if "party" not in col or "product" not in col:
+        raise ValueError("Sales item register must have 'Party Name' and 'Product Name' columns.")
+
+    _by_phone, by_name = _build_customer_lookup(db)
+    erp = _erp_code_to_name()
+
+    def cell(row, key):
+        i = col.get(key)
+        return row[i] if (i is not None and i < len(row)) else None
+
+    db.query(VasySalesItem).delete()   # snapshot-replace whole entity
+
+    mappings = []
+    total_net = 0.0
+    matched = unmatched = 0
+    skus = set()
+    for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
+        if not row:
+            continue
+        vno = str(cell(row, "voucher") or "").strip()
+        party = str(cell(row, "party") or "").strip()
+        if not party and _is_total_row(vno):   # footer Total row / blank line
+            continue
+        pkey = normalize_name(party)
+        cid = by_name.get(pkey)
+        stype = str(cell(row, "sale_type") or "").strip()
+        sign = -1.0 if ("return" in stype.lower() or "credit" in stype.lower()) else 1.0
+        qty = float(_to_amount(cell(row, "qty"))) * sign
+        net = float(_to_amount(cell(row, "net"))) * sign
+        taxable = float(_to_amount(cell(row, "taxable"))) * sign
+        code = str(cell(row, "item_code") or "").strip() or None
+        product = str(cell(row, "product") or "").strip() or None
+        disp = (erp.get(code) if code else None) or product
+        total_net += net
+        if cid is not None:
+            matched += 1
+        else:
+            unmatched += 1
+        if disp:
+            skus.add(disp)
+        mappings.append(dict(
+            invoice_date=_parse_date(cell(row, "date")),
+            voucher_no=vno or None,
+            sale_type=stype or None,
+            party_name=party or None,
+            party_key=pkey or None,
+            customer_id=cid,
+            product_name=disp,
+            item_code=code,
+            batch_no=(str(cell(row, "batch") or "").strip() or None),
+            landing_cost=float(_to_amount(cell(row, "landing"))),
+            mrp=float(_to_amount(cell(row, "mrp"))),
+            qty=qty,
+            taxable_amount=taxable,
+            discount=float(_to_amount(cell(row, "discount"))),
+            tax_amount=float(_to_amount(cell(row, "tax"))),
+            net_amount=net,
+            state=(str(cell(row, "state") or "").strip() or None),
+        ))
+    wb.close()
+
+    if mappings:
+        db.bulk_insert_mappings(VasySalesItem, mappings)
+    db.add(ImportLog(entity="sales_items", source_file=source_file,
+                     rows_total=len(mappings), created=len(mappings), updated=0,
+                     unmatched=unmatched,
+                     notes=f"total_net={round(total_net, 2)}; skus={len(skus)}"))
+    db.commit()
+
+    return {
+        "entity": "sales_items",
+        "rows": len(mappings),
+        "line_items": len(mappings),
+        "skus": len(skus),
+        "matched": matched,
+        "unmatched": unmatched,
+        "total_fmt": _fmt_inr_local(total_net),
+    }
+
+
 # ── P3-10 Purchases import (COGS; line-item, grouped by Bill No) ───────────
 
 def import_purchases(db: Session, file_bytes: bytes, source_file: str = None) -> dict:

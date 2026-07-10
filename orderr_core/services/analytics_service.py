@@ -1694,43 +1694,43 @@ def new_vs_lost(db: Session, today: date, months: int = 12) -> dict:
 # ── P1-7 Product mix (value + volume) ──────────────────────────────────────
 
 def product_mix(db: Session, today: date, days=30) -> dict:
-    """P1-7 — per-SKU billed value (₹) and volume (kg / nos) over a window,
-    from invoice items (the billed truth). ERP display names; % of total value.
+    """P1-7 — per-SKU billed value (₹) and volume (qty) over a window, from the
+    Vasy Sales Item Register (billed truth, source of truth). % of total value.
     `days` bounds the window; None = all time.
+
+    Volume is a single QTY per SKU: the register has no unit column and units
+    differ across SKUs (kg for cuts, nos for whole birds), so a per-SKU qty is
+    meaningful while a cross-SKU volume total is not — hence value drives ranking.
     """
+    from orderr_core.models.vasy_sales_item import VasySalesItem
+
     window_start = None if days is None else today - timedelta(days=days - 1)
 
     q = (
-        db.query(InvoiceItem.product, InvoiceItem.unit,
-                 func.coalesce(func.sum(InvoiceItem.quantity), 0),
-                 func.coalesce(func.sum(InvoiceItem.amount), 0))
-        .join(Invoice, InvoiceItem.invoice_id == Invoice.id)
-        .filter(Invoice.status != "void", Invoice.business_date <= today)
+        db.query(
+            func.coalesce(VasySalesItem.product_name, VasySalesItem.item_code, "Unknown"),
+            func.coalesce(func.sum(VasySalesItem.qty), 0),
+            func.coalesce(func.sum(VasySalesItem.net_amount), 0),
+            func.count(VasySalesItem.id),
+        )
+        .filter(VasySalesItem.invoice_date != None)          # noqa: E711
+        .filter(VasySalesItem.invoice_date <= today)
     )
     if window_start:
-        q = q.filter(Invoice.business_date >= window_start)
-    q = q.group_by(InvoiceItem.product, InvoiceItem.unit)
+        q = q.filter(VasySalesItem.invoice_date >= window_start)
+    q = q.group_by(func.coalesce(VasySalesItem.product_name, VasySalesItem.item_code, "Unknown"))
 
-    agg = {}  # erp_name → {kg, nos, value}
-    for product, unit, qty, amount in q.all():
-        name = erp_display_name(product or "Unknown")
-        u = (unit or "kg").lower()
-        row = agg.setdefault(name, {"kg": 0.0, "nos": 0.0, "value": 0.0})
-        if u == "nos":
-            row["nos"] += float(qty or 0)
-        else:
-            row["kg"] += float(qty or 0)
-        row["value"] += float(amount or 0)
+    agg = [(str(name), float(qty or 0), float(val or 0), int(n)) for name, qty, val, n in q.all()]
+    total_value = sum(v for _, _, v, _ in agg) or 0.0
 
-    total_value = sum(r["value"] for r in agg.values()) or 0.0
     rows = []
-    for name, r in agg.items():
-        pct = round(r["value"] / total_value * 100, 1) if total_value else 0.0
+    for name, qty, val, n in agg:
+        pct = round(val / total_value * 100, 1) if total_value else 0.0
         rows.append({
             "product": name,
-            "kg": r["kg"], "kg_fmt": fmt_kg(r["kg"]),
-            "nos": r["nos"], "nos_fmt": fmt_qty(r["nos"]),
-            "value": round(r["value"], 2), "value_fmt": fmt_inr(r["value"]),
+            "qty": round(qty, 2), "qty_fmt": fmt_qty(qty),
+            "lines": n,
+            "value": round(val, 2), "value_fmt": fmt_inr(val),
             "pct": pct,
         })
     rows.sort(key=lambda x: x["value"], reverse=True)
@@ -1739,6 +1739,7 @@ def product_mix(db: Session, today: date, days=30) -> dict:
         "rows": rows,
         "total_value": round(total_value, 2),
         "total_value_fmt": fmt_inr(total_value),
+        "sku_count": len(rows),
         "days": days,
         "window_label": "All time" if days is None else f"Last {days} days",
     }
@@ -1879,8 +1880,8 @@ def export_dataset(db: Session, today: date, name: str, days=None):
 
     if name == "products":
         data = product_mix(db, today, days=days if days is not None else 30)
-        headers = ["SKU", "kg", "nos", "Value (INR)", "% of value"]
-        rows = [[r["product"], r["kg"], r["nos"], r["value"], r["pct"]] for r in data["rows"]]
+        headers = ["SKU", "Qty", "Lines", "Value (INR)", "% of value"]
+        rows = [[r["product"], r["qty"], r["lines"], r["value"], r["pct"]] for r in data["rows"]]
         return (f"product_mix_{tag}.xlsx", "Product mix", headers, rows)
 
     if name == "team":

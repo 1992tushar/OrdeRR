@@ -62,6 +62,7 @@ from orderr_core.models.vasy_purchase import VasyPurchase, VasyPurchaseItem  # n
 from orderr_core.models.vasy_expense import VasyExpense                 # noqa: F401
 from orderr_core.models.vasy_payment import VasyPayment                 # noqa: F401
 from orderr_core.models.vasy_supplier_bill import VasySupplierBill       # noqa: F401
+from orderr_core.models.vasy_sales_item import VasySalesItem             # noqa: F401
 
 
 Base.metadata.create_all(bind=engine)
