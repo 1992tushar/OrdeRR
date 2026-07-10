@@ -785,6 +785,70 @@ def demand_trend(db: Session, today: date, months: int = 12) -> dict:
     }
 
 
+# ── P1-11 Salesperson & area performance (sales) ───────────────────────────
+
+def team_performance(db: Session, today: date, days=30) -> dict:
+    """P1-11 — sales rolled up by salesperson and by area.
+
+    Per group: revenue (₹, window, from invoices), order count (window),
+    active customers (ordered in window) and portfolio size (assigned
+    customers). `days` bounds revenue/orders; None = all time.
+    Customers with no salesperson/area roll into an "Unassigned" bucket.
+    """
+    window_start = None if days is None else today - timedelta(days=days - 1)
+    ws = window_start.strftime("%Y-%m-%d") if window_start else None
+    today_str = today.strftime("%Y-%m-%d")
+
+    rev_q = db.query(
+        Invoice.customer_phone, func.coalesce(func.sum(Invoice.total), 0)
+    ).filter(Invoice.status != "void", Invoice.business_date <= today)
+    if window_start:
+        rev_q = rev_q.filter(Invoice.business_date >= window_start)
+    revenue = {ph: float(t) for ph, t in rev_q.group_by(Invoice.customer_phone).all()}
+
+    oc_q = db.query(Order.customer_phone, func.count(Order.id)).filter(
+        Order.is_cancelled == False, Order.business_date <= today_str)  # noqa: E712
+    if ws:
+        oc_q = oc_q.filter(Order.business_date >= ws)
+    orders_win = {ph: c for ph, c in oc_q.group_by(Order.customer_phone).all()}
+
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+
+    def _bucket():
+        return {"revenue": 0.0, "orders": 0, "active": 0, "portfolio": 0}
+    by_sp, by_area = {}, {}
+
+    for c in db.query(Customer).all():
+        ph = c.phone_number
+        rev = revenue.get(ph, 0.0) if ph else 0.0
+        no = orders_win.get(ph, 0) if ph else 0
+        sp = (sp_name.get(c.salesperson_id) if c.salesperson_id else None) or "Unassigned"
+        area = c.area or "Unassigned"
+        for key, table in ((sp, by_sp), (area, by_area)):
+            b = table.setdefault(key, _bucket())
+            b["revenue"] += rev
+            b["orders"] += no
+            b["portfolio"] += 1
+            if no > 0:
+                b["active"] += 1
+
+    def _rows(table):
+        rows = [{
+            "name": k,
+            "revenue": round(v["revenue"], 2), "revenue_fmt": fmt_inr(v["revenue"]),
+            "orders": v["orders"], "active": v["active"], "portfolio": v["portfolio"],
+        } for k, v in table.items()]
+        rows.sort(key=lambda r: r["revenue"], reverse=True)
+        return rows
+
+    return {
+        "by_salesperson": _rows(by_sp),
+        "by_area": _rows(by_area),
+        "days": days,
+        "window_label": "All time" if days is None else f"Last {days} days",
+    }
+
+
 # ── P1-9 Fill rate (ordered vs delivered) ──────────────────────────────────
 
 def fill_rate(db: Session, today: date, days=90) -> dict:

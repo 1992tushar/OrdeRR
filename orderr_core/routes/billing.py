@@ -15,12 +15,13 @@ Billing's job is now:
   1. Read today's orders straight from `orders` (no upload step).
   2. Lazily seed `OrderItemActual` rows from `parsed_items` the first time an
      order is viewed (this replaces the old HTML-report-driven seeding).
-  3. Surface `unclear_items` as review items (same UI/table as OCR-unmatched
-     lines from photo uploads), tagged with a distinct reason.
-  4. Photo upload only *matches* OCR'd hotel blocks against TODAY'S EXISTING
-     orders (by customer_name) and writes delivered quantities -- it never
-     creates a new order row. If no match is found, that hotel surfaces as
-     an explicit error rather than silently creating a duplicate order.
+  3. Surface `unclear_items` as review items, tagged with a distinct reason.
+
+Delivered quantities are entered manually per hotel (one Confirm button per
+order). Photo/OCR capture was removed: handwritten quantities on the production
+sheet were being misread (e.g. 8.5->6.5, 30->80) and, once auto-accepted, could
+not be corrected before invoicing. Manual entry keeps the handwritten sheet as
+the source of truth and every quantity editable until confirmed.
 """
 from __future__ import annotations
 
@@ -32,10 +33,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from orderr_core.database import get_db
@@ -50,8 +51,6 @@ from orderr_core.services.invoice_generator import (
 )
 from orderr_core.services.invoice_pdf import generate_invoice_pdf
 from orderr_core.services.order_service import get_current_business_date_str
-from orderr_core.services.ocr_actuals_parser import parse_claude_hotel_rows
-from orderr_core.services.ocr_engine import OCREngineError, get_production_report_engine
 from orderr_core.services.rate_lookup import get_rate
 from orderr_core.services.rate_parser import ACTIVE_PRODUCTS
 from orderr_core.models.rate_override import CustomerRateOverride
@@ -299,202 +298,6 @@ def _ensure_order_seeded(db: Session, order_id: int, parsed_items: list, unclear
             line.resolved_at = now
 
     db.commit()
-
-
-# ---------------------------------------------------------------------------
-# Merge photo-OCR results into an EXISTING order's actuals. Never creates an
-# order — that already happened in orderr-core when the customer ordered.
-# ---------------------------------------------------------------------------
-
-def _merge_actuals(db: Session, order_id: int, matched: list, unmatched: list) -> dict:
-    existing = {a.product: a for a in db.scalars(
-        select(OrderItemActual).where(OrderItemActual.order_id == order_id)
-    ).all()}
-
-    added = replaced = skipped_manual = needs_review_count = 0
-
-    for item in matched:
-        product = item["product"]
-        ex      = existing.get(product)
-
-        if ex and ex.capture_source == "dashboard_manual":
-            skipped_manual += 1
-            continue
-
-        confidence = "needs_review" if item["needs_review"] else "auto"
-        if item["needs_review"]:
-            needs_review_count += 1
-
-        if ex:
-            # Was seeded from orderr_core (ordered qty known) or a prior
-            # photo_ocr pass -- update in place, keep the ordered_quantity.
-            ex.actual_quantity = item["quantity"]
-            ex.actual_unit     = item["unit"]
-            ex.capture_source  = "photo_ocr"
-            ex.confidence      = confidence
-            ex.confirmed_by    = None
-            ex.confirmed_at    = None
-            replaced += 1
-        else:
-            # Product appeared in the photo but wasn't part of the original
-            # order -- e.g. an add-on delivered on the day. Use the photo's
-            # own quantity as both ordered & actual since we have no other
-            # ordered-quantity source for it.
-            db.add(OrderItemActual(
-                order_id=order_id,
-                product=product,
-                ordered_quantity=item.get("ordered_quantity_hint") or item["quantity"],
-                ordered_unit=item["unit"],
-                actual_quantity=item["quantity"],
-                actual_unit=item["unit"],
-                capture_source="photo_ocr",
-                confidence=confidence,
-                confirmed_by=None,
-                confirmed_at=None,
-            ))
-            added += 1
-
-    for line in unmatched:
-        db.add(OcrUnmatchedLine(
-            order_id=order_id,
-            raw_line=line["raw_line"],
-            reason=line["reason"],
-            resolved=False,
-        ))
-
-    return {
-        "added":          added,
-        "replaced":       replaced,
-        "skipped_manual": skipped_manual,
-        "needs_review":   needs_review_count,
-        "unmatched":      len(unmatched),
-    }
-
-
-def _find_todays_order_by_name(db: Session, hotel_name: str, today: date) -> Optional[tuple]:
-    """
-    Match a photo-OCR'd hotel name against TODAY'S EXISTING orders only.
-    Returns (order_id, customer_name, customer_phone) or None.
-    Never creates a row -- if nothing matches, the caller must surface this
-    as an error so a real order isn't silently duplicated.
-    """
-    return db.execute(
-        text("""
-            SELECT id, customer_name, customer_phone
-            FROM orders
-            WHERE business_date = :today
-              AND is_cancelled = FALSE
-              AND status != 'cancelled'
-              AND LOWER(customer_name) LIKE LOWER(:pattern)
-            ORDER BY id DESC
-            LIMIT 1
-        """),
-        {"today": today.isoformat(), "pattern": f"%{hotel_name}%"},
-    ).fetchone()
-
-
-# ---------------------------------------------------------------------------
-# Photo upload — match against today's existing orders, never create new ones
-# ---------------------------------------------------------------------------
-
-@router.post("/billing/api/upload")
-async def api_upload(
-    photos: list[UploadFile] = File(...),
-    db: Session = Depends(get_db),
-):
-    today            = _today()
-    all_hotel_blocks = []
-
-    try:
-        engine = get_production_report_engine()
-        for photo in photos:
-            image_bytes = await photo.read()
-            if not image_bytes:
-                continue
-            blocks = engine.extract_rows(image_bytes)
-            all_hotel_blocks.extend(blocks)
-    except OCREngineError as e:
-        return JSONResponse(status_code=422, content={"error": str(e)})
-    except Exception as e:
-        logger.exception("Unexpected OCR error")
-        return JSONResponse(status_code=500, content={"error": f"Extraction failed: {e}"})
-
-    if not all_hotel_blocks:
-        return JSONResponse(
-            status_code=422,
-            content={"error": "No hotel orders found in the uploaded photo(s)."},
-        )
-
-    parsed     = parse_claude_hotel_rows(all_hotel_blocks)
-    order_info: dict[str, dict] = {}
-
-    for hotel in parsed["hotels"]:
-        hotel_name = hotel["hotel_name"]
-        matched    = hotel["matched"]
-        unmatched  = hotel["unmatched"]
-
-        match_row = _find_todays_order_by_name(db, hotel_name, today)
-        if not match_row:
-            order_info[hotel_name] = {
-                "order_id": None,
-                "merge":    None,
-                "error":    f"No order placed today matches \"{hotel_name}\" — check spelling, "
-                            f"or confirm this hotel actually ordered today before re-uploading.",
-                "skipped_invoiced": False,
-            }
-            continue
-
-        order_id = match_row[0]
-
-        already_invoiced = db.scalar(
-            select(func.count()).select_from(Invoice).where(Invoice.order_id == order_id)
-        )
-        if already_invoiced:
-            order_info[hotel_name] = {
-                "order_id": order_id,
-                "merge":    None,
-                "error":    None,
-                "skipped_invoiced": True,
-            }
-            continue
-
-        try:
-            merge_summary = _merge_actuals(db, order_id, matched, unmatched)
-            order_info[hotel_name] = {
-                "order_id": order_id,
-                "merge":    merge_summary,
-                "error":    None,
-                "skipped_invoiced": False,
-            }
-        except Exception as e:
-            logger.exception("Failed processing hotel %r", hotel_name)
-            db.rollback()
-            order_info[hotel_name] = {
-                "order_id": None,
-                "merge":    None,
-                "error":    str(e),
-                "skipped_invoiced": False,
-            }
-
-    db.commit()
-
-    hotels_out = []
-    for hotel in parsed["hotels"]:
-        hotel_name = hotel["hotel_name"]
-        info       = order_info[hotel_name]
-
-        if info["error"]:
-            hotels_out.append({
-                "hotel_name": hotel_name,
-                "order_id":   info["order_id"],
-                "error":      info["error"],
-                "status":     "error",
-            })
-            continue
-
-        hotels_out.append(_build_hotel_record(db, hotel_name, info["order_id"]))
-
-    return {"hotels": hotels_out, "today": today.isoformat()}
 
 
 # ---------------------------------------------------------------------------

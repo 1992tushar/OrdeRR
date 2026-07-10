@@ -98,6 +98,8 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 .qty-inp:focus{outline:none;border-color:var(--green)}
 .conf-btn{font-size:12px;font-weight:600;padding:5px 11px;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer}
 .check-tag{font-size:12px;color:var(--green);font-weight:500}
+.edit-link{font-size:12px;color:var(--blue);font-weight:600;cursor:pointer;margin-left:8px;text-decoration:underline}
+.edit-link:hover{opacity:.8}
 
 .unmatched-head{font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;display:flex;align-items:center;gap:5px}
 .unmatched-block{background:var(--red-bg);border:1px solid var(--red-border);border-radius:8px;padding:12px 14px;margin-bottom:8px}
@@ -204,7 +206,6 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
   <div class="nav-logo">Fluffy Billing</div>
   <div class="nav-tabs">
     <div class="nav-tab active" id="tab-today" onclick="goView('today')">Today</div>
-    <div class="nav-tab" id="tab-upload" onclick="goView('upload')">Confirm delivery</div>
     <div class="nav-tab" id="tab-rates" onclick="goView('rates')">Rates</div>
     <div class="nav-tab" id="tab-history" onclick="goView('history')">History</div>
   </div>
@@ -222,7 +223,7 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
     <div class="stat-card s-blue"><div class="n" id="s-invoiced">-</div><div class="l">Invoiced</div></div>
     <div class="stat-card s-green"><div class="n" id="s-clear">-</div><div class="l">Ready</div></div>
     <div class="stat-card s-amber"><div class="n" id="s-unclear">-</div><div class="l">Attention</div></div>
-    <div class="stat-card"><div class="n" id="s-pending">-</div><div class="l">Awaiting photo</div></div>
+    <div class="stat-card"><div class="n" id="s-pending">-</div><div class="l">Awaiting entry</div></div>
   </div>
 
   <div id="attn-banner" class="attn-banner" style="display:none">
@@ -240,50 +241,7 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
   <div id="today-sections"></div>
 
   <div class="action-bar" style="margin-top:12px">
-    <button class="btn btn-ghost btn-sm" onclick="goView('upload')">Confirm delivery (upload photo)</button>
     <button class="btn btn-ghost btn-sm" onclick="refreshTodayView()">Refresh</button>
-  </div>
-</div>
-
-
-<div class="view" id="view-upload">
-  <div class="card">
-    <div class="card-head">
-      <span class="card-title">Confirm delivered quantities</span>
-    </div>
-    <div class="card-body">
-
-      <div id="report-ok-banner" class="ok-banner" style="display:none"><span id="report-ok-text"></span></div>
-
-      <div id="photo-prog-wrap" style="display:none" class="prog-wrap">
-        <div class="prog-lbl"><span id="prog-txt">0 of 0 hotels confirmed</span><span id="prog-pct">0%</span></div>
-        <div class="prog-bg"><div class="prog-fill" id="prog-bar" style="width:0%"></div></div>
-      </div>
-
-      <div class="drop-zone" id="photo-zone"
-           onclick="document.getElementById('photo-files-inp').click()"
-           ondragover="onDrag(event,'photo-zone',true)"
-           ondragleave="onDrag(event,'photo-zone',false)"
-           ondrop="onDropFile(event)">
-        <span class="dz-icon">+</span>
-        <div class="drop-label">Tap to choose photos</div>
-        <div class="drop-sub">Photo of today's dispatch/delivery sheet - JPG, PNG or PDF - Multiple pages OK</div>
-        <input type="file" id="photo-files-inp" accept="image/*,.pdf" multiple onchange="onFileSelect(event)">
-      </div>
-      <div class="file-pills" id="photo-pill-list"></div>
-      <div id="photo-err" class="err-banner" style="display:none;margin-top:14px"></div>
-      <div class="action-bar">
-        <button class="btn btn-primary" id="btn-upload-photos" onclick="doPhotosUpload()" disabled>Read photos and update</button>
-      </div>
-
-      <div id="upload-spinner" style="display:none">
-        <div class="spin-wrap">
-          <div class="spinner"></div>
-          <div class="spin-label" id="spin-msg">Processing...</div>
-        </div>
-      </div>
-
-    </div>
   </div>
 </div>
 
@@ -372,7 +330,6 @@ let editedRates = {};
 let allInvoices = [];
 let sortCol   = 'business_date';
 let sortDir   = 'desc';
-let photoFiles = [];
 
 function fmt(iso){
   return new Date(iso+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
@@ -385,29 +342,21 @@ function fmts(iso){
   document.getElementById('date-label').textContent = fmt(today);
   await Promise.all([loadRates(), refreshTodayView()]);
 
-  // No forced tab switch -- land on Today regardless of pending status.
-  // Manual entry is available right on the Today cards, so photo upload
-  // is no longer the only way to confirm a pending hotel.
+  // Land on Today. Delivered quantities are entered manually right on each
+  // hotel card.
   if(hotelResults.length > 0 && hotelResults.every(h=>h.status==='pending')){
-    showToast(hotelResults.length + ' hotel(s) ordered today - upload a photo or enter quantities manually below');
+    showToast(hotelResults.length + ' hotel(s) ordered today - enter delivered quantities below');
   }
 })();
 
 function goView(v){
-  ['today','upload','rates','history'].forEach(x=>{
+  ['today','rates','history'].forEach(x=>{
     document.getElementById('view-'+x).classList.toggle('active', x===v);
     document.getElementById('tab-'+x).classList.toggle('active',  x===v);
   });
   window.scrollTo({top:0,behavior:'smooth'});
   if(v==='history') loadHistory();
   if(v==='today')   refreshTodayView();
-  if(v==='upload'){
-    const loaded = hotelResults.filter(h=>h.status!=='error').length;
-    if(loaded > 0){
-      document.getElementById('report-ok-banner').style.display='flex';
-      document.getElementById('report-ok-text').textContent = loaded + ' hotel(s) ordered today';
-    }
-  }
 }
 
 async function refreshTodayView(){
@@ -483,7 +432,7 @@ function buildHotelCard(h){
 
   const statusLabel = {
     clear:'Ready', invoiced:'Invoiced', unclear:'Needs attention',
-    error:'Error', pending:'Awaiting photo'
+    error:'Error', pending:'Awaiting entry'
   }[h.status] || h.status;
 
   const head = document.createElement('div');
@@ -537,10 +486,10 @@ function toggleCard(orderId){
 }
 
 function buildPendingBody(h){
-  // Manual fallback: pending items already have actual_id seeded by the
-  // backend (_ensure_order_seeded), so the operator can type every delivered
-  // quantity and confirm the whole hotel at once via confirmAllItems -- no
-  // photo required. One Confirm button per hotel, never per item.
+  // Pending items already have actual_id seeded by the backend
+  // (_ensure_order_seeded), so the operator can type every delivered quantity
+  // and confirm the whole hotel at once via confirmAllItems. One Confirm button
+  // per hotel, never per item.
   const wrap = document.createElement('div');
   let rows = '';
   (h.items||[]).forEach(it=>{
@@ -563,7 +512,7 @@ function buildPendingBody(h){
     '<div class="action-bar" style="margin-top:12px">' +
     '<button class="gen-btn" onclick="confirmAllItems('+h.order_id+')">Confirm delivered quantities</button>' +
     '</div>' +
-    '<div style="margin-top:8px;font-size:12px;color:var(--ink3)">Fill in every item, then confirm. Or use "Confirm delivery (upload photo)" instead.</div>';
+    '<div style="margin-top:8px;font-size:12px;color:var(--ink3)">Fill in every item, then confirm.</div>';
   return wrap;
 }
 
@@ -572,12 +521,16 @@ function buildItemsTable(h){
   let rows = '';
   let anyEditable = false;
   (h.items||[]).forEach(it=>{
-    // An item is unconfirmed if it was flagged for review OR still has no
-    // delivered quantity. Items seeded from an order start with actual_qty=null
+    // An item is editable if it was flagged for review, still has no delivered
+    // quantity, OR the operator clicked "Edit" to reopen an already-confirmed
+    // value (it._editing). Items seeded from an order start with actual_qty=null
     // and are NOT needs_review, so they must stay editable here — otherwise they
     // render as a bare "OK" and get billed at their ordered quantity.
     const nr  = it.needs_review;
-    const unconfirmed = nr || it.actual_qty == null;
+    const unconfirmed = nr || it.actual_qty == null || it._editing;
+    // A confirmed value can only be reopened when it's backed by a server row
+    // (actual_id) that confirm-items can re-write.
+    const canEdit = !unconfirmed && it.actual_id != null;
     if(unconfirmed && it.actual_id != null) anyEditable = true;
     const qid = 'qi-'+h.order_id+'-'+it.actual_id;
     rows += '<tr class="'+(unconfirmed?'nr':'')+'">' +
@@ -594,7 +547,11 @@ function buildItemsTable(h){
       ) +
       '</td>' +
       '<td>'+it.unit+'</td>' +
-      '<td>'+(unconfirmed ? '' : '<span class="check-tag">OK</span>')+'</td>' +
+      '<td>'+(unconfirmed
+        ? ''
+        : '<span class="check-tag">OK</span>' +
+          (canEdit ? ' <a class="edit-link" onclick="editRow('+h.order_id+','+it.actual_id+')">Edit</a>' : '')
+      )+'</td>' +
       '</tr>';
   });
   wrap.innerHTML = '<table class="items-tbl"><thead><tr>' +
@@ -680,8 +637,24 @@ function renderStatCounts(){
 // card to Ready while other items still have no delivered quantity — mirrors the
 // backend status logic in _build_hotel_record.
 function isHotelClear(h){
-  return (h.items||[]).every(i => !i.needs_review && i.actual_qty != null)
+  return (h.items||[]).every(i => !i.needs_review && i.actual_qty != null && !i._editing)
     && (!h.unmatched || h.unmatched.every(u => u._done));
+}
+
+// Reopen an already-confirmed delivered quantity for correction. Flips the row
+// back to an editable input (pre-filled with the current value) and drops the
+// hotel out of "Ready" until it's re-confirmed, so a stale value can't be
+// invoiced mid-edit.
+function editRow(orderId, actualId){
+  const h = hotelResults.find(x=>x.order_id===orderId);
+  if(!h) return;
+  const it = h.items.find(i=>i.actual_id===actualId);
+  if(!it) return;
+  it._editing = true;
+  if(h.status!=='invoiced') h.status = 'unclear';
+  rebuildCard(orderId);
+  const inp = document.getElementById('qi-'+orderId+'-'+actualId);
+  if(inp){ inp.focus(); inp.select(); }
 }
 
 // One button per hotel: gather every editable delivered-quantity input on the
@@ -694,7 +667,7 @@ async function confirmAllItems(orderId){
 
   const payload = [];
   for(const it of (h.items||[])){
-    const editable = (it.needs_review || it.actual_qty == null) && it.actual_id != null;
+    const editable = (it.needs_review || it.actual_qty == null || it._editing) && it.actual_id != null;
     if(!editable) continue;
     const inp = document.getElementById('qi-'+orderId+'-'+it.actual_id);
     const qty = parseFloat(inp ? inp.value : '');
@@ -716,7 +689,7 @@ async function confirmAllItems(orderId){
     showToast('Confirmed '+payload.length+' item'+(payload.length>1?'s':''));
     payload.forEach(p=>{
       const it = h.items.find(i=>i.actual_id===p.actual_id);
-      if(it){ it.actual_qty=p.actual_qty; it.needs_review=false; }
+      if(it){ it.actual_qty=p.actual_qty; it.needs_review=false; it._editing=false; }
     });
     if(h.status!=='invoiced')
       h.status = isHotelClear(h) ? 'clear' : 'unclear';
@@ -802,83 +775,6 @@ async function dlAllPDFs(){
     showToast('Downloaded all invoices');
   } catch(e){ showToast('Download failed: '+e.message); }
   finally{ btn.disabled=false; btn.textContent=orig; }
-}
-
-function onDrag(e, zoneId, over){
-  e.preventDefault();
-  document.getElementById(zoneId).classList.toggle('drag', over);
-}
-function onDropFile(e){
-  e.preventDefault();
-  addPhotoFiles([...e.dataTransfer.files]);
-  onDrag(e, 'photo-zone', false);
-}
-function onFileSelect(e){
-  addPhotoFiles([...e.target.files]);
-  e.target.value='';
-}
-
-function addPhotoFiles(files){
-  files.forEach(f=>{ if(!photoFiles.find(x=>x.name===f.name&&x.size===f.size)) photoFiles.push(f); });
-  renderPhotoPills();
-}
-function renderPhotoPills(){
-  const ul = document.getElementById('photo-pill-list');
-  ul.innerHTML='';
-  photoFiles.forEach((f,i)=>{
-    const li = document.createElement('div');
-    li.className='file-pill';
-    li.innerHTML='<span style="color:var(--green)">+</span>' +
-      '<span class="fp-name">'+f.name+'</span>' +
-      '<span class="fp-size">'+(f.size/1024).toFixed(0)+' KB</span>' +
-      '<span class="fp-rm" onclick="rmPhoto('+i+')" title="Remove">x</span>';
-    ul.appendChild(li);
-  });
-  document.getElementById('btn-upload-photos').disabled = photoFiles.length===0;
-  document.getElementById('photo-err').style.display = 'none';
-}
-function rmPhoto(i){ photoFiles.splice(i,1); renderPhotoPills(); }
-
-async function doPhotosUpload(){
-  document.getElementById('upload-spinner').style.display='';
-  const labels=[
-    'Reading your photos...','Identifying hotels and quantities...',
-    "Matching against today's orders...",'Updating delivered quantities...'
-  ];
-  let li=0; document.getElementById('spin-msg').textContent=labels[0];
-  const iv = setInterval(()=>{ if(li<labels.length-1) document.getElementById('spin-msg').textContent=labels[++li]; },2400);
-  const fd = new FormData(); photoFiles.forEach(f=>fd.append('photos',f));
-  try{
-    const r = await fetch('/billing/api/upload',{method:'POST',body:fd});
-    const d = await r.json();
-    clearInterval(iv);
-    if(!r.ok) throw new Error(d.error||'Upload failed');
-    try{
-      const tr = await fetch('/billing/api/today-results');
-      const td = await tr.json();
-      hotelResults = td.hotels || d.hotels;
-      today        = td.today  || d.today || today;
-      setProgBar(td.delivered_count||0, td.total_hotels||hotelResults.length);
-    }catch(_){ hotelResults = d.hotels||[]; }
-    showToast('Upload complete');
-    photoFiles = []; renderPhotoPills();
-    goView('today');
-  }catch(e){
-    clearInterval(iv);
-    document.getElementById('photo-err').textContent = e.message;
-    document.getElementById('photo-err').style.display='';
-  }finally{
-    document.getElementById('upload-spinner').style.display='none';
-  }
-}
-
-function setProgBar(done, total){
-  if(!total) return;
-  const pct = Math.round(done/total*100);
-  document.getElementById('photo-prog-wrap').style.display='';
-  document.getElementById('prog-txt').textContent = done+' of '+total+' hotels confirmed';
-  document.getElementById('prog-pct').textContent = pct+'%';
-  document.getElementById('prog-bar').style.width  = pct+'%';
 }
 
 async function loadRates(){

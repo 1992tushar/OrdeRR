@@ -235,6 +235,34 @@ def analytics_products(
     )
 
 
+@router.get("/analytics/team", response_class=HTMLResponse)
+def analytics_team(
+    request: Request,
+    team_days: str = Query(default="30", description="Window: 7|30|90|all"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P1-11 — salesperson & area performance (sales)."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    days = analytics_service.C360_WINDOWS.get(team_days, 30)
+    team = analytics_service.team_performance(db, today, days=days)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_team.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today_display": today.strftime("%d %b %Y"),
+            "team"       : team,
+            "team_days"  : team_days,
+            "analytics_view": "team",
+        },
+    )
+
+
 @router.get("/analytics/quality", response_class=HTMLResponse)
 def analytics_quality(
     request: Request,
