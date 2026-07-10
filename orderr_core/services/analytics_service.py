@@ -22,6 +22,7 @@ from orderr_core.models.order import Order
 from orderr_core.models.invoice import Invoice, InvoiceItem
 from orderr_core.models.customer import Customer
 from orderr_core.models.salesperson import Salesperson
+from orderr_core.models.actuals import OrderItemActual
 from orderr_core.services.template_parser import erp_display_name
 from orderr_core.utils import safe_list, fmt_qty
 
@@ -781,4 +782,121 @@ def demand_trend(db: Session, today: date, months: int = 12) -> dict:
     return {
         "months": [{"key": k, "label": _month_label(k)} for k in keys],
         "skus": skus,
+    }
+
+
+# ── P1-9 Fill rate (ordered vs delivered) ──────────────────────────────────
+
+def fill_rate(db: Session, today: date, days=90) -> dict:
+    """P1-9 — delivered vs ordered quantity, from OrderItemActual.
+
+    Fill % = Σ actual / Σ ordered, per SKU and overall, over rows where an
+    actual was captured AND the actual unit matches the ordered unit (mixed
+    units aren't summable). `days` bounds by the order's business_date;
+    None = all time. Rows without an actual are counted as `pending`
+    (awaiting weigh-in), not as a shortfall.
+    """
+    window_start = None if days is None else today - timedelta(days=days - 1)
+
+    q = (
+        db.query(OrderItemActual.product, OrderItemActual.ordered_quantity,
+                 OrderItemActual.ordered_unit, OrderItemActual.actual_quantity,
+                 OrderItemActual.actual_unit)
+        .join(Order, OrderItemActual.order_id == Order.id)
+        .filter(Order.is_cancelled == False,          # noqa: E712
+                Order.business_date <= today.strftime("%Y-%m-%d"))
+    )
+    if window_start:
+        q = q.filter(Order.business_date >= window_start.strftime("%Y-%m-%d"))
+
+    agg = {}  # erp_name → {ordered, actual, unit, lines, pending}
+    pending_total = 0
+    for product, oq, ou, aq, au in q.all():
+        name = erp_display_name(product or "Unknown")
+        unit = (ou or "kg").lower()
+        row = agg.setdefault(name, {"ordered": 0.0, "actual": 0.0, "unit": unit,
+                                    "lines": 0, "pending": 0})
+        row["lines"] += 1
+        if aq is None:
+            row["pending"] += 1
+            pending_total += 1
+            continue
+        if (au or unit).lower() != unit:
+            # unit mismatch — can't sum; skip from fill math (rare)
+            continue
+        row["ordered"] += float(oq or 0)
+        row["actual"] += float(aq or 0)
+
+    rows = []
+    tot_ordered = tot_actual = 0.0
+    for name, r in agg.items():
+        fill = round(r["actual"] / r["ordered"] * 100, 1) if r["ordered"] else None
+        tot_ordered += r["ordered"]
+        tot_actual += r["actual"]
+        rows.append({
+            "product": name, "unit": r["unit"],
+            "ordered": round(r["ordered"], 3), "ordered_fmt": fmt_qty(r["ordered"]),
+            "actual": round(r["actual"], 3), "actual_fmt": fmt_qty(r["actual"]),
+            "fill_pct": fill, "lines": r["lines"], "pending": r["pending"],
+        })
+    rows.sort(key=lambda x: x["ordered"], reverse=True)
+
+    overall = round(tot_actual / tot_ordered * 100, 1) if tot_ordered else None
+    return {
+        "rows": rows,
+        "overall_fill_pct": overall,
+        "ordered_fmt": fmt_qty(tot_ordered),
+        "actual_fmt": fmt_qty(tot_actual),
+        "pending": pending_total,
+        "has_data": bool(rows),
+        "days": days,
+        "window_label": "All time" if days is None else f"Last {days} days",
+    }
+
+
+# ── P1-10 Parse-quality monitor (unclear rate over time) ───────────────────
+
+def parse_quality(db: Session, today: date, days: int = 30) -> dict:
+    """P1-10 — daily unclear-order rate (data-hygiene signal).
+
+    % unclear = orders flagged is_unclear / total orders, per business_date,
+    over the last `days` days. Cancelled orders excluded.
+    """
+    start = today - timedelta(days=days - 1)
+    rows = (
+        db.query(Order.business_date, Order.is_unclear)
+        .filter(Order.is_cancelled == False,        # noqa: E712
+                Order.business_date != None,        # noqa: E711
+                Order.business_date >= start.strftime("%Y-%m-%d"),
+                Order.business_date <= today.strftime("%Y-%m-%d"))
+        .all()
+    )
+    by_day = {}  # 'YYYY-MM-DD' → [total, unclear]
+    for bdate, unclear in rows:
+        d = by_day.setdefault(bdate, [0, 0])
+        d[0] += 1
+        if unclear:
+            d[1] += 1
+
+    series = []
+    d = start
+    tot = unc = 0
+    while d <= today:
+        ds = d.strftime("%Y-%m-%d")
+        t, u = by_day.get(ds, [0, 0])
+        tot += t
+        unc += u
+        series.append({
+            "date": ds, "label": d.strftime("%d %b"),
+            "total": t, "unclear": u,
+            "pct": round(u / t * 100, 1) if t else None,
+        })
+        d += timedelta(days=1)
+
+    return {
+        "series": series,
+        "total_orders": tot,
+        "total_unclear": unc,
+        "overall_pct": round(unc / tot * 100, 1) if tot else None,
+        "days": days,
     }

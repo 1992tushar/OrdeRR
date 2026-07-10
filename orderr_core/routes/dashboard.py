@@ -235,6 +235,36 @@ def analytics_products(
     )
 
 
+@router.get("/analytics/quality", response_class=HTMLResponse)
+def analytics_quality(
+    request: Request,
+    fill_days: str = Query(default="90", description="Fill-rate window: 7|30|90|all"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """P1-9 fill rate (ordered vs delivered) + P1-10 parse-quality monitor."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    days = analytics_service.C360_WINDOWS.get(fill_days, 90)
+    fill = analytics_service.fill_rate(db, today, days=days)
+    parse = analytics_service.parse_quality(db, today, days=30)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_quality.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today_display": today.strftime("%d %b %Y"),
+            "fill"       : fill,
+            "fill_days"  : fill_days,
+            "parse"      : parse,
+            "analytics_view": "quality",
+        },
+    )
+
+
 @router.get("/analytics/customer/{customer_id}", response_class=HTMLResponse)
 def analytics_customer(
     request: Request,
