@@ -22,6 +22,8 @@ from datetime import date, datetime
 import openpyxl
 from sqlalchemy.orm import Session
 
+from orderr_core.dates import get_current_business_date
+
 from orderr_core.models.customer import Customer
 from orderr_core.models.customer_receipt import CustomerReceipt
 from orderr_core.models.outstanding_snapshot import OutstandingSnapshot
@@ -187,4 +189,124 @@ def import_receipts(db: Session, file_bytes: bytes, source_file: str = None) -> 
         "updated": updated,
         "unmatched": unmatched,
         "matched": created + updated - unmatched,
+    }
+
+
+# ── P2-3 outstanding import (customer refresh + daily snapshot) ─────────────
+
+def import_outstanding(db: Session, file_bytes: bytes, snapshot_date: date = None,
+                       source_file: str = None) -> dict:
+    """Import a Vasy customer-outstanding export.
+
+    Two layers:
+      1. Customer master + `customer.outstanding` refresh (+ phone backfill,
+         create-if-missing) — delegated to the existing, tested
+         import_customers_from_xlsx so there is ONE customer-upsert path.
+      2. A daily OutstandingSnapshot per party (opening/debit/credit/closing),
+         upserted on (party_key, snapshot_date) so a same-day re-import updates
+         rather than duplicates — this is what gives balances a history.
+
+    Customer match is phone-first (Contact No. last-10) then normalized name.
+    Unmatched parties still get a snapshot with customer_id NULL.
+    """
+    snapshot_date = snapshot_date or get_current_business_date()
+
+    # ── layer 1: customer master + outstanding refresh (commits internally) ──
+    cust_summary = import_customers_from_xlsx(db, file_bytes)
+
+    # ── layer 2: snapshots ──
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+    except Exception as e:
+        raise ValueError(f"Could not read the outstanding Excel file: {e}")
+    ws = wb.active
+
+    labels = {
+        "party": ("party name", "party", "name", "customer name"),
+        "contact": ("contact no.", "contact no", "contact", "phone", "mobile no.", "mobile"),
+        "opening": ("opening balance", "opening"),
+        "debit": ("debit",),
+        "credit": ("credit",),
+        "closing": ("closing", "closing balance", "outstanding", "balance"),
+    }
+    header_idx, col = _find_header(ws, labels)
+    if "party" not in col or "closing" not in col:
+        raise ValueError("Outstanding export must have 'Party Name' and 'Closing' columns.")
+
+    by_phone, by_name = _build_customer_lookup(db)  # after layer 1 → includes new customers
+
+    existing = {s.party_key: s for s in db.query(OutstandingSnapshot)
+                .filter(OutstandingSnapshot.snapshot_date == snapshot_date).all()}
+
+    created = updated = unmatched = 0
+    seen = set()
+
+    def cell(row, key):
+        i = col.get(key)
+        return row[i] if (i is not None and i < len(row)) else None
+
+    for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
+        if not row:
+            continue
+        party = str(cell(row, "party") or "").strip()
+        if not party:
+            continue
+        key = normalize_name(party)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+
+        contact = cell(row, "contact")
+        contact = str(contact).strip() if contact not in (None, "") else None
+        opening = _to_amount(cell(row, "opening"))
+        debit = _to_amount(cell(row, "debit"))
+        credit = _to_amount(cell(row, "credit"))
+        closing = _to_amount(cell(row, "closing"))
+
+        # phone-first, then name
+        cust_id = None
+        p10 = _phone_last10(contact)
+        if p10:
+            cust_id = by_phone.get(p10)
+        if cust_id is None:
+            cust_id = by_name.get(key)
+        if cust_id is None:
+            unmatched += 1
+
+        snap = existing.get(key)
+        if snap is None:
+            db.add(OutstandingSnapshot(
+                customer_id=cust_id, party_name=party, party_key=key,
+                contact_no=contact, opening_balance=opening, debit=debit,
+                credit=credit, closing=closing, snapshot_date=snapshot_date,
+            ))
+            created += 1
+        else:
+            snap.customer_id = cust_id
+            snap.party_name = party
+            snap.contact_no = contact
+            snap.opening_balance = opening
+            snap.debit = debit
+            snap.credit = credit
+            snap.closing = closing
+            updated += 1
+
+    db.add(ImportLog(entity="outstanding", source_file=source_file,
+                     rows_total=created + updated, created=created,
+                     updated=updated, unmatched=unmatched,
+                     notes=f"snapshot_date={snapshot_date.isoformat()}; "
+                           f"customers +{cust_summary.get('created',0)}/"
+                           f"~{cust_summary.get('updated',0)}"))
+    db.commit()
+    wb.close()
+
+    return {
+        "entity": "outstanding",
+        "snapshot_date": snapshot_date.isoformat(),
+        "rows": created + updated,
+        "created": created,
+        "updated": updated,
+        "unmatched": unmatched,
+        "matched": created + updated - unmatched,
+        "customers": cust_summary,
     }
