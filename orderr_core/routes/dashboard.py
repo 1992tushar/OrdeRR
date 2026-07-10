@@ -541,10 +541,8 @@ def analytics_admin_reset(
         "status": "DELETED" if do else "dry-run",
         "confirm": do,
         "preserved_tables": maintenance.PRESERVE_TABLES,
-        "customer_fields_kept": maintenance.CUSTOMER_KEEP_FIELDS,
         ("deleted" if do else "would_delete"): tables,
         "total_rows": sum(tables.values()),
-        ("customers_reset" if do else "customers_to_reset"): result["customers_reset"],
     })
 
 
