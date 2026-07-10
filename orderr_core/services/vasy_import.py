@@ -431,7 +431,10 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
 
     existing = {v.voucher_no: v for v in db.query(VasyInvoice).all()
                 if not _is_total_row(v.voucher_no)}
-    created = updated = unmatched = auto_created = 0
+    created = updated = auto_created = 0
+    unmatched = 0        # revenue-bearing invoices (total>0) we still couldn't attribute
+    zero_internal = 0    # ₹0 invoices with no customer — internal accounts (PLANT
+                         # WASTAGE / WORKERS DAILY FOOD), deliberately not customers
     total_amount = 0.0
     new_by_key = {}   # party_key -> id for customers auto-created within this run
 
@@ -467,7 +470,10 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
                 by_name.setdefault(key, cust_id)
                 auto_created += 1
         if cust_id is None:
-            unmatched += 1
+            if total > 0:
+                unmatched += 1        # real revenue we couldn't attribute (should be ~0)
+            else:
+                zero_internal += 1    # ₹0 internal account — expected, not a customer
 
         rec = existing.get(vno)
         if rec is None:
@@ -495,7 +501,8 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
                      rows_total=created + updated, created=created,
                      updated=updated, unmatched=unmatched,
                      notes=f"lines={sum(len(i['lines']) for i in invoices.values())}; "
-                           f"total={round(total_amount, 2)}; auto_created={auto_created}"))
+                           f"total={round(total_amount, 2)}; auto_created={auto_created}; "
+                           f"zero_internal={zero_internal}"))
     db.commit()
 
     return {
@@ -504,8 +511,9 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
         "invoices": created + updated,
         "created": created,
         "updated": updated,
-        "unmatched": unmatched,
-        "matched": created + updated - unmatched,
+        "unmatched": unmatched,                       # revenue unattributed (target 0)
+        "zero_internal": zero_internal,               # ₹0 internal accounts, expected
+        "matched": created + updated - unmatched - zero_internal,
         "customers_created": auto_created,
         "total_fmt": _fmt_inr_local(total_amount),
     }
