@@ -743,6 +743,56 @@ def analytics_portfolio(
     )
 
 
+@router.get("/analytics/payment-behaviour", response_class=HTMLResponse)
+def analytics_payment_behaviour(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Phase 4.3 — payment behaviour: DSO, concentration, early warnings."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.payment_behaviour(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_payment.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today_display": today.strftime("%d %b %Y"),
+            "pb"         : data,
+            "analytics_view": "payment",
+        },
+    )
+
+
+@router.get("/analytics/lifecycle", response_class=HTMLResponse)
+def analytics_lifecycle(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Phase 4.4 — lifecycle stages, spend movers, acquisition cohorts."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.lifecycle_cohorts(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_lifecycle.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today_display": today.strftime("%d %b %Y"),
+            "lc"         : data,
+            "analytics_view": "lifecycle",
+        },
+    )
+
+
 @router.get("/analytics/team", response_class=HTMLResponse)
 def analytics_team(
     request: Request,

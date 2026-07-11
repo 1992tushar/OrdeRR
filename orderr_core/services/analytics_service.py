@@ -1281,6 +1281,24 @@ def _reliability_score(cur_out, days_since_pay, utilization_pct, pay_months, ten
     return score, grade, {"recency": c_recency, "utilization": c_util, "consistency": c_consistency}
 
 
+def _lifecycle_stage(first_inv_days, last_inv_days, trajectory_pct):
+    """Customer lifecycle from billing recency + 3-month spend trajectory.
+    Shared by the per-customer profile and the lifecycle/cohorts screen."""
+    if first_inv_days is None:
+        return "No billing"
+    if last_inv_days is not None and last_inv_days > 90:
+        return "Lost"
+    if last_inv_days is not None and last_inv_days > 45:
+        return "Dormant"
+    if first_inv_days <= 60:
+        return "New"
+    if trajectory_pct is not None and trajectory_pct >= 15:
+        return "Growing"
+    if trajectory_pct is not None and trajectory_pct <= -15:
+        return "Declining"
+    return "Mature"
+
+
 def customer_detail(db: Session, customer_id: int, today: date, months: int = 12):
     """P1-3 — full sales-side detail for one customer.
 
@@ -1452,20 +1470,7 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
 
     last_inv_days = (today - inv_dates[-1]).days if inv_dates else None
     first_inv_days = (today - inv_dates[0]).days if inv_dates else None
-    if not inv_dates:
-        lifecycle = "No billing"
-    elif last_inv_days > 90:
-        lifecycle = "Lost"
-    elif last_inv_days > 45:
-        lifecycle = "Dormant"
-    elif first_inv_days <= 60:
-        lifecycle = "New"
-    elif trajectory_pct is not None and trajectory_pct >= 15:
-        lifecycle = "Growing"
-    elif trajectory_pct is not None and trajectory_pct <= -15:
-        lifecycle = "Declining"
-    else:
-        lifecycle = "Mature"
+    lifecycle = _lifecycle_stage(first_inv_days, last_inv_days, trajectory_pct)
 
     bal_dir = None
     if len(snap_rows) >= 2:
@@ -1678,6 +1683,174 @@ def portfolio(db: Session, today: date) -> dict:
         "areas": sorted({r["area"] for r in rows if r["area"]}),
         "salespeople": sorted({r["salesperson"] for r in rows if r["salesperson"]}),
         "as_of": latest_snap.strftime("%d %b %Y") if latest_snap else None,
+    }
+
+
+# ── Phase 4.3 — Payment behaviour: DSO, concentration, early warnings ───────
+
+def payment_behaviour(db: Session, today: date) -> dict:
+    """Portfolio-level payment health: DSO, AR concentration, an AR-over-time
+    series, and a ranked 'deteriorating payers' early-warning list. Reuses
+    receivables() for the debtor rows (outstanding, balance direction,
+    days-since-payment)."""
+    rec = receivables(db, today)
+    if not rec.get("has_data"):
+        return {"has_data": False}
+    rows = rec["rows"]                          # debtors, sorted desc by outstanding
+    total_ar = rec["total_ar"] or 0.0
+
+    # Portfolio DSO = total AR ÷ average daily billing (trailing 90 days).
+    start90 = today - timedelta(days=90)
+    bill90 = float(db.query(func.coalesce(func.sum(VasyInvoice.total), 0))
+                   .filter(VasyInvoice.invoice_date >= start90,
+                           VasyInvoice.invoice_date <= today,
+                           VasyInvoice.total > 0).scalar() or 0)
+    avg_daily = bill90 / 90.0
+    dso = round(total_ar / avg_daily) if avg_daily > 0 else None
+
+    # Concentration: how many customers make up 80% of AR.
+    cum = 0.0
+    n80 = 0
+    for r in rows:
+        cum += r["outstanding"]
+        n80 += 1
+        if total_ar and cum >= 0.8 * total_ar:
+            break
+    top20 = sum(r["outstanding"] for r in rows[:20])
+
+    # AR over time (total positive balances per snapshot date).
+    ar_series = []
+    for (d,) in (db.query(OutstandingSnapshot.snapshot_date).distinct()
+                 .order_by(OutstandingSnapshot.snapshot_date).all()):
+        tot = float(db.query(func.coalesce(func.sum(OutstandingSnapshot.closing), 0))
+                    .filter(OutstandingSnapshot.snapshot_date == d,
+                            OutstandingSnapshot.closing > 0).scalar() or 0)
+        ar_series.append({"date": d.strftime("%d %b"), "amount": round(tot, 2), "amount_fmt": fmt_inr(tot)})
+
+    # Deteriorating payers: rising balance and/or long silence, ranked by
+    # exposure × staleness.
+    watch = []
+    for r in rows:
+        dsp = r["days_since_payment"]
+        d = 999 if dsp == "" else int(dsp)
+        reasons = []
+        if r.get("direction") == "up":
+            reasons.append("balance rising")
+        if dsp == "":
+            reasons.append("no payment on record")
+        elif d > 30:
+            reasons.append(f"{d}d since payment")
+        if not reasons:
+            continue
+        severity = r["outstanding"] * (1 + min(d, 120) / 60.0)
+        watch.append({
+            "customer_id": r["customer_id"], "name": r["name"],
+            "area": r["area"], "salesperson": r["salesperson"],
+            "outstanding_fmt": r["outstanding_fmt"], "outstanding": r["outstanding"],
+            "days_since_payment": dsp, "last_payment_display": r["last_payment_display"],
+            "direction": r.get("direction"), "reasons": ", ".join(reasons),
+            "_sev": severity,
+        })
+    watch.sort(key=lambda x: x["_sev"], reverse=True)
+    watch_exposure = sum(w["outstanding"] for w in watch)
+
+    return {
+        "has_data": True,
+        "as_of": rec["as_of"],
+        "total_ar_fmt": rec["total_ar_fmt"], "debtor_count": rec["debtor_count"],
+        "dso": dso, "bill90_fmt": fmt_inr(bill90),
+        "top5_pct": rec["top5_pct"], "top10_pct": rec["top10_pct"],
+        "top20_pct": round(top20 / total_ar * 100, 1) if total_ar else 0,
+        "n80": n80,
+        "ar_series": ar_series,
+        "watch": watch[:50],
+        "watch_count": len(watch),
+        "watch_exposure_fmt": fmt_inr(watch_exposure),
+        "areas": rec["areas"], "salespeople": rec["salespeople"],
+    }
+
+
+# ── Phase 4.4 — Lifecycle stages & acquisition cohorts ─────────────────────
+
+def lifecycle_cohorts(db: Session, today: date) -> dict:
+    """Customer lifecycle distribution, biggest spend movers (3-mo trajectory),
+    and acquisition cohorts (first-invoice month → how many still active)."""
+    customers = {c.id: c for c in db.query(Customer).all()}
+    rev = _vasy_revenue_by_customer(db, None, today)          # all-time revenue
+
+    span = {}
+    for cid, lo, hi in (db.query(VasyInvoice.customer_id,
+                                 func.min(VasyInvoice.invoice_date),
+                                 func.max(VasyInvoice.invoice_date))
+                        .filter(VasyInvoice.customer_id != None)          # noqa: E711
+                        .group_by(VasyInvoice.customer_id).all()):
+        span[cid] = (lo, hi)
+
+    last3 = _vasy_revenue_by_customer(db, today - timedelta(days=90), today)
+    prev3 = {}
+    for cid, amt in (db.query(VasyInvoice.customer_id, func.sum(VasyInvoice.total))
+                     .filter(VasyInvoice.customer_id != None,             # noqa: E711
+                             VasyInvoice.invoice_date >= today - timedelta(days=180),
+                             VasyInvoice.invoice_date < today - timedelta(days=90))
+                     .group_by(VasyInvoice.customer_id).all()):
+        prev3[cid] = float(amt or 0)
+
+    STAGES = ["New", "Growing", "Mature", "Declining", "Dormant", "Lost"]
+    ACCENT = {"New": "blue", "Growing": "good", "Mature": "", "Declining": "amber",
+              "Dormant": "amber", "Lost": "red"}
+    stage_agg = {s: {"count": 0, "revenue": 0.0} for s in STAGES}
+    movers = []
+    cohorts = {}                     # 'YYYY-MM' -> {"acq": int, "active": int}
+
+    for cid, c in customers.items():
+        if cid not in span or not span[cid][0]:
+            continue
+        lo, hi = span[cid]
+        first_inv_days = (today - lo).days
+        last_inv_days = (today - hi).days
+        l3, p3 = last3.get(cid, 0.0), prev3.get(cid, 0.0)
+        traj = round((l3 - p3) / p3 * 100, 1) if p3 > 0 else (100.0 if l3 > 0 else None)
+        stage = _lifecycle_stage(first_inv_days, last_inv_days, traj)
+        if stage in stage_agg:
+            stage_agg[stage]["count"] += 1
+            stage_agg[stage]["revenue"] += float(rev.get(cid, 0.0))
+
+        if traj is not None and abs(traj) >= 15 and (l3 > 0 or p3 > 0) and last_inv_days <= 45:
+            movers.append({"customer_id": cid, "name": c.restaurant_name or f"#{cid}",
+                           "trajectory_pct": traj, "last3_fmt": fmt_inr(l3), "prev3_fmt": fmt_inr(p3)})
+
+        ck = lo.strftime("%Y-%m")
+        co = cohorts.setdefault(ck, {"acq": 0, "active": 0})
+        co["acq"] += 1
+        if last_inv_days <= 45:                      # still buying
+            co["active"] += 1
+
+    base = sum(s["count"] for s in stage_agg.values()) or 1
+    stages = [{"stage": s, "accent": ACCENT[s], "count": stage_agg[s]["count"],
+               "pct": round(stage_agg[s]["count"] / base * 100),
+               "revenue_fmt": fmt_inr(stage_agg[s]["revenue"])} for s in STAGES]
+
+    movers.sort(key=lambda m: m["trajectory_pct"], reverse=True)
+    growing = [m for m in movers if m["trajectory_pct"] > 0][:10]
+    shrinking = sorted([m for m in movers if m["trajectory_pct"] < 0],
+                       key=lambda m: m["trajectory_pct"])[:10]
+
+    cohort_rows = []
+    for ck in sorted(cohorts.keys()):
+        co = cohorts[ck]
+        y, m = ck.split("-")
+        cohort_rows.append({
+            "label": date(int(y), int(m), 1).strftime("%b %Y"),
+            "acquired": co["acq"], "active": co["active"],
+            "retention_pct": round(co["active"] / co["acq"] * 100) if co["acq"] else 0,
+        })
+
+    return {
+        "has_data": bool(span),
+        "total": base if base > 1 else sum(s["count"] for s in stage_agg.values()),
+        "stages": stages,
+        "growing": growing, "shrinking": shrinking,
+        "cohorts": cohort_rows,
     }
 
 
