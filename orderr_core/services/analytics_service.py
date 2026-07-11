@@ -796,6 +796,47 @@ def manager_digest(db: Session, today: date) -> dict:
         lines.append(f"Outstanding (AR): {money['total_outstanding_fmt']}")
     lines.append("")
 
+    # Margin guard
+    try:
+        fin = plant_financials(db, today)
+        if fin.get("has_data") and fin["totals"].get("margin_alert"):
+            lines.append(f"📉 Gross margin {fin['totals']['margin_pct']}% — below "
+                         f"{fin['totals']['margin_threshold']:.0f}% floor. Review rates vs cost.")
+            lines.append("")
+    except Exception:
+        pass
+
+    # Wastage today (internal PLANT WASTAGE / WORKERS DAILY FOOD)
+    try:
+        w = wastage(db, today, days=30)
+        if w.get("today_qty", 0) > 0:
+            lines.append(f"🗑️ Wastage today: {fmt_qty(w['today_qty'])} kg "
+                         f"({w['pct_of_volume']}% of volume, 30d)")
+            lines.append("")
+    except Exception:
+        pass
+
+    # Staff on leave / late today
+    try:
+        from orderr_core.models.leave import Leave
+        from orderr_core.models.late_mark import LateMark
+        from orderr_core.models.employee import Employee
+        tstr = today.strftime("%Y-%m-%d")
+        on_leave = [n for (n,) in db.query(Employee.name)
+                    .join(Leave, Leave.employee_id == Employee.id)
+                    .filter(Leave.date == tstr).all()]
+        late = [n for (n,) in db.query(Employee.name)
+                .join(LateMark, LateMark.employee_id == Employee.id)
+                .filter(LateMark.date == tstr).all()]
+        if on_leave:
+            lines.append(f"🏖️ On leave today: {', '.join(on_leave)}")
+        if late:
+            lines.append(f"⏰ Late today: {', '.join(late)}")
+        if on_leave or late:
+            lines.append("")
+    except Exception:
+        pass
+
     if ci.get("has_data"):
         lines.append(f"⚠️ At-risk customers: {ci['at_risk']} ({ci['breach']} over limit)")
         for r in at_risk_rows[:3]:
@@ -822,6 +863,60 @@ def manager_digest(db: Session, today: date) -> dict:
         "chase_count": len(chases),
         "churn_count": len(churn.get("rows", [])),
         "has_money": money.get("has_data", False),
+    }
+
+
+# ── Wastage tracking (PLANT WASTAGE / WORKERS DAILY FOOD internal accounts) ──
+
+# Normalized party keys of the internal "non-customer" accounts (see the
+# ₹0-internal split in the sales importer). party_key = UPPER + strip non-alnum.
+WASTAGE_PARTY_KEYS = ["PLANTWASTAGE", "WORKERSDAILYFOOD"]
+
+
+def wastage(db: Session, today: date, days: int = 30) -> dict:
+    """Chicken booked to the internal PLANT WASTAGE / WORKERS DAILY FOOD accounts
+    — a direct margin leak. Returns totals (kg), per-account + per-SKU splits, a
+    daily trend, today's figure, and wastage as a % of total volume handled."""
+    from orderr_core.models.vasy_sales_item import VasySalesItem
+
+    start = today - timedelta(days=days - 1)
+    rows = (db.query(VasySalesItem)
+            .filter(VasySalesItem.party_key.in_(WASTAGE_PARTY_KEYS),
+                    VasySalesItem.invoice_date != None,           # noqa: E711
+                    VasySalesItem.invoice_date >= start,
+                    VasySalesItem.invoice_date <= today).all())
+
+    by_party, by_product, by_day = {}, {}, {}
+    total_qty = 0.0
+    for it in rows:
+        qty = float(it.qty or 0)
+        total_qty += qty
+        by_party[it.party_name or "?"] = by_party.get(it.party_name or "?", 0.0) + qty
+        by_product[it.product_name or "?"] = by_product.get(it.product_name or "?", 0.0) + qty
+        if it.invoice_date:
+            by_day[it.invoice_date] = by_day.get(it.invoice_date, 0.0) + qty
+
+    # Total volume handled in the window (all sales lines) → wastage as a %.
+    total_billed_qty = float(db.query(func.coalesce(func.sum(VasySalesItem.qty), 0))
+                             .filter(VasySalesItem.invoice_date >= start,
+                                     VasySalesItem.invoice_date <= today).scalar() or 0)
+    pct = round(total_qty / total_billed_qty * 100, 2) if total_billed_qty else 0.0
+
+    series = [{"date": (start + timedelta(days=i)).strftime("%d %b"),
+               "qty": round(by_day.get(start + timedelta(days=i), 0.0), 1)}
+              for i in range(days)]
+
+    return {
+        "has_data": bool(rows),
+        "days": days,
+        "total_qty": round(total_qty, 1),
+        "today_qty": round(by_day.get(today, 0.0), 1),
+        "pct_of_volume": pct,
+        "by_party": [{"party": p, "qty": round(q, 1)}
+                     for p, q in sorted(by_party.items(), key=lambda kv: kv[1], reverse=True)],
+        "by_product": [{"product": p, "qty": round(q, 1)}
+                       for p, q in sorted(by_product.items(), key=lambda kv: kv[1], reverse=True)],
+        "series": series,
     }
 
 

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Wastage</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+.section-title{font-size:15px;font-weight:700;margin:22px 2px 10px}
+.note{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin-bottom:14px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow);border-top:3px solid var(--amber)}
+.kpi .n{font-size:22px;font-weight:800;letter-spacing:-.3px}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px}
+.row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
+.row:last-child{border-bottom:none}
+.trend{display:flex;align-items:flex-end;gap:3px;height:120px;margin-top:8px}
+.trend .b{flex:1;background:var(--amber);border-radius:3px 3px 0 0;min-height:1px}
+.trend .b:hover{background:var(--red)}
+.tl{display:flex;gap:3px;margin-top:4px}
+.tl span{flex:1;font-size:8px;color:var(--ink3);text-align:center;overflow:hidden;white-space:nowrap}
+.empty{color:var(--ink3);text-align:center;padding:26px}
+</style>
+</head>
+<body>
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-title">🗑️ Wastage · last {{ w.days }} days</div>
+  <div class="note">
+    Chicken booked to the internal <b>PLANT WASTAGE</b> and <b>WORKERS DAILY FOOD</b> accounts — a direct
+    margin leak. Watching it usually shrinks it. Volume is kg from Vasy sales-item lines.
+  </div>
+
+  {% if not w.has_data %}
+    <div class="card"><div class="empty">No wastage booked in this window. 👍</div></div>
+  {% else %}
+  <div class="kpis">
+    <div class="kpi"><div class="n">{{ w.total_qty }} kg</div><div class="l">Wasted ({{ w.days }}d)</div></div>
+    <div class="kpi"><div class="n">{{ w.today_qty }} kg</div><div class="l">Today</div></div>
+    <div class="kpi"><div class="n">{{ w.pct_of_volume }}%</div><div class="l">Of total volume</div></div>
+    <div class="kpi"><div class="n">{{ (w.total_qty / w.days)|round(1) }} kg</div><div class="l">Avg / day</div></div>
+  </div>
+
+  <div class="section-title">Daily trend</div>
+  <div class="card">
+    {% set maxq = w.series|map(attribute='qty')|max %}
+    <div class="trend">
+      {% for d in w.series %}
+      <div class="b" style="height:{{ (d.qty / maxq * 100) if maxq else 0 }}%" title="{{ d.date }}: {{ d.qty }} kg"></div>
+      {% endfor %}
+    </div>
+    <div class="tl">
+      {% for d in w.series %}<span>{{ d.date[:2] if loop.index0 % 3 == 0 else '' }}</span>{% endfor %}
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-top:22px">
+    <div>
+      <div class="section-title">By account</div>
+      <div class="card">
+        {% for p in w.by_party %}
+        <div class="row"><span>{{ p.party }}</span><span>{{ p.qty }} kg</span></div>
+        {% else %}<div class="empty">—</div>{% endfor %}
+      </div>
+    </div>
+    <div>
+      <div class="section-title">By product</div>
+      <div class="card">
+        {% for p in w.by_product %}
+        <div class="row"><span>{{ p.product }}</span><span>{{ p.qty }} kg</span></div>
+        {% else %}<div class="empty">—</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</main>
+</body>
+</html>

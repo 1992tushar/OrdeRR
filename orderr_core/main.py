@@ -22,6 +22,7 @@ from orderr_core.routes.rates import router as rates_router
 from orderr_core.routes.billing import router as billing_router
 # Staff Ledger module router (absolute paths: /staff, /staff/api/*)
 from orderr_core.routes.staff import router as staff_router
+from orderr_core.routes.wastage import router as wastage_router
 from orderr_core.services.reporter import send_daily_report
 from orderr_core.services.pending_notifier import (
     send_customer_reminders,
@@ -389,6 +390,7 @@ app.include_router(billing_router,  tags=["Billing"])
 
 # ── Staff Ledger module (merged) — router carries its own absolute paths ───────
 app.include_router(staff_router,    tags=["Staff"])
+app.include_router(wastage_router,  prefix="/dashboard", tags=["Analytics"])
 
 
 @app.get("/")
