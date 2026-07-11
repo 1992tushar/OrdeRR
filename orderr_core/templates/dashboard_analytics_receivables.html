@@ -105,9 +105,10 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
     {% endfor %}
   </div>
   <div class="note">
-    ⚠️ <b>Approximation, not true invoice aging.</b> Buckets are by days since the customer's
-    <em>last payment</em> (a payment-behaviour proxy), because Vasy doesn't currently export
-    invoice-level open bills. True 30/60/90 aging + DSO needs that open-bills export.
+    <b>Aging by last payment.</b> We run a <em>running account</em> — deliveries add to the
+    customer's balance and lump-sum payments reduce it, with no invoice-by-invoice settlement.
+    So buckets are by <b>days since the customer's last payment</b>, which is the right aging for
+    this model — how long since money last came in against the balance.
     “No payment on record” means <b>no receipt in the imported set</b> — receipts are a rolling
     window (e.g. last 500), so a customer who paid before that window still shows here until
     more history is imported.

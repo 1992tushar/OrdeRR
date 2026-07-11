@@ -134,11 +134,11 @@ tr:last-child td{border-bottom:none}
         <div class="gauge"><i style="width:{{ [intel.utilization_pct, 100]|min }}%;background:{{ 'var(--red)' if intel.utilization_pct>90 else 'var(--amber)' if intel.utilization_pct>70 else 'var(--green)' }}"></i></div>
       </div>{% endif %}
       <div class="sig"><div class="n">{% if intel.days_since_payment is none %}never{% else %}{{ intel.days_since_payment }}d{% endif %}</div><div class="l">Since last payment</div></div>
-      <div class="sig"><div class="n">{% if intel.dso_days %}{{ intel.dso_days }}d{% else %}—{% endif %}</div><div class="l">DSO (approx)</div></div>
+      <div class="sig"><div class="n">{% if intel.dso_days %}{{ intel.dso_days }}d{% else %}—{% endif %}</div><div class="l">Balance days (DSO)</div></div>
       <div class="sig"><div class="n">{% if intel.avg_gap_days %}{{ intel.avg_gap_days }}d{% else %}—{% endif %}</div><div class="l">Avg gap between buys</div></div>
       <div class="sig"><div class="n">{{ intel.avg_order_value_fmt }}</div><div class="l">Avg invoice</div></div>
     </div>
-    <div class="note">Score = payment recency (50%) + credit utilisation (30%) + payment consistency (20%). Payment timing is a receipt-recency proxy until a Vasy open-bills export is wired in.</div>
+    <div class="note">Score = payment recency (50%) + credit utilisation (30%) + payment consistency (20%). Based on the running-account model (balance + last payment); DSO = outstanding ÷ recent daily billing.</div>
   </div>
 
   <div class="kpis">

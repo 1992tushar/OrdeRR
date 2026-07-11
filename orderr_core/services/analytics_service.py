@@ -989,9 +989,10 @@ def receivables(db: Session, today: date) -> dict:
 
     Per debtor (closing > 0): outstanding, balance direction vs previous
     snapshot (P2-9), days-since-last-payment (P2-11), last-payment date, avg
-    receipt. Plus total AR + top-10 concentration (P2-8) and an aging proxy
-    bucketed by days-since-last-payment (P2-12 — NOT true invoice aging;
-    labelled as such, since Vasy open-bills aren't exported).
+    receipt. Plus total AR + top-10 concentration (P2-8) and aging bucketed by
+    days-since-last-payment (P2-12). This is a RUNNING-ACCOUNT business — a single
+    balance per customer that lump-sum payments reduce, with no invoice-level
+    settlement — so days-since-last-payment is the correct aging, not a stopgap.
     """
     latest_snap, prev_snap = _latest_two_snapshot_dates(db)
     if latest_snap is None:
@@ -1455,8 +1456,9 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
     deteriorating = bool(cur_out > 0 and (days_since_pay is None or days_since_pay > 45)
                          and bal_dir in (None, "up"))
 
-    # Payment-reliability score (0–100), transparent components (receipt-recency
-    # proxy — becomes exact once a Vasy open-bills export is wired in).
+    # Payment-reliability score (0–100), transparent components. Built on the
+    # running-account model (single balance + lump-sum payments, no invoice-level
+    # settlement), so payment recency is the correct signal — not a stopgap.
     if days_since_pay is None:
         c_recency = 0 if cur_out > 0 else 60
     else:
