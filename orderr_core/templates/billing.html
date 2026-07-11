@@ -254,10 +254,13 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
       <span id="rates-saved-chip" style="display:none;font-size:12px;color:var(--green);font-weight:600">Saved</span>
     </div>
     <div class="card-body" style="padding-top:14px;padding-bottom:0">
-      <div style="margin-bottom:14px">
-        <label for="cust-select" style="font-size:12px;font-weight:600;color:var(--ink2);margin-right:8px">Edit rates for customer:</label>
+      <div style="margin-bottom:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+        <label for="cust-search" style="font-size:12px;font-weight:600;color:var(--ink2)">Edit rates for customer:</label>
+        <input id="cust-search" type="text" placeholder="🔍 Search customer by name…" autocomplete="off"
+               oninput="filterCustomerOptions()"
+               style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:13px;background:var(--surface);flex:1;min-width:200px;max-width:320px">
         <select id="cust-select"
-                style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:13px;background:var(--surface)"
+                style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:13px;background:var(--surface);max-width:320px"
                 onchange="rerenderRates()">
           <option value="">- all customers (default rates) -</option>
         </select>
@@ -786,15 +789,34 @@ async function loadRates(){
     rateRows = d.products || [];
     window._ratesData = d;
     document.getElementById('date-label').textContent = fmt(today);
+    window._allCustomers = d.customers || [];
     const sel = document.getElementById('cust-select');
     sel.innerHTML = '<option value="">- all customers (default rates) -</option>';
-    (d.customers||[]).forEach(c=>{
+    window._allCustomers.forEach(c=>{
       const o=document.createElement('option');
       o.value=c.phone; o.textContent=c.name;
       sel.appendChild(o);
     });
     rerenderRates();
   }catch(e){ console.warn('rates load failed',e); }
+}
+
+// Filter the customer dropdown by the search box. Keeps <select> as the value
+// holder (so rerenderRates/save logic is unchanged); a single match auto-selects.
+function filterCustomerOptions(){
+  const q = (document.getElementById('cust-search').value||'').trim().toLowerCase();
+  const sel = document.getElementById('cust-select');
+  const prev = sel.value;
+  const list = (window._allCustomers||[]).filter(c => !q || (c.name||'').toLowerCase().includes(q));
+  sel.innerHTML = '<option value="">- all customers (default rates) -</option>';
+  list.forEach(c=>{
+    const o=document.createElement('option');
+    o.value=c.phone; o.textContent=c.name;
+    sel.appendChild(o);
+  });
+  if(q && list.length===1){ sel.value = list[0].phone; }             // one match → pick it
+  else if(prev && list.some(c=>c.phone===prev)){ sel.value = prev; } // keep prior pick
+  if(sel.value !== prev) rerenderRates();
 }
 
 function rerenderRates(){
