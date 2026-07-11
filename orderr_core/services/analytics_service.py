@@ -1263,6 +1263,24 @@ def _month_label(key: str) -> str:
     return date(int(y), int(m), 1).strftime("%b %y")
 
 
+def _reliability_score(cur_out, days_since_pay, utilization_pct, pay_months, tenure_months):
+    """Payment-reliability score (0–100) + grade A–E, for the running-account
+    model. Components: payment recency (50%), credit utilisation (30%), payment
+    consistency = paid in most active months (20%). Single source of truth for
+    both the per-customer profile and the portfolio map.
+    Returns (score, grade, components_dict)."""
+    if days_since_pay is None:
+        c_recency = 0 if cur_out > 0 else 60
+    else:
+        c_recency = max(0, min(100, round(100 - (days_since_pay / 75.0) * 100)))
+    c_util = 60 if utilization_pct is None else max(0, min(100, round(100 - max(0.0, utilization_pct - 25) / 1.25)))
+    c_consistency = max(0, min(100, round(pay_months / tenure_months * 100))) if tenure_months else 60
+    score = round(0.5 * c_recency + 0.3 * c_util + 0.2 * c_consistency)
+    grade = ("A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50
+             else "D" if score >= 35 else "E")
+    return score, grade, {"recency": c_recency, "utilization": c_util, "consistency": c_consistency}
+
+
 def customer_detail(db: Session, customer_id: int, today: date, months: int = 12):
     """P1-3 — full sales-side detail for one customer.
 
@@ -1456,21 +1474,9 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
     deteriorating = bool(cur_out > 0 and (days_since_pay is None or days_since_pay > 45)
                          and bal_dir in (None, "up"))
 
-    # Payment-reliability score (0–100), transparent components. Built on the
-    # running-account model (single balance + lump-sum payments, no invoice-level
-    # settlement), so payment recency is the correct signal — not a stopgap.
-    if days_since_pay is None:
-        c_recency = 0 if cur_out > 0 else 60
-    else:
-        c_recency = max(0, min(100, round(100 - (days_since_pay / 75.0) * 100)))
-    c_util = 60 if utilization_pct is None else max(0, min(100, round(100 - max(0.0, utilization_pct - 25) / 1.25)))
-    # Consistency = paid in most months they were active (rewards regular payers,
-    # not high-frequency buyers). Lump-sum payers billed daily aren't penalised.
+    # Payment-reliability score — running-account model (see _reliability_score).
     pay_months = len({(r.receipt_date.year, r.receipt_date.month) for r in rec_rows if r.receipt_date})
-    c_consistency = max(0, min(100, round(pay_months / tenure_months * 100))) if tenure_months else 60
-    score = round(0.5 * c_recency + 0.3 * c_util + 0.2 * c_consistency)
-    grade = ("A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50
-             else "D" if score >= 35 else "E")
+    score, grade, _comps = _reliability_score(cur_out, days_since_pay, utilization_pct, pay_months, tenure_months)
 
     sku_mix = []
     sk_rows = (db.query(
@@ -1490,7 +1496,7 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
 
     intelligence = {
         "score": score, "grade": grade,
-        "score_components": {"recency": c_recency, "utilization": c_util, "consistency": c_consistency},
+        "score_components": _comps,
         "dso_days": dso_days,
         "credit_limit_fmt": (fmt_inr(credit_limit) if credit_limit else None),
         "utilization_pct": utilization_pct,
@@ -1568,6 +1574,111 @@ def _order_dates_by_phone(db: Session, upto: date):
             continue
         out.setdefault(ph, set()).add(d)
     return {ph: sorted(s) for ph, s in out.items()}
+
+
+# ── Phase 4.2 — Value × Risk portfolio map ─────────────────────────────────
+
+def portfolio(db: Session, today: date) -> dict:
+    """Every transacting customer placed in a 2×2 by all-time revenue (value) and
+    payment-reliability score (risk): protect / watch / maintain / tighten. The
+    firm-wide view that drives daily credit decisions. Reuses _reliability_score
+    (same scoring as the per-customer profile). Batch queries — no per-customer
+    detail calls.
+    """
+    customers = {c.id: c for c in db.query(Customer).all()}
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+    rev = _vasy_revenue_by_customer(db, None, today)   # {cid: all-time revenue}
+
+    inv_span = {}
+    for cid, lo, _hi in (db.query(VasyInvoice.customer_id,
+                                  func.min(VasyInvoice.invoice_date),
+                                  func.max(VasyInvoice.invoice_date))
+                         .filter(VasyInvoice.customer_id != None)          # noqa: E711
+                         .group_by(VasyInvoice.customer_id).all()):
+        inv_span[cid] = lo
+
+    last_pay = {cid: d for cid, d in
+                (db.query(CustomerReceipt.customer_id, func.max(CustomerReceipt.receipt_date))
+                 .filter(CustomerReceipt.customer_id != None)             # noqa: E711
+                 .group_by(CustomerReceipt.customer_id).all())}
+
+    pay_months = {}
+    for cid, rd in (db.query(CustomerReceipt.customer_id, CustomerReceipt.receipt_date)
+                    .filter(CustomerReceipt.customer_id != None,          # noqa: E711
+                            CustomerReceipt.receipt_date != None).all()):  # noqa: E711
+        pay_months.setdefault(cid, set()).add((rd.year, rd.month))
+
+    latest_snap = db.query(func.max(OutstandingSnapshot.snapshot_date)).scalar()
+    out_by = {}
+    if latest_snap is not None:
+        for cid, closing in (db.query(OutstandingSnapshot.customer_id, OutstandingSnapshot.closing)
+                             .filter(OutstandingSnapshot.snapshot_date == latest_snap,
+                                     OutstandingSnapshot.customer_id != None).all()):  # noqa: E711
+            out_by[cid] = float(closing)
+
+    rows = []
+    for cid, c in customers.items():
+        revenue = float(rev.get(cid, 0.0))
+        cur_out = out_by.get(cid, float(c.outstanding or 0))
+        if cur_out < 0:
+            cur_out = 0.0                               # credit balance → no AR risk
+        if revenue <= 0 and cur_out <= 0:
+            continue                                    # never transacted → skip
+        lo = inv_span.get(cid)
+        tenure_months = max(1, round((today - lo).days / 30)) if lo else 0
+        lp = last_pay.get(cid)
+        days_since = (today - lp).days if lp else None
+        credit_limit = float(c.credit_limit) if c.credit_limit else None
+        util = round(cur_out / credit_limit * 100, 1) if (credit_limit and credit_limit > 0) else None
+        pm = len(pay_months.get(cid, set()))
+        score, grade, _ = _reliability_score(cur_out, days_since, util, pm, tenure_months)
+        rows.append({
+            "customer_id": cid,
+            "name": c.restaurant_name or (c.phone_number or f"#{cid}"),
+            "area": c.area or "", "salesperson": (sp_name.get(c.salesperson_id, "") if c.salesperson_id else ""),
+            "revenue": round(revenue, 2), "revenue_fmt": fmt_inr(revenue),
+            "outstanding": round(cur_out, 2), "outstanding_fmt": fmt_inr(cur_out),
+            "score": score, "grade": grade,
+            "days_since_payment": days_since if days_since is not None else "",
+        })
+
+    revs = sorted(r["revenue"] for r in rows)
+    median_rev = revs[len(revs) // 2] if revs else 0.0
+    RISK_CUT = 55
+    quad_def = {
+        "watch":    {"label": "Watch closely",  "sub": "High value · High risk", "accent": "red"},
+        "protect":  {"label": "Protect",        "sub": "High value · Low risk",  "accent": "good"},
+        "tighten":  {"label": "Tighten credit", "sub": "Low value · High risk",  "accent": "amber"},
+        "maintain": {"label": "Maintain",       "sub": "Low value · Low risk",   "accent": "blue"},
+    }
+    for r in rows:
+        hv = r["revenue"] >= median_rev
+        hr = r["score"] < RISK_CUT
+        r["quadrant"] = ("protect" if (hv and not hr) else "watch" if (hv and hr)
+                         else "maintain" if (not hv and not hr) else "tighten")
+
+    quads = []
+    for key, meta in quad_def.items():
+        members = [r for r in rows if r["quadrant"] == key]
+        out_sum = sum(m["outstanding"] for m in members)
+        quads.append({
+            "key": key, "label": meta["label"], "sub": meta["sub"], "accent": meta["accent"],
+            "count": len(members),
+            "revenue_fmt": fmt_inr(sum(m["revenue"] for m in members)),
+            "outstanding": out_sum, "outstanding_fmt": fmt_inr(out_sum),
+        })
+
+    rows.sort(key=lambda r: r["outstanding"], reverse=True)
+    return {
+        "rows": rows,
+        "quadrants": quads,
+        "total": len(rows),
+        "median_rev_fmt": fmt_inr(median_rev),
+        "risk_cut": RISK_CUT,
+        "areas": sorted({r["area"] for r in rows if r["area"]}),
+        "salespeople": sorted({r["salesperson"] for r in rows if r["salesperson"]}),
+        "as_of": latest_snap.strftime("%d %b %Y") if latest_snap else None,
+    }
 
 
 # ── P1-4 Silent-churn detector ─────────────────────────────────────────────
