@@ -53,7 +53,7 @@ from orderr_core.services.template_parser import PRODUCT_DEFINITIONS
 from orderr_core.services.customer_service import create_customer_manually
 from orderr_core.services.customer_service import import_customers_from_xlsx
 from orderr_core.services.order_service import process_incoming_order
-from orderr_core.services.order_service import get_current_business_date_str, RESET_HOUR
+from orderr_core.services.order_service import get_current_business_date_str, get_current_business_date, RESET_HOUR
 from orderr_core.services.notifier import send_manager_alert
 from orderr_core.services.customer_service import get_customer_by_phone
 from orderr_core.models.noise_phrase import NoisePhrase
@@ -126,6 +126,7 @@ class NextDayOverride(BaseModel):
 class PostOrderPayload(BaseModel):
     """Payload for admin posting an order on behalf of a customer."""
     message: str
+    acknowledge_credit: bool = False   # set true to post past a credit warning
 
 class CancelOrderPayload(BaseModel):
     reason: Optional[str] = None
@@ -1002,6 +1003,16 @@ def post_order_on_behalf(
                     "customer, click Edit, enter their WhatsApp mobile number, save, then "
                     "post the order again."),
         )
+
+    # Credit guardrail — warn (once) before posting for an over-limit / long-overdue
+    # customer. The manager can acknowledge and proceed (acknowledge_credit=true).
+    if not payload.acknowledge_credit:
+        from orderr_core.services import analytics_service
+        should_warn, warn_msg = analytics_service.credit_gate(
+            db, customer, get_current_business_date())
+        if should_warn:
+            raise HTTPException(status_code=409,
+                                detail={"code": "credit_warning", "message": warn_msg})
 
     existing_orders = (
         db.query(Order)

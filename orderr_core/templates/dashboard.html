@@ -1577,21 +1577,39 @@ async function submitPostOrder() {
     const btn = document.getElementById('po-submit-btn');
     btn.disabled = true;
     btn.textContent = 'Posting…';
-    try {
-        const data = await api(
-            'POST',
-            `/admin/customers/${_postOrderCustomerId}/post-order`,
-            { message }
-        );
+
+    const onOk = (data) => {
         const isUnclear = data.status === 'unclear';
         const label = isUnclear
             ? `⚠️ Posted — some items unclear (Order #${data.order_id || '?'})`
             : `✅ Order #${data.order_id || '?'} posted for ${data.customer}`;
         showToast(label, 'success');
         closeModal('post-order-modal');
-        // Reload so the new order appears immediately
         setTimeout(() => location.reload(), 800);
+    };
+
+    try {
+        onOk(await api('POST', `/admin/customers/${_postOrderCustomerId}/post-order`, { message }));
     } catch(e) {
+        // Credit guardrail: server returns 409 {detail:{code:'credit_warning',message}}
+        let detail = null;
+        try { detail = JSON.parse(e.message)?.detail; } catch(_) {}
+        if (detail && detail.code === 'credit_warning') {
+            if (confirm('⚠️ ' + detail.message)) {
+                try {
+                    onOk(await api('POST', `/admin/customers/${_postOrderCustomerId}/post-order`,
+                                   { message, acknowledge_credit: true }));
+                } catch(e2) {
+                    let m2 = 'Failed to post order';
+                    try { m2 = JSON.parse(e2.message)?.detail || m2; } catch(_) {}
+                    showToast('❌ ' + m2, 'error');
+                    btn.disabled = false; btn.textContent = 'Post Order';
+                }
+            } else {
+                btn.disabled = false; btn.textContent = 'Post Order';
+            }
+            return;
+        }
         let msg = 'Failed to post order';
         try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
         showToast('❌ ' + msg, 'error');

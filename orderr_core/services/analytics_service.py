@@ -1281,6 +1281,41 @@ def _reliability_score(cur_out, days_since_pay, utilization_pct, pay_months, ten
     return score, grade, {"recency": c_recency, "utilization": c_util, "consistency": c_consistency}
 
 
+def credit_gate(db: Session, customer, today: date):
+    """Assess whether posting an order for `customer` should warn the manager
+    (over credit limit, or owes money with no recent payment). Running-account
+    model. Returns (should_warn: bool, message: str)."""
+    latest = db.query(func.max(OutstandingSnapshot.snapshot_date)).scalar()
+    out = None
+    if latest is not None:
+        row = (db.query(OutstandingSnapshot.closing)
+               .filter(OutstandingSnapshot.snapshot_date == latest,
+                       OutstandingSnapshot.customer_id == customer.id).first())
+        if row:
+            out = float(row[0])
+    if out is None:
+        out = float(customer.outstanding or 0)
+    limit = float(customer.credit_limit) if customer.credit_limit else None
+    lp = (db.query(func.max(CustomerReceipt.receipt_date))
+          .filter(CustomerReceipt.customer_id == customer.id).scalar())
+    days = (today - lp).days if lp else None
+
+    over = bool(limit and out > limit)
+    overdue = bool(out > 0 and (days is None or days > 45))
+    if not (over or overdue):
+        return False, ""
+
+    name = customer.restaurant_name or "This customer"
+    parts = [f"{name} owes {fmt_inr(out)}"]
+    if over:
+        parts.append(f"— over their {fmt_inr(limit)} credit limit")
+    if days is None and out > 0:
+        parts.append("with no payment on record")
+    elif days is not None and days > 45:
+        parts.append(f"and last paid {days} days ago")
+    return True, " ".join(parts) + ". Post the order anyway?"
+
+
 def _lifecycle_stage(first_inv_days, last_inv_days, trajectory_pct):
     """Customer lifecycle from billing recency + 3-month spend trajectory.
     Shared by the per-customer profile and the lifecycle/cohorts screen."""
