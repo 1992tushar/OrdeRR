@@ -111,6 +111,14 @@ tr.today td:first-child{border-left:3px solid var(--red)}
 {% if ch.has_data %}
 <script>
 const ROWS = {{ ch.rows | tojson }};
+const PLANT = {{ plant_name | tojson }};
+// One-tap payment reminder: opens WhatsApp pre-filled to that customer, so the
+// manager sends it from their own WhatsApp (no 24h-window / template limits).
+function waLink(r){
+  const ph=String(r.phone||'').replace(/\D/g,'');
+  const msg='Namaste '+(r.name||'')+', gentle payment reminder from '+PLANT+'. Our records show an outstanding balance of '+r.outstanding_fmt+'. Kindly arrange the payment at your earliest convenience. Thank you! 🙏';
+  return 'https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
+}
 function scoreColor(s){ return s>=70?'var(--red)':s>=50?'var(--amber)':s>=30?'var(--blue)':'var(--green)'; }
 function clsStyle(c){ const m={'Grow':['var(--green-bg)','var(--green)'],'Watch':['var(--blue-bg)','var(--blue)'],'Chase':['var(--amber-bg)','var(--amber)'],'Hold-credit':['var(--red-bg)','var(--red)']}; const p=m[c]||['var(--bg)','var(--ink2)']; return 'background:'+p[0]+';color:'+p[1]; }
 function render(){
@@ -125,7 +133,9 @@ function render(){
       '<td><a href="/dashboard/analytics/customer/'+r.customer_id+'" style="font-weight:600;color:var(--ink);text-decoration:none">'+esc(r.name)+'</a>'+
         (r.area?' <span class="chip">'+esc(r.area)+'</span>':'')+
         '<div><span class="cls" style="'+clsStyle(r.classification)+'">'+r.classification+'</span>'+(r.breach?' <span class="cls" style="background:var(--red);color:#fff">breach</span>':'')+(r.salesperson?' <span class="cust-sub">🧑 '+esc(r.salesperson)+'</span>':'')+'</div></td>'+
-      '<td>'+(r.phone?'<a class="callbtn" href="tel:'+esc(r.phone)+'">📞 '+esc(r.phone)+'</a>':'<span class="cust-sub">no phone</span>')+'</td>'+
+      '<td>'+(r.phone?'<a class="callbtn" href="tel:'+esc(r.phone)+'">📞 '+esc(r.phone)+'</a>'+
+        ' <a class="callbtn" style="background:var(--green-bg);color:var(--green);border-color:var(--green-border)" target="_blank" rel="noopener" href="'+waLink(r)+'">💬 Remind</a>'
+        :'<span class="cust-sub">no phone</span>')+'</td>'+
       '<td class="num" style="font-weight:700">'+r.outstanding_fmt+'</td>'+
       '<td class="num" style="font-weight:800;color:var(--red)">'+r.priority_fmt+'</td>'+
       '<td class="num"><span style="font-weight:800;color:'+scoreColor(r.score)+'">'+r.score+'</span></td>'+
