@@ -223,10 +223,15 @@ def _latest_two_snapshot_dates(db: Session):
 
 
 def _outstanding_total(db: Session, snapshot_date):
+    """Gross AR = sum of DEBTOR balances only (closing > 0). Customers in credit
+    (negative closing) are a separate advance/liability, not netted into AR — so
+    this matches the Receivables page's 'Total outstanding (AR)'. Netting credits
+    in here understated AR and made the two screens disagree."""
     if snapshot_date is None:
         return 0.0
     return float(db.query(func.coalesce(func.sum(OutstandingSnapshot.closing), 0))
-                 .filter(OutstandingSnapshot.snapshot_date == snapshot_date).scalar() or 0)
+                 .filter(OutstandingSnapshot.snapshot_date == snapshot_date,
+                         OutstandingSnapshot.closing > 0).scalar() or 0)
 
 
 def _collections_for_range(db: Session, start: date, end: date):
