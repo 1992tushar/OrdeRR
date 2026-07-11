@@ -768,15 +768,32 @@ async function dlAllPDFs(){
   const orig = btn.textContent;
   btn.disabled=true; btn.textContent='Preparing...';
   try{
-    const r = await fetch('/billing/api/invoices/pdf/bulk?business_date='+today);
+    // Get the list, then download each PDF individually into one folder
+    // (invoices-<date>/) — no zip to extract. Chrome/Edge honour the sub-folder
+    // in the download name and ask once to "allow multiple downloads".
+    const r = await fetch('/billing/api/invoices/pdf/list?business_date='+today);
     if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.statusText);
-    const blob = await r.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href=url; a.download='invoices-'+today+'.zip';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-    showToast('Downloaded all invoices');
+    const d = await r.json();
+    const list = d.invoices || [];
+    if(!list.length){ showToast('No invoices for '+today); return; }
+    const folder = 'invoices-'+today+'/';
+    let done=0;
+    for(const inv of list){
+      btn.textContent = 'Downloading '+(done+1)+'/'+list.length+'…';
+      try{
+        const pr = await fetch('/billing/api/invoices/'+encodeURIComponent(inv.invoice_number)+'/pdf');
+        if(!pr.ok) continue;
+        const blob = await pr.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href=url; a.download = folder + inv.filename;   // sub-folder + filename
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+        done++;
+      }catch(_){ /* skip one bad PDF, keep going */ }
+      await new Promise(res=>setTimeout(res, 300));       // let the browser queue each
+    }
+    showToast('Downloaded '+done+' of '+list.length+' invoices to '+folder);
   } catch(e){ showToast('Download failed: '+e.message); }
   finally{ btn.disabled=false; btn.textContent=orig; }
 }
