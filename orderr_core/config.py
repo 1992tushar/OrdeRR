@@ -18,3 +18,6 @@ PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
 # Operations manager's WhatsApp number (daily summaries, order alerts).
 # Falls back to "" when unset so callers can safely do `if MANAGER_PHONE:`.
 MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
+
+# Flat fine deducted from an employee's salary for each late mark (₹).
+LATE_MARK_FINE = float(os.getenv("LATE_MARK_FINE", "200"))

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 # Preserved (rows kept) — ONLY salespersons + staff, per the full-clear request.
 PRESERVE_TABLES = [
     "salespersons",
-    "employees", "advances", "advance_repayments", "leaves",
+    "employees", "advances", "advance_repayments", "leaves", "late_marks",
 ]
 
 # Cleared, children-first so FK constraints (enforced on Postgres) are satisfied.

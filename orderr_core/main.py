@@ -52,6 +52,7 @@ from orderr_core.models.employee import Employee                   # noqa: F401
 from orderr_core.models.advance import Advance                     # noqa: F401
 from orderr_core.models.advance_repayment import AdvanceRepayment   # noqa: F401
 from orderr_core.models.leave import Leave                         # noqa: F401
+from orderr_core.models.late_mark import LateMark                   # noqa: F401
 
 # Analytics Phase 2 — Vasy money mirrors (read-only; Vasy = source of truth)
 from orderr_core.models.customer_receipt import CustomerReceipt     # noqa: F401

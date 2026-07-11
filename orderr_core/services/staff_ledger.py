@@ -23,7 +23,9 @@ from orderr_core.models.employee import Employee
 from orderr_core.models.advance import Advance
 from orderr_core.models.advance_repayment import AdvanceRepayment
 from orderr_core.models.leave import Leave
+from orderr_core.models.late_mark import LateMark
 
+from orderr_core import config
 from orderr_core.constants import IST
 
 
@@ -124,6 +126,21 @@ def _leave_days(
     return total
 
 
+def _late_marks(db: Session, employee_id: int, start: str, end: str) -> int:
+    """Count late marks in [start, end] for this employee. Each one levies a flat
+    fine (config.LATE_MARK_FINE), unlike leaves which deduct a per-day rate."""
+    return int(
+        db.query(func.count(LateMark.id))
+        .filter(
+            LateMark.employee_id == employee_id,
+            LateMark.date >= start,
+            LateMark.date <= end,
+        )
+        .scalar()
+        or 0
+    )
+
+
 def _repaid_in_range(db: Session, employee_id: int, start: str, end: str) -> float:
     """Sum of advance repayments recorded in [start, end] for this employee."""
     total = (
@@ -159,6 +176,7 @@ def employee_summary(db: Session, employee: Employee) -> dict:
     # recorded and shown but never deducted from salary.
     used_leave = _leave_days(db, employee.id, start, end, paid=False)
     comp_leave = _leave_days(db, employee.id, start, end, paid=True)
+    used_late  = _late_marks(db, employee.id, start, end)   # YTD late-mark count
     total_adv, total_repaid = _advance_totals(db, employee.id)
     outstanding = total_adv - total_repaid
 
@@ -182,12 +200,15 @@ def employee_summary(db: Session, employee: Employee) -> dict:
 
     cov_leave_days = _leave_days(db, employee.id, cov_start_s, cov_end_s, paid=False)
     cov_comp_days  = _leave_days(db, employee.id, cov_start_s, cov_end_s, paid=True)
+    cov_late_marks = _late_marks(db, employee.id, cov_start_s, cov_end_s)
     per_day_rate = (employee.monthly_salary / days_in_month) if days_in_month else 0
     leave_deduction = cov_leave_days * per_day_rate
-    # Salary payable for the covered cycle is gross minus leave only. Advances
-    # are NOT force-deducted in full — they're recovered by variable monthly
-    # repayments the accountant records (see recovered_this_month below).
-    salary_payable = max(0.0, employee.monthly_salary - leave_deduction)
+    # Each late mark is a flat fine (not a per-day deduction).
+    late_fine = cov_late_marks * config.LATE_MARK_FINE
+    # Salary payable for the covered cycle is gross minus leave and late-mark
+    # fines. Advances are NOT force-deducted in full — they're recovered by
+    # variable monthly repayments the accountant records (recovered_this_month).
+    salary_payable = max(0.0, employee.monthly_salary - leave_deduction - late_fine)
 
     # Leave accruing in the CURRENT cycle (the one after the covered cycle) that
     # will land on a future payslip — only shown once we're past cov_end.
@@ -198,11 +219,13 @@ def employee_summary(db: Session, employee: Employee) -> dict:
         win_end = min(today, accr_end)
         tm_charge = _leave_days(db, employee.id, accr_start.isoformat(), win_end.isoformat(), paid=False)
         tm_comp   = _leave_days(db, employee.id, accr_start.isoformat(), win_end.isoformat(), paid=True)
+        tm_late   = _late_marks(db, employee.id, accr_start.isoformat(), win_end.isoformat())
         tm_applies_on = nxt_pay
         current_month_label = f"{accr_start.strftime('%d %b')} – {accr_end.strftime('%d %b')}"
         show_current_month = True
     else:
         tm_charge = tm_comp = 0.0
+        tm_late = 0
         tm_applies_on = employee_pay_date or today
         current_month_label = today.strftime("%B")
         show_current_month = False
@@ -226,17 +249,20 @@ def employee_summary(db: Session, employee: Employee) -> dict:
         "leave_used":         used_leave,
         "complementary_used": comp_leave,
         "leave_remaining":    max(0.0, employee.annual_leave_quota - used_leave),
+        "late_marks_used":    used_late,
         "outstanding_advance": outstanding,
         "next_pay_date":      employee_pay_date.isoformat() if employee_pay_date else None,
         "first_pay_date":     fpd.isoformat() if fpd else None,
         "salary_due":         salary_due,
         "leave_deduction":    leave_deduction,
+        "late_fine":          late_fine,
         "pay_amount":         salary_payable,
         "recovered_this_month": recovered_this_month,
         "take_home":            take_home,
         "current_month_label":              current_month_label,
         "current_month_leave_days":         tm_charge,
         "current_month_complementary_days": tm_comp,
+        "current_month_late_marks":         tm_late,
         "current_month_applies_on":         tm_applies_on.isoformat(),
         "show_current_month":               show_current_month,
         "breakdown": {
@@ -248,6 +274,9 @@ def employee_summary(db: Session, employee: Employee) -> dict:
             "leave_days_deducted":      cov_leave_days,
             "complementary_leave_days": cov_comp_days,
             "leave_deduction_amount":   leave_deduction,
+            "late_marks_deducted":      cov_late_marks,
+            "per_late_fine":            config.LATE_MARK_FINE,
+            "late_fine_amount":         late_fine,
             "salary_payable":           salary_payable,
             "advance_outstanding":      outstanding,
             "recovered_this_month":     recovered_this_month,
@@ -262,6 +291,7 @@ def single_summary(db: Session, employee: Employee) -> dict:
     start, end = current_year_range()
     used_leave = _leave_days(db, employee.id, start, end, paid=False)
     comp_leave = _leave_days(db, employee.id, start, end, paid=True)
+    used_late  = _late_marks(db, employee.id, start, end)
     total_adv, total_repaid = _advance_totals(db, employee.id)
     return {
         "employee": {
@@ -274,6 +304,8 @@ def single_summary(db: Session, employee: Employee) -> dict:
         "leave_used":          used_leave,
         "complementary_used":  comp_leave,
         "leave_remaining":     max(0.0, employee.annual_leave_quota - used_leave),
+        "late_marks_used":     used_late,
+        "late_fine_total":     used_late * config.LATE_MARK_FINE,
         "total_advances":      total_adv,
         "total_repaid":        total_repaid,
         "outstanding_advance": total_adv - total_repaid,
