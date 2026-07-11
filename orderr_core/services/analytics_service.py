@@ -19,6 +19,7 @@ from statistics import median
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from orderr_core import config as _config
 from orderr_core.models.order import Order
 from orderr_core.models.invoice import Invoice, InvoiceItem
 from orderr_core.models.customer import Customer
@@ -741,6 +742,8 @@ def plant_financials(db: Session, today: date, months: int = 12) -> dict:
             "revenue_fmt": fmt_inr(t_rev), "cogs_fmt": fmt_inr(t_cogs),
             "gross_profit_fmt": fmt_inr(t_gp),
             "margin_pct": round(t_gp / t_rev * 100, 1) if t_rev else None,
+            "margin_threshold": _config.MARGIN_ALERT_PCT,
+            "margin_alert": bool(t_rev and (t_gp / t_rev * 100) < _config.MARGIN_ALERT_PCT),
             "expenses_fmt": fmt_inr(t_exp), "net_fmt": fmt_inr(t_gp - t_exp),
             "cash_in_fmt": fmt_inr(t_in), "cash_out_fmt": fmt_inr(t_out),
             "net_cash_fmt": fmt_inr(t_in - t_out),

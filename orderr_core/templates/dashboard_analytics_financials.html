@@ -64,6 +64,14 @@ tfoot td{font-weight:700;background:var(--bg)}
   <div class="note">No financial data imported yet. Upload sales invoices, purchases, expenses & payments on the <a href="/dashboard/analytics/imports">Imports</a> page.</div>
   {% else %}
 
+  {% if fin.totals.margin_alert %}
+  <div style="background:var(--red-bg);border:1px solid var(--red-border);color:var(--red);border-radius:10px;padding:12px 16px;margin:6px 0 14px;font-size:13px;font-weight:600">
+    ⚠️ Gross margin is {{ fin.totals.margin_pct }}% — below the {{ fin.totals.margin_threshold }}% floor.
+    Review selling rates vs purchase cost. (You buy whole birds and sell cuts, so this is the overall
+    buy-vs-sell spread, not a single SKU.)
+  </div>
+  {% endif %}
+
   <div class="section-title" style="margin-top:6px">Plant P&amp;L &amp; cash — last 12 months</div>
   <div class="kpis">
     <div class="kpi rev"><div class="n">{{ fin.totals.revenue_fmt }}</div><div class="l">Revenue (Vasy)</div></div>

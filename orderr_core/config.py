@@ -21,3 +21,8 @@ MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
 
 # Flat fine deducted from an employee's salary for each late mark (₹).
 LATE_MARK_FINE = float(os.getenv("LATE_MARK_FINE", "200"))
+
+# Gross-margin floor (%). Below this, the Financials screen + manager digest warn
+# that selling rates are eroding margin vs purchase cost. Aggregate (buy whole
+# birds → sell cuts), since per-SKU cost isn't maintained.
+MARGIN_ALERT_PCT = float(os.getenv("MARGIN_ALERT_PCT", "20"))
