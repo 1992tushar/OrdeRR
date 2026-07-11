@@ -65,6 +65,27 @@ tr:last-child td{border-bottom:none}
 @media(max-width:720px){.grid2{grid-template-columns:1fr}}
 .empty{color:var(--ink3);font-size:13px;text-align:center;padding:22px}
 .items-inline{color:var(--ink2);font-size:12px}
+
+/* intelligence profile */
+.intel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px;margin-bottom:22px}
+.intel-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.score-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;width:76px;height:76px;border-radius:50%;flex-shrink:0;border:3px solid}
+.score-badge .s{font-size:24px;font-weight:800;line-height:1}
+.score-badge .g{font-size:11px;font-weight:700;letter-spacing:.5px}
+.grade-A,.grade-B{color:var(--green);border-color:var(--green-border);background:var(--green-bg)}
+.grade-C{color:var(--amber);border-color:var(--amber-border);background:var(--amber-bg)}
+.grade-D,.grade-E{color:var(--red);border-color:var(--red-border);background:var(--red-bg)}
+.intel-head{flex:1;min-width:200px}
+.intel-head .lc{font-size:16px;font-weight:800}
+.intel-head .sub{font-size:12px;color:var(--ink3);margin-top:3px}
+.warn{background:var(--red-bg);border:1px solid var(--red-border);color:var(--red);font-size:12px;font-weight:600;padding:8px 12px;border-radius:8px;margin-top:8px}
+.sig-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px}
+.sig{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.sig .n{font-size:16px;font-weight:800;letter-spacing:-.2px}
+.sig .l{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
+.gauge{height:6px;border-radius:4px;background:var(--border);margin-top:6px;overflow:hidden}
+.gauge>i{display:block;height:100%;border-radius:4px}
+.trj-up{color:var(--green)} .trj-down{color:var(--red)}
 </style>
 </head>
 <body>
@@ -86,6 +107,38 @@ tr:last-child td{border-bottom:none}
         {% if d.customer.salesperson %}<span class="chip">🧑 {{ d.customer.salesperson }}</span>{% endif %}
       </div>
     </div>
+  </div>
+
+  {% set intel = d.intelligence %}
+  <div class="intel">
+    <div class="intel-top">
+      <div class="score-badge grade-{{ intel.grade }}">
+        <div class="s">{{ intel.score }}</div><div class="g">GRADE {{ intel.grade }}</div>
+      </div>
+      <div class="intel-head">
+        <div class="lc">{{ intel.lifecycle }}
+          {% if intel.trajectory_pct is not none and intel.trajectory_pct != 0 %}
+            <span class="{{ 'trj-up' if intel.trajectory_pct>0 else 'trj-down' }}" style="font-size:13px">
+              {{ '▲' if intel.trajectory_pct>0 else '▼' }}{{ intel.trajectory_pct }}% spend (3mo)</span>
+          {% endif %}
+        </div>
+        <div class="sub">Payment-reliability score · {{ intel.tenure_months }} mo tenure ·
+          {% if intel.invoices_per_month %}{{ intel.invoices_per_month }} invoices/mo{% else %}—{% endif %}</div>
+        {% if intel.deteriorating %}<div class="warn">⚠ Deteriorating — balance not reducing and no recent payment. Chase and hold new credit.</div>{% endif %}
+      </div>
+    </div>
+    <div class="sig-grid">
+      <div class="sig"><div class="n">{{ intel.current_outstanding_fmt }}</div><div class="l">Outstanding</div></div>
+      {% if intel.credit_limit_fmt %}
+      <div class="sig"><div class="n">{{ intel.utilization_pct }}%</div><div class="l">Credit used · {{ intel.credit_limit_fmt }} limit</div>
+        <div class="gauge"><i style="width:{{ [intel.utilization_pct, 100]|min }}%;background:{{ 'var(--red)' if intel.utilization_pct>90 else 'var(--amber)' if intel.utilization_pct>70 else 'var(--green)' }}"></i></div>
+      </div>{% endif %}
+      <div class="sig"><div class="n">{% if intel.days_since_payment is none %}never{% else %}{{ intel.days_since_payment }}d{% endif %}</div><div class="l">Since last payment</div></div>
+      <div class="sig"><div class="n">{% if intel.dso_days %}{{ intel.dso_days }}d{% else %}—{% endif %}</div><div class="l">DSO (approx)</div></div>
+      <div class="sig"><div class="n">{% if intel.avg_gap_days %}{{ intel.avg_gap_days }}d{% else %}—{% endif %}</div><div class="l">Avg gap between buys</div></div>
+      <div class="sig"><div class="n">{{ intel.avg_order_value_fmt }}</div><div class="l">Avg invoice</div></div>
+    </div>
+    <div class="note">Score = payment recency (50%) + credit utilisation (30%) + payment consistency (20%). Payment timing is a receipt-recency proxy until a Vasy open-bills export is wired in.</div>
   </div>
 
   <div class="kpis">
@@ -110,14 +163,14 @@ tr:last-child td{border-bottom:none}
   <div class="grid2" style="margin-top:22px">
     <!-- Product mix -->
     <div>
-      <div class="section-title">Product mix · all time</div>
+      <div class="section-title">Product mix · all time (billed)</div>
       <div class="card">
-        {% if d.mix %}
-          {% for m in d.mix %}
-          <div class="mixline"><span>{{ m.name }}</span><span class="num">{{ m.qty }} {{ m.unit }}</span></div>
+        {% if d.sku_mix %}
+          {% for m in d.sku_mix %}
+          <div class="mixline"><span>{{ m.product }}</span><span class="num">{{ m.value_fmt }} · {{ m.pct }}%</span></div>
           {% endfor %}
         {% else %}
-          <div class="empty">No ordered items yet.</div>
+          <div class="empty">No billed items yet.</div>
         {% endif %}
       </div>
 

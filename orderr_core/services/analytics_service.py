@@ -1405,6 +1405,105 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
     n_invoices = len(invoices)
     avg_order_value = (total_revenue / n_invoices) if n_invoices else 0.0
 
+    # ── Deep intelligence: credit reliability + customer behaviour ─────────
+    from orderr_core.models.vasy_sales_item import VasySalesItem
+
+    cur_out = current_outstanding if current_outstanding is not None else float(customer.outstanding or 0)
+    credit_limit = float(customer.credit_limit) if customer.credit_limit else None
+    utilization_pct = round(cur_out / credit_limit * 100, 1) if (credit_limit and credit_limit > 0) else None
+    days_since_pay = (today - last_payment).days if last_payment else None
+
+    inv_dates = sorted([i.invoice_date for i in inv_rows if i.invoice_date])
+    tenure_days = (today - inv_dates[0]).days if inv_dates else 0
+    tenure_months = max(1, round(tenure_days / 30)) if tenure_days else 0
+    gaps = [(inv_dates[k] - inv_dates[k - 1]).days for k in range(1, len(inv_dates))]
+    avg_gap_days = round(sum(gaps) / len(gaps), 1) if gaps else None
+    invoices_per_month = round(n_invoices / tenure_months, 1) if tenure_months else None
+
+    def _rev_between(d0, d1):
+        return sum(float(i.total or 0) for i in inv_rows
+                   if i.invoice_date and d0 <= i.invoice_date < d1)
+    last3 = _rev_between(today - timedelta(days=90), today + timedelta(days=1))
+    prev3 = _rev_between(today - timedelta(days=180), today - timedelta(days=90))
+    trajectory_pct = (round((last3 - prev3) / prev3 * 100, 1) if prev3 > 0
+                      else (100.0 if last3 > 0 else None))
+
+    avg_daily_bill = last3 / 90.0
+    dso_days = round(cur_out / avg_daily_bill) if (avg_daily_bill > 0 and cur_out > 0) else None
+
+    last_inv_days = (today - inv_dates[-1]).days if inv_dates else None
+    first_inv_days = (today - inv_dates[0]).days if inv_dates else None
+    if not inv_dates:
+        lifecycle = "No billing"
+    elif last_inv_days > 90:
+        lifecycle = "Lost"
+    elif last_inv_days > 45:
+        lifecycle = "Dormant"
+    elif first_inv_days <= 60:
+        lifecycle = "New"
+    elif trajectory_pct is not None and trajectory_pct >= 15:
+        lifecycle = "Growing"
+    elif trajectory_pct is not None and trajectory_pct <= -15:
+        lifecycle = "Declining"
+    else:
+        lifecycle = "Mature"
+
+    bal_dir = None
+    if len(snap_rows) >= 2:
+        first_c, last_c = float(snap_rows[0].closing), float(snap_rows[-1].closing)
+        bal_dir = "up" if last_c > first_c else "down" if last_c < first_c else "flat"
+    deteriorating = bool(cur_out > 0 and (days_since_pay is None or days_since_pay > 45)
+                         and bal_dir in (None, "up"))
+
+    # Payment-reliability score (0–100), transparent components (receipt-recency
+    # proxy — becomes exact once a Vasy open-bills export is wired in).
+    if days_since_pay is None:
+        c_recency = 0 if cur_out > 0 else 60
+    else:
+        c_recency = max(0, min(100, round(100 - (days_since_pay / 75.0) * 100)))
+    c_util = 60 if utilization_pct is None else max(0, min(100, round(100 - max(0.0, utilization_pct - 25) / 1.25)))
+    # Consistency = paid in most months they were active (rewards regular payers,
+    # not high-frequency buyers). Lump-sum payers billed daily aren't penalised.
+    pay_months = len({(r.receipt_date.year, r.receipt_date.month) for r in rec_rows if r.receipt_date})
+    c_consistency = max(0, min(100, round(pay_months / tenure_months * 100))) if tenure_months else 60
+    score = round(0.5 * c_recency + 0.3 * c_util + 0.2 * c_consistency)
+    grade = ("A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50
+             else "D" if score >= 35 else "E")
+
+    sku_mix = []
+    sk_rows = (db.query(
+                 func.coalesce(VasySalesItem.product_name, VasySalesItem.item_code, "Unknown"),
+                 func.coalesce(func.sum(VasySalesItem.qty), 0),
+                 func.coalesce(func.sum(VasySalesItem.net_amount), 0))
+               .filter(VasySalesItem.customer_id == customer.id)
+               .group_by(func.coalesce(VasySalesItem.product_name, VasySalesItem.item_code, "Unknown"))
+               .all())
+    sk_total = sum(float(v) for _, _, v in sk_rows) or 0.0
+    for nm, q, v in sorted(sk_rows, key=lambda x: float(x[2]), reverse=True):
+        sku_mix.append({
+            "product": str(nm), "qty_fmt": fmt_qty(float(q)),
+            "value_fmt": fmt_inr(float(v)),
+            "pct": round(float(v) / sk_total * 100, 1) if sk_total else 0.0,
+        })
+
+    intelligence = {
+        "score": score, "grade": grade,
+        "score_components": {"recency": c_recency, "utilization": c_util, "consistency": c_consistency},
+        "dso_days": dso_days,
+        "credit_limit_fmt": (fmt_inr(credit_limit) if credit_limit else None),
+        "utilization_pct": utilization_pct,
+        "current_outstanding_fmt": fmt_inr(cur_out),
+        "days_since_payment": days_since_pay if days_since_pay is not None else None,
+        "lifecycle": lifecycle,
+        "trajectory_pct": trajectory_pct,
+        "avg_gap_days": avg_gap_days,
+        "invoices_per_month": invoices_per_month,
+        "tenure_months": tenure_months,
+        "balance_direction": bal_dir,
+        "deteriorating": deteriorating,
+        "avg_order_value_fmt": fmt_inr(avg_order_value),
+    }
+
     return {
         "customer": {
             "id": customer.id,
@@ -1426,6 +1525,8 @@ def customer_detail(db: Session, customer_id: int, today: date, months: int = 12
             "first_order_display": (date.fromisoformat(first_order).strftime("%d %b %Y")
                                     if first_order else "—"),
         },
+        "intelligence": intelligence,
+        "sku_mix": sku_mix,
         "trend": trend,
         "mix": mix_list,
         "upsell": upsell,
