@@ -755,46 +755,7 @@ def api_invoice_pdf_by_number(invoice_number: str, db: Session = Depends(get_db)
 
 
 # ---------------------------------------------------------------------------
-# List of a day's invoices (for downloading each PDF individually, no zip)
-# ---------------------------------------------------------------------------
-
-@router.get("/billing/api/invoices/pdf/list")
-def api_invoices_pdf_list(
-    business_date: Optional[str] = None,
-    db: Session = Depends(get_db),
-):
-    """Return the day's invoices as {invoice_number, filename} so the client can
-    download each PDF individually into one folder (no zip to extract)."""
-    if business_date:
-        try:
-            target_date = date.fromisoformat(business_date)
-        except ValueError:
-            return JSONResponse(status_code=400, content={"error": f"Invalid date: {business_date!r}"})
-    else:
-        target_date = _today()
-
-    invoices = db.scalars(
-        select(Invoice)
-        .where(Invoice.business_date == target_date)
-        .order_by(Invoice.invoice_number)
-    ).all()
-
-    out = []
-    for invoice in invoices:
-        row = db.execute(
-            text("SELECT customer_name FROM orders WHERE id = :oid"),
-            {"oid": invoice.order_id},
-        ).first()
-        hotel_name = row[0] if row else invoice.customer_phone
-        safe_name = (hotel_name or "").strip().replace(" ", "_").replace("/", "-")
-        out.append({
-            "invoice_number": invoice.invoice_number,
-            "filename": f"{safe_name}_{invoice.invoice_number}.pdf",
-        })
-    return {"date": target_date.isoformat(), "count": len(out), "invoices": out}
-
-
-# Bulk ZIP (kept as a fallback; the All-PDFs button now downloads individually)
+# Bulk ZIP (unchanged)
 # ---------------------------------------------------------------------------
 
 @router.get("/billing/api/invoices/pdf/bulk")
