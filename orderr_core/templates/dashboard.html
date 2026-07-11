@@ -59,6 +59,9 @@
         .mobile-only { display:block; }
         @media(min-width:700px){ .mobile-only { display:none !important; } }
 
+        /* ── Area group header ── */
+        .area-header { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; color:#075e54; margin:18px 0 8px; padding-bottom:5px; border-bottom:2px solid #d4e6e2; text-transform:uppercase; letter-spacing:.03em; }
+        .area-count { background:#075e54; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 9px; letter-spacing:0; }
         /* ── Order Cards ── */
         .order-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #075e54; }
         .order-card.unclear { border-left-color:#e67e22; }
@@ -368,7 +371,9 @@
 
         <h2>✅ Orders</h2>
         {% if clear_orders %}
-            {% for order in clear_orders %}
+            {% for group in area_groups %}
+            <div class="area-header">📍 {{ group.area }} <span class="area-count">{{ group.orders|length }}</span></div>
+            {% for order in group.orders %}
             <div class="order-card">
                 <div class="order-header">
                     <div>
@@ -432,6 +437,7 @@
                 </details>
                 {% endif %}
             </div>
+            {% endfor %}
             {% endfor %}
         {% else %}
             <div class="empty">No clear orders for this date</div>

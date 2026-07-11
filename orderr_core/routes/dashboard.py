@@ -7,7 +7,7 @@ from orderr_core.database import get_db
 from orderr_core.models.order import Order
 from orderr_core.auth import require_auth
 from datetime import datetime, date, timezone, timedelta
-from orderr_core.services.order_service import get_current_business_date
+from orderr_core.services.order_service import get_current_business_date, group_orders_by_area
 from orderr_core.config import PLANT_NAME
 import json
 import os
@@ -50,6 +50,10 @@ def dashboard(
 
     clear_orders   = [o for o in orders if not o.is_unclear]
     unclear_orders = [o for o in orders if o.is_unclear]
+
+    # Group clear orders by the customer's assigned area (busiest area first,
+    # "Area not set" last) so the board reads route-by-route.
+    area_groups = group_orders_by_area(db, clear_orders)
 
     product_summary = {}
     for order in clear_orders:
@@ -103,6 +107,7 @@ def dashboard(
             "current_time"       : datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "orders"             : orders,
             "clear_orders"       : clear_orders,
+            "area_groups"        : area_groups,
             "unclear_orders"     : unclear_orders,
             "product_summary"    : list(product_summary.values()),
             "total_items"        : sum(len(o.items_parsed) for o in clear_orders),

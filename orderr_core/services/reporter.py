@@ -46,6 +46,22 @@ def report_product_name(product: str) -> str:
     return erp_display_name(product)
 
 
+def _product_totals_for(orders: list) -> dict:
+    """Sum parsed items across a set of orders into
+    {key: {product, unit, total_quantity}} keyed by product+unit."""
+    totals: dict = {}
+    for order in orders:
+        for item in _safe_list(order.parsed_items):
+            product  = report_product_name(item.get("product", "Unknown").strip())
+            quantity = item.get("quantity", 0)
+            unit     = item.get("unit", "kg").lower()
+            key      = f"{product.lower()}||{unit}"
+            if key not in totals:
+                totals[key] = {"product": product, "unit": unit, "total_quantity": 0}
+            totals[key]["total_quantity"] += quantity
+    return totals
+
+
 def merge_items(items: list) -> list:
     merged = {}
     for item in items:
@@ -105,17 +121,15 @@ def generate_daily_report(db: Session, target_date: date | None = None) -> dict:
     unclear_orders = [o for o in orders if o.is_unclear]
 
     # ── Product totals (summary section) ─────────────────────────────────────
-    product_totals: dict = {}
-    for order in clear_orders:
-        items = _safe_list(order.parsed_items)
-        for item in items:
-            product  = report_product_name(item.get("product", "Unknown").strip())
-            quantity = item.get("quantity", 0)
-            unit     = item.get("unit", "kg").lower()
-            key      = f"{product.lower()}||{unit}"
-            if key not in product_totals:
-                product_totals[key] = {"product": product, "unit": unit, "total_quantity": 0}
-            product_totals[key]["total_quantity"] += quantity
+    product_totals = _product_totals_for(clear_orders)
+
+    # ── Per-area groups (busiest area first, "Area not set" last) ─────────────
+    # Each group carries its own hotels + a per-area product subtotal so the
+    # printed sheet reads route-by-route for dispatch.
+    from orderr_core.services.order_service import group_orders_by_area
+    area_groups = group_orders_by_area(db, clear_orders)
+    for g in area_groups:
+        g["product_totals"] = _product_totals_for(g["orders"])
 
     # ── WhatsApp-friendly product summary string ──────────────────────────────
     if not orders:
@@ -140,6 +154,7 @@ def generate_daily_report(db: Session, target_date: date | None = None) -> dict:
         "_clear_orders":   clear_orders,
         "_unclear_orders": unclear_orders,
         "_product_totals": product_totals,
+        "_area_groups":    area_groups,
     }
 
 
@@ -150,7 +165,35 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
     clear_orders   = data["_clear_orders"]
     unclear_orders = data["_unclear_orders"]
     product_totals = data["_product_totals"]
+    area_groups    = data.get("_area_groups", [])
     generated_at   = datetime.now(IST).strftime("%d %b %Y %I:%M %p IST")
+
+    def _hotel_block(idx: int, order) -> str:
+        name     = order.customer_name or order.customer_phone
+        delivery = f" &nbsp;·&nbsp; {order.delivery_time}" if order.delivery_time else ""
+        item_rows = ""
+        for item in _safe_list(order.parsed_items):
+            qty_str = fmt_qty(item.get("quantity", 0))
+            item_rows += f"""
+                    <tr>
+                        <td class="product-name" style="padding-left:24px;">{report_product_name(item.get('product','—'))}</td>
+                        <td class="qty-ordered">{qty_str} {item.get('unit','kg')}</td>
+                        <td class="qty-delivered"><div class="write-box"></div></td>
+                    </tr>"""
+        for raw in _safe_list(order.unclear_items):
+            item_rows += f"""
+                    <tr>
+                        <td class="product-name" style="padding-left:24px;color:#e67e22;">⚠️ {raw}</td>
+                        <td class="qty-ordered" style="color:#e67e22;">unclear</td>
+                        <td class="qty-delivered"><div class="write-box"></div></td>
+                    </tr>"""
+        return f"""
+            <div class="hotel-block">
+                <div class="hotel-name">{idx}.&nbsp; {name}{delivery}</div>
+                <table class="data-table">
+                    <tbody>{item_rows}</tbody>
+                </table>
+            </div>"""
 
     # ── Product summary rows ──────────────────────────────────────────────────
     summary_rows = ""
@@ -167,43 +210,38 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
     if not summary_rows:
         summary_rows = '<tr><td colspan="3" style="text-align:center;color:#999;padding:16px;">No orders today</td></tr>'
 
-    # ── Per-hotel order rows ──────────────────────────────────────────────────
-    hotel_sections = ""
-    for idx, order in enumerate(clear_orders, 1):
-        items        = _safe_list(order.parsed_items)
-        unclear_list = _safe_list(order.unclear_items)
-        name         = order.customer_name or order.customer_phone
-        delivery     = f" &nbsp;·&nbsp; {order.delivery_time}" if order.delivery_time else ""
+    # ── Per-area sections: each area gets its own product subtotal + hotels ───
+    area_sections = ""
+    for group in area_groups:
+        area   = group["area"]
+        orders = group["orders"]
+        totals = group.get("product_totals", {})
 
-        item_rows = ""
-        for item in items:
-            qty = item.get("quantity", 0)
-            qty_str = fmt_qty(qty)
-            item_rows += f"""
+        subtotal_rows = "".join(
+            f"""
                     <tr>
-                        <td class="product-name" style="padding-left:24px;">{report_product_name(item.get('product','—'))}</td>
-                        <td class="qty-ordered">{qty_str} {item.get('unit','kg')}</td>
-                        <td class="qty-delivered"><div class="write-box"></div></td>
+                        <td class="product-name">{entry['product']}</td>
+                        <td class="qty-ordered">{fmt_qty(entry['total_quantity'])} {entry['unit']}</td>
                     </tr>"""
+            for entry in totals.values()
+        )
 
-        for raw in unclear_list:
-            item_rows += f"""
-                    <tr>
-                        <td class="product-name" style="padding-left:24px;color:#e67e22;">⚠️ {raw}</td>
-                        <td class="qty-ordered" style="color:#e67e22;">unclear</td>
-                        <td class="qty-delivered"><div class="write-box"></div></td>
-                    </tr>"""
+        hotel_blocks = "".join(_hotel_block(idx, o) for idx, o in enumerate(orders, 1))
 
-        hotel_sections += f"""
-            <div class="hotel-block">
-                <div class="hotel-name">{idx}.&nbsp; {name}{delivery}</div>
-                <table class="data-table">
-                    <tbody>{item_rows}</tbody>
-                </table>
-            </div>"""
+        area_sections += f"""
+        <div class="area-section">
+            <div class="area-title">📍 {area} <span class="area-count">{len(orders)} hotel{'s' if len(orders) != 1 else ''}</span></div>
+            <table class="data-table area-subtotal">
+                <thead>
+                    <tr><th class="product-name">Product (this area)</th><th class="qty-ordered">Ordered Qty</th></tr>
+                </thead>
+                <tbody>{subtotal_rows}</tbody>
+            </table>
+            <div class="hotel-grid">{hotel_blocks}</div>
+        </div>"""
 
-    if not hotel_sections:
-        hotel_sections = '<p style="text-align:center;color:#999;padding:24px 0;">No confirmed orders</p>'
+    if not area_sections:
+        area_sections = '<p style="text-align:center;color:#999;padding:24px 0;">No confirmed orders</p>'
 
     # ── Unclear section ───────────────────────────────────────────────────────
     unclear_section = ""
@@ -358,6 +396,37 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
     margin-bottom: 2px;
   }}
 
+  /* ── Area sections ── */
+  .area-section {{
+    margin-bottom: 22px;
+    break-inside: avoid-column;
+  }}
+  .area-title {{
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    background: #1a1a1a;
+    color: #fff;
+    padding: 5px 9px;
+    margin-bottom: 8px;
+  }}
+  .area-title .area-count {{
+    float: right;
+    font-weight: 600;
+    font-size: 11px;
+    opacity: .85;
+    letter-spacing: 0;
+    text-transform: none;
+  }}
+  .area-subtotal {{
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+  }}
+  .area-subtotal th {{ background: #f0f0f0; }}
+  .area-subtotal td {{ padding: 3px 8px; }}
+  .area-subtotal .qty-ordered {{ font-weight: 600; }}
+
   /* ── Footer ── */
   .footer {{
     margin-top: 32px;
@@ -432,10 +501,10 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
   </table>
 </div>
 
-<!-- Section 2: Hotel-wise Orders (2-column grid — see .hotel-grid) -->
+<!-- Section 2: Area-wise Orders (each area: subtotal + 2-column hotel grid) -->
 <div class="section">
-  <div class="section-title">Hotel-wise Orders</div>
-  <div class="hotel-grid">{hotel_sections}</div>
+  <div class="section-title">Area-wise Orders</div>
+  {area_sections}
 </div>
 
 {unclear_section}

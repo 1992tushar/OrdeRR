@@ -67,6 +67,42 @@ from orderr_core.utils import safe_list as _safe_load_list
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
+UNASSIGNED_AREA = "Area not set"
+
+
+def group_orders_by_area(db: Session, orders: list) -> list[dict]:
+    """Group a list of orders by the ordering customer's assigned area.
+
+    Area lives on the Customer (free text, nullable); orders join by phone.
+    Returns a list of {"area": str, "orders": [...]} sorted by descending
+    order count, with the UNASSIGNED_AREA bucket always last. Ties broken
+    alphabetically. Order objects are returned unchanged (same references).
+    """
+    phones = {o.customer_phone for o in orders if o.customer_phone}
+    phone_to_area: dict[str, str] = {}
+    if phones:
+        rows = (
+            db.query(Customer.phone_number, Customer.area)
+            .filter(Customer.phone_number.in_(phones))
+            .all()
+        )
+        phone_to_area = {p: (a or "").strip() for p, a in rows}
+
+    groups: dict[str, list] = {}
+    for o in orders:
+        area = phone_to_area.get(o.customer_phone, "") or UNASSIGNED_AREA
+        groups.setdefault(area, []).append(o)
+
+    def _sort_key(item):
+        area, order_list = item
+        return (area == UNASSIGNED_AREA, -len(order_list), area.lower())
+
+    return [
+        {"area": area, "orders": order_list}
+        for area, order_list in sorted(groups.items(), key=_sort_key)
+    ]
+
+
 def get_internal_phones(db: Session) -> set:
     salesperson_phones = {
         sp.phone for sp in
