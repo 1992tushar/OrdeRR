@@ -989,6 +989,20 @@ def post_order_on_behalf(
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Order message cannot be empty")
 
+    # An order is keyed to the customer's mobile number, so we can't post one for
+    # a customer who has none saved (e.g. customers created from the Vasy
+    # outstanding/sales import, which carry no phone). Fail with a plain-language
+    # message instead of letting the order pipeline crash with a technical error.
+    if not (customer.phone_number or "").strip():
+        name = customer.restaurant_name or "This customer"
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{name} doesn’t have a mobile number saved, so an order can’t be "
+                    "posted for them yet. Please add their mobile number first — open the "
+                    "customer, click Edit, enter their WhatsApp mobile number, save, then "
+                    "post the order again."),
+        )
+
     existing_orders = (
         db.query(Order)
         .filter(
