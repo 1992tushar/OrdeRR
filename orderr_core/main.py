@@ -66,6 +66,9 @@ from orderr_core.models.vasy_payment import VasyPayment                 # noqa: 
 from orderr_core.models.vasy_supplier_bill import VasySupplierBill       # noqa: F401
 from orderr_core.models.vasy_sales_item import VasySalesItem             # noqa: F401
 
+# 5-Day Close (P2) — signed-off close history
+from orderr_core.models.close_period import ClosePeriod                  # noqa: F401
+
 
 Base.metadata.create_all(bind=engine)
 

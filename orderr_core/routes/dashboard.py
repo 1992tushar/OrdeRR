@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, Request, Query, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Depends, Request, Query, UploadFile, File, HTTPException, Form
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -158,6 +158,86 @@ def analytics(
             "analytics_view": "overview",
         },
     )
+
+
+def _parse_iso(s):
+    try:
+        return date.fromisoformat(s) if s else None
+    except ValueError:
+        return None
+
+
+def _resolve_window(db, today, frm, to):
+    """Shared window resolution for the close GET/POST: explicit dates win, else
+    default (day after last signed close → today)."""
+    from orderr_core.services import close_service
+    from_date, to_date = _parse_iso(frm), _parse_iso(to)
+    if from_date is None or to_date is None:
+        d_from, d_to = close_service.default_window(today, db)
+        from_date = from_date or d_from
+        to_date = to_date or d_to
+    if from_date > to_date:
+        from_date, to_date = to_date, from_date
+    return from_date, to_date
+
+
+@router.get("/analytics/close", response_class=HTMLResponse)
+def analytics_close(
+    request: Request,
+    frm: str = Query(default=None, alias="from", description="window start YYYY-MM-DD"),
+    to: str = Query(default=None, description="window end YYYY-MM-DD"),
+    flash: str = Query(default=None, description="post-sign-off confirmation"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """5-Day Close & Audit — three tie-outs + auto exceptions over a [from, to]
+    window, computed from data OrdeRR already holds, with sign-off history.
+    See FIVE_DAY_CLOSE_REQUIREMENTS.md."""
+    from orderr_core.services import close_service
+
+    today = get_current_business_date()
+    from_date, to_date = _resolve_window(db, today, frm, to)
+    close = close_service.five_day_close(db, from_date, to_date, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_close.html",
+        context={
+            "plant_name": PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "close": close,
+            "flash": flash,
+            "analytics_view": "close",
+        },
+    )
+
+
+@router.post("/analytics/close/sign")
+def analytics_close_sign(
+    frm: str = Form(..., alias="from"),
+    to: str = Form(...),
+    opening_cash: str = Form(default=None),
+    counted_cash: str = Form(default=None),
+    drawings: str = Form(default=None),
+    signed_by: str = Form(default=None),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Persist a signed close for the window (upsert). Recomputes server-side —
+    only the manual cash figures are taken from the form — then redirects back
+    (Post/Redirect/Get) so a refresh doesn't re-submit."""
+    from orderr_core.services import close_service
+
+    today = get_current_business_date()
+    from_date, to_date = _resolve_window(db, today, frm, to)
+    close_service.record_close(
+        db, from_date, to_date, today,
+        opening_cash=opening_cash, counted_cash=counted_cash,
+        drawings=drawings, signed_by=(signed_by or username),
+    )
+    url = (f"/dashboard/analytics/close?from={from_date.isoformat()}"
+           f"&to={to_date.isoformat()}&flash=signed")
+    return RedirectResponse(url=url, status_code=303)
 
 
 @router.get("/analytics/churn", response_class=HTMLResponse)
