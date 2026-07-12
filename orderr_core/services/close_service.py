@@ -232,6 +232,41 @@ def freshness(db: Session, to_date: date, today: date) -> dict:
     return {"rows": rows, "all_fresh": all_fresh}
 
 
+# ── supplier accounts payable (running-account basis) ──────────────────────
+
+def _running_ap(db: Session):
+    """Amount owed to suppliers on a RUNNING-ACCOUNT basis: each supplier's
+    total bills minus total payments to that supplier.
+
+    The business pays at supplier level ('Make Payment') and never marks
+    individual bills paid, so Vasy's bill-level due/overdue status is not
+    meaningful — the real balance is (bills − payments) per supplier. Gross AP =
+    sum of positive balances only (suppliers in advance are not netted in),
+    mirroring how gross AR treats customers in credit.
+
+    Returns (gross_ap, top_creditors) where top_creditors is a list of
+    {vendor, balance, balance_fmt} sorted by balance desc.
+    NOTE: accuracy depends on the payments import being complete — a truncated
+    payments export understates payments and overstates what's owed.
+    """
+    bills = dict(db.query(VasySupplierBill.vendor_key,
+                          func.coalesce(func.sum(VasySupplierBill.amount), 0))
+                 .group_by(VasySupplierBill.vendor_key).all())
+    names = dict(db.query(VasySupplierBill.vendor_key, VasySupplierBill.vendor).all())
+    pays = dict(db.query(VasyPayment.party_key,
+                         func.coalesce(func.sum(VasyPayment.amount), 0))
+                .group_by(VasyPayment.party_key).all())
+    creditors = []
+    for vk, b in bills.items():
+        bal = float(b or 0) - float(pays.get(vk, 0) or 0)
+        if bal > 1:
+            creditors.append({"vendor": names.get(vk) or vk, "balance": round(bal, 2),
+                              "balance_fmt": fmt_inr(bal)})
+    creditors.sort(key=lambda c: c["balance"], reverse=True)
+    gross_ap = sum(c["balance"] for c in creditors)
+    return gross_ap, creditors
+
+
 # ── tie-outs ────────────────────────────────────────────────────────────────
 
 def _tieouts(db: Session, from_date: date, to_date: date):
@@ -270,17 +305,17 @@ def _tieouts(db: Session, from_date: date, to_date: date):
         "has_snapshots": closing_snap is not None,
     }
 
-    # ── B · Creditors (AP) — only CURRENT due is stored (supplier_bills is
-    # upserted to live state); historical opening AP isn't reconstructable, so
-    # this is shown as window flow + standing balance, tie-out marked indicative.
+    # ── B · Creditors (AP) — running-account basis: what we owe each supplier is
+    # (their bills − their payments), NOT the bill-level due/overdue flag (which
+    # the business never updates). Window flow (purchases in, payments out) is
+    # shown alongside the standing balance.
     purchases = float(db.query(func.coalesce(func.sum(VasyPurchase.total), 0))
                       .filter(VasyPurchase.bill_date >= from_date,
                               VasyPurchase.bill_date <= to_date).scalar() or 0)
     supplier_payments = float(db.query(func.coalesce(func.sum(VasyPayment.amount), 0))
                               .filter(VasyPayment.payment_date >= from_date,
                                       VasyPayment.payment_date <= to_date).scalar() or 0)
-    current_ap = float(db.query(func.coalesce(func.sum(VasySupplierBill.due), 0))
-                       .filter(VasySupplierBill.due > 0).scalar() or 0)
+    current_ap, top_creditors = _running_ap(db)
     has_ap = db.query(VasySupplierBill.id).first() is not None
     creditors = {
         "purchases": purchases, "purchases_fmt": fmt_inr(purchases),
@@ -288,6 +323,7 @@ def _tieouts(db: Session, from_date: date, to_date: date):
         "net_movement": purchases - supplier_payments,
         "net_movement_fmt": fmt_inr(purchases - supplier_payments),
         "current_ap": current_ap, "current_ap_fmt": fmt_inr(current_ap),
+        "top_creditors": top_creditors[:5],
         "has_ap": has_ap,
     }
 
@@ -462,21 +498,10 @@ def _exceptions(db: Session, from_date: date, to_date: date, today: date,
             "samples": [],
         })
 
-    # 8 · Overdue supplier bills + unpaid expenses (standing payables)
-    overdue = db.query(VasySupplierBill).filter(
-        VasySupplierBill.due > 0,
-        VasySupplierBill.due_date != None,                            # noqa: E711
-        VasySupplierBill.due_date < today).all()
-    if overdue:
-        od_total = sum(float(b.due) for b in overdue)
-        out.append({
-            "key": "overdue_bills", "severity": "info",
-            "title": "Overdue supplier bills",
-            "count": len(overdue),
-            "note": f"{fmt_inr(od_total)} past due date — schedule payment.",
-            "samples": [{"label": b.vendor or b.bill_no, "detail": fmt_inr(b.due)}
-                        for b in sorted(overdue, key=lambda x: float(x.due), reverse=True)[:8]],
-        })
+    # (Bill-level "overdue" is intentionally NOT flagged: the business pays on a
+    # running-account basis and never marks individual bills paid, so Vasy's
+    # per-bill due/overdue status is meaningless. What's actually owed is the
+    # running-account balance shown in the Creditors tie-out.)
 
     # 9 · Usual suppliers with no purchase this window (derived, until a fixed
     # supplier list is configured — §9). "Usual" = bought from in the prior 30

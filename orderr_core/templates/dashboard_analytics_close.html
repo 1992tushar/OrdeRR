@@ -219,9 +219,13 @@ main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
       <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Purchases this window</span><span class="v">{{ close.creditors.purchases_fmt }}</span></div>
       <div class="trow"><span class="lbl"><span class="op">−</span>Paid to suppliers</span><span class="v">{{ close.creditors.payments_fmt }}</span></div>
       <div class="trow exp"><span class="lbl">= Net movement</span><span class="v">{{ close.creditors.net_movement_fmt }}</span></div>
-      <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Current AP due (standing)</span><span class="v">{{ close.creditors.current_ap_fmt }}</span></div>
-      <div class="gapbar idle"><span>Balance</span><span class="val">indicative</span></div>
-      <div class="foot">Supplier bills store only current due, so historical opening AP isn't reconstructable — shown as window flow + standing balance.</div>
+      <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Owed to suppliers (running a/c)</span><span class="v">{{ close.creditors.current_ap_fmt }}</span></div>
+      {% if close.creditors.top_creditors %}
+      <div class="gapbar idle" style="flex-direction:column;align-items:stretch;gap:3px">
+        {% for c in close.creditors.top_creditors %}<div style="display:flex;justify-content:space-between"><span style="font-weight:600">{{ c.vendor }}</span><span class="val">{{ c.balance_fmt }}</span></div>{% endfor %}
+      </div>
+      {% endif %}
+      <div class="foot">Running-account basis: each supplier's bills − payments (bill-level "overdue" is ignored — you pay per supplier, not per bill). Accuracy depends on the payments import being complete.</div>
     </div>
 
     <!-- C · Cash -->

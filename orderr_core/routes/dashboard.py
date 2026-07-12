@@ -697,6 +697,21 @@ async def analytics_import_sales_invoices(
     return JSONResponse({"status": "ok", "summary": summary})
 
 
+# Row counts that are almost always a Vasy export capped to one page, not the
+# true number of records — used to warn before a truncated file silently
+# corrupts the audit (e.g. the payments export that stopped at 500 rows).
+_LIKELY_EXPORT_CAPS = {100, 250, 500, 1000, 2000, 2500, 5000, 10000}
+
+
+def _truncation_note(summary):
+    n = summary.get("rows")
+    if isinstance(n, int) and n in _LIKELY_EXPORT_CAPS:
+        return (f"⚠️ Row count is exactly {n} — the Vasy export was probably capped to "
+                "one page, so newer records may be missing. Re-export with page size "
+                "'All' and upload again.")
+    return None
+
+
 async def _import_cost_file(entity, importer, file, db):
     fname = (file.filename or "").lower()
     if not fname.endswith((".xlsx", ".xlsm")):
@@ -708,6 +723,9 @@ async def _import_cost_file(entity, importer, file, db):
         summary = importer(db, contents, source_file=file.filename)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    note = _truncation_note(summary)
+    if note:
+        summary["truncation_warning"] = note
     return JSONResponse({"status": "ok", "summary": summary})
 
 

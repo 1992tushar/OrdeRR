@@ -237,7 +237,9 @@ async function upload(kind){
     if (s.unmatched) msg += ', <b>'+s.unmatched+'</b> unattributed';
     if (s.snapshot_date) msg += ' · snapshot '+s.snapshot_date;
     if (s.customers) msg += ' · customers +'+s.customers.created+'/~'+s.customers.updated;
-    res.className='result ok'; res.innerHTML = msg + ' — <a href="/dashboard/analytics/imports" style="color:inherit;font-weight:700">refresh</a>';
+    res.className = s.truncation_warning ? 'result err' : 'result ok';
+    if (s.truncation_warning) msg += '<br>'+s.truncation_warning;
+    res.innerHTML = msg + ' — <a href="/dashboard/analytics/imports" style="color:inherit;font-weight:700">refresh</a>';
   }catch(e){
     res.className='result err'; res.textContent = 'Import failed: '+e.message;
   }finally{
