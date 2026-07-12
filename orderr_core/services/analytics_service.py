@@ -2364,12 +2364,18 @@ def build_xlsx(sheet_name: str, headers: list, rows: list) -> bytes:
     return buf.getvalue()
 
 
-def export_dataset(db: Session, today: date, name: str, days=None):
+def export_dataset(db: Session, today: date, name: str, days=None,
+                   area=None, salesperson=None):
     """Return (filename, sheet_name, headers, rows) for an analytics list, so
     the export route can serialise it. Mirrors what each screen shows.
+    Optional area/salesperson narrow the rows to the on-screen selection.
     Unknown name → None.
     """
     tag = today.strftime("%Y%m%d")
+
+    def _match(r):
+        return (not area or r.get("area") == area) and \
+               (not salesperson or r.get("salesperson") == salesperson)
 
     if name == "customers":
         data = customer_360(db, today, days=days if days is not None else 30)
@@ -2381,7 +2387,8 @@ def export_dataset(db: Session, today: date, name: str, days=None):
                  "Yes" if r["is_active"] else "No", r["revenue"], r["outstanding"],
                  r["orders"], r["last_order"], r["recency_days"],
                  r["last_payment_display"], r["days_since_payment"],
-                 r["avg_receipt_fmt"], r["mix_summary"]] for r in data["rows"]]
+                 r["avg_receipt_fmt"], r["mix_summary"]]
+                for r in data["rows"] if _match(r)]
         return (f"customers_{tag}.xlsx", "Customer 360", headers, rows)
 
     if name == "churn":

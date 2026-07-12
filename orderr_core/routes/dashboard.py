@@ -359,6 +359,8 @@ def analytics_export(
     request: Request,
     name: str,
     days: str = Query(default=None, description="Optional window: 7|30|90|all"),
+    area: str = Query(default=None, description="Optional area filter"),
+    salesperson: str = Query(default=None, description="Optional salesperson filter"),
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
@@ -369,7 +371,10 @@ def analytics_export(
 
     today = get_current_business_date()
     window = analytics_service.C360_WINDOWS.get(days, None) if days else None
-    result = analytics_service.export_dataset(db, today, name, days=window)
+    result = analytics_service.export_dataset(
+        db, today, name, days=window,
+        area=area or None, salesperson=salesperson or None,
+    )
     if result is None:
         raise HTTPException(status_code=404, detail="Unknown export")
 
