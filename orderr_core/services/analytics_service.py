@@ -2379,16 +2379,19 @@ def export_dataset(db: Session, today: date, name: str, days=None,
 
     if name == "customers":
         data = customer_360(db, today, days=days if days is not None else 30)
-        headers = ["Customer", "Phone", "Area", "Salesperson", "Active",
-                   "Revenue (INR)", "Outstanding (INR)", "Orders", "Last order",
-                   "Days since order", "Last payment", "Days since payment",
-                   "Avg receipt", "Product mix"]
-        rows = [[r["name"], r["phone"], r["area"], r["salesperson"],
-                 "Yes" if r["is_active"] else "No", r["revenue"], r["outstanding"],
-                 r["orders"], r["last_order"], r["recency_days"],
-                 r["last_payment_display"], r["days_since_payment"],
-                 r["avg_receipt_fmt"], r["mix_summary"]]
-                for r in data["rows"] if _match(r)]
+        win = data.get("window_label", "")
+        headers = ["Customer", "Area", "Salesperson",
+                   f"Revenue ({win})".strip(), "Outstanding (INR)",
+                   "Last invoice", "Last payment"]
+        src = [r for r in data["rows"] if _match(r)]
+        src.sort(key=lambda r: (r["outstanding"] if r["outstanding"] != "" else 0),
+                 reverse=True)
+        rows = [[r["name"], r["area"], r["salesperson"],
+                 r["revenue"], r["outstanding"],
+                 r["last_order"], r["last_payment_display"]] for r in src]
+        total_rev = sum(r["revenue"] for r in src if r["revenue"] != "")
+        total_out = sum(r["outstanding"] for r in src if r["outstanding"] != "")
+        rows.append(["TOTAL", "", "", round(total_rev, 2), round(total_out, 2), "", ""])
         return (f"customers_{tag}.xlsx", "Customer 360", headers, rows)
 
     if name == "churn":
