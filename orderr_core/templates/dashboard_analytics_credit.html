@@ -122,7 +122,6 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
         <th data-sort="score" class="num">Risk</th>
         <th data-sort="classification">Class</th>
         <th data-sort="days_since_payment" class="num">Since pay</th>
-        <th data-sort="days_since_order" class="num">Since order</th>
         <th data-sort="exposure_months" class="num">Exp. mo.</th>
         <th>Credit limit</th>
         <th>Why</th>
@@ -161,7 +160,7 @@ function render(){
   riskOnly=document.getElementById('frisk').checked;
   let rows=ROWS.filter(r=>(!q||r.name.toLowerCase().includes(q))&&(!fa||r.area===fa)&&(!fs||r.salesperson===fs)
     &&(!segFilter||r.classification===segFilter)&&(!riskOnly||r.at_risk));
-  const numeric=['outstanding','score','days_since_payment','days_since_order','exposure_months'].includes(sortKey);
+  const numeric=['outstanding','score','days_since_payment','exposure_months'].includes(sortKey);
   rows.sort((a,b)=>{let x=a[sortKey],y=b[sortKey];
     if(numeric){x=(x===''||x===null)?-Infinity:+x;y=(y===''||y===null)?-Infinity:+y;return (x-y)*sortDir;}
     return String(x).localeCompare(String(y))*sortDir;});
@@ -175,12 +174,11 @@ function render(){
         '<span class="gauge"><i style="width:'+r.score+'%;background:'+scoreColor(r.score)+'"></i></span></td>'+
       '<td><span class="cls '+r.classification.replace("-","")+'" style="'+clsStyle(r.classification)+'">'+r.classification+'</span></td>'+
       '<td class="num">'+(r.days_since_payment===''?'—':r.days_since_payment+'d')+'</td>'+
-      '<td class="num">'+(r.days_since_order===''?'—':r.days_since_order+'d')+'</td>'+
       '<td class="num">'+(r.exposure_months===''?'—':r.exposure_months)+'</td>'+
       '<td><input class="limit-in" type="text" value="'+(r.credit_limit===''?'':r.credit_limit)+'" placeholder="none" '+
         'onblur="if(this.value!=this.defaultValue)setLimit('+r.customer_id+',this.value,this)"></td>'+
       '<td class="reasons">'+(r.reasons.length?esc(r.reasons.join(' · ')):'<span class="cust-sub">—</span>')+'</td>'+
-    '</tr>').join('') : '<tr><td colspan="9" class="empty">No customers match.</td></tr>';
+    '</tr>').join('') : '<tr><td colspan="8" class="empty">No customers match.</td></tr>';
   document.getElementById('count').textContent = rows.length+' of '+ROWS.length;
   document.querySelectorAll('th[data-sort]').forEach(th=>{
     th.querySelector('.arrow')?.remove();

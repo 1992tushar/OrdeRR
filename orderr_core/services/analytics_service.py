@@ -433,7 +433,6 @@ def credit_intelligence(db: Session, today: date) -> dict:
         rec = rstats.get(c.id)              # (last_date, count, total) or None
         dates = dates_by_cust.get(c.id)
         has_orders = bool(dates)
-        days_since_order = (today - dates[-1]).days if has_orders else None
         has_activity = outstanding != 0 or rec is not None or has_orders
         if not has_activity:
             continue
@@ -542,7 +541,6 @@ def credit_intelligence(db: Session, today: date) -> dict:
             "classification": cls,
             "at_risk": at_risk,
             "days_since_payment": days_since_pay if days_since_pay is not None else "",
-            "days_since_order": days_since_order if days_since_order is not None else "",
             "exposure_months": round(exposure_months, 1) if exposure_months is not None else "",
             "sub": {"payment": round(payment_lateness), "exposure": round(exposure_burden),
                     "orders": round(order_slowdown) if order_slowdown is not None else None},
@@ -2451,12 +2449,12 @@ def export_dataset(db: Session, today: date, name: str, days=None):
             return (f"credit_{tag}.xlsx", "Credit", ["Note"], [["No money data imported yet."]])
         headers = ["Customer", "Area", "Salesperson", "Outstanding (INR)", "Credit limit (INR)",
                    "Breach", "Risk score", "Classification", "At risk",
-                   "Days since payment", "Days since order", "Exposure (months)", "Reasons"]
+                   "Days since payment", "Exposure (months)", "Reasons"]
         rows = [[r["name"], r["area"], r["salesperson"], r["outstanding"],
                  (r["credit_limit"] if r["credit_limit"] != "" else ""),
                  "Yes" if r["breach"] else "", r["score"], r["classification"],
                  "Yes" if r["at_risk"] else "", r["days_since_payment"],
-                 r["days_since_order"], r["exposure_months"], "; ".join(r["reasons"])] for r in data["rows"]]
+                 r["exposure_months"], "; ".join(r["reasons"])] for r in data["rows"]]
         return (f"credit_{tag}.xlsx", "Credit", headers, rows)
 
     if name == "rfm":
