@@ -65,6 +65,20 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
 .chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
 .empty{color:var(--ink3);text-align:center;padding:26px}
 .cust-sub{font-size:11px;color:var(--ink3)}
+td.clik{cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
+td.clik:hover{background:var(--bg)}
+svg.trend .gb{cursor:pointer}
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 16px}
+.modal-ov.show{display:flex}
+.modal{background:var(--surface);border-radius:var(--r);box-shadow:0 10px 40px rgba(0,0,0,.25);width:100%;max-width:440px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px}
+.modal-h button{border:none;background:none;font-size:17px;cursor:pointer;color:var(--ink3);line-height:1}
+.modal input{margin:12px 16px 4px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;background:var(--surface);color:var(--ink)}
+.modal-body{overflow-y:auto;padding:6px 8px 12px}
+.p-row{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;text-decoration:none;color:var(--ink)}
+.p-row:hover{background:var(--green-bg)}
+.p-row .sub{font-size:11px;color:var(--ink3);margin-top:1px}
+.p-date{font-size:11px;color:var(--ink3);white-space:nowrap;margin-left:12px}
 </style>
 </head>
 <body>
@@ -181,15 +195,24 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
         {% for m in growth.series %}
         <tr>
           <td>{{ m.label }}</td>
-          <td class="num" style="color:var(--green)">{{ '+' ~ m.new if m.new else '0' }}</td>
-          <td class="num" style="color:var(--red)">{{ '−' ~ m.lost if m.lost else '0' }}</td>
+          <td class="num{{ ' clik' if m.new }}" style="color:var(--green)"{% if m.new %} onclick="showPeople('{{ m.key }}','new')"{% endif %}>{{ '+' ~ m.new if m.new else '0' }}</td>
+          <td class="num{{ ' clik' if m.lost }}" style="color:var(--red)"{% if m.lost %} onclick="showPeople('{{ m.key }}','lost')"{% endif %}>{{ '−' ~ m.lost if m.lost else '0' }}</td>
           <td class="num">{{ '+' if m.net > 0 else '' }}{{ m.net }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div></div>
+  <div class="note" style="margin:6px 2px">Tip: click a <b>New</b> or <b>Lost</b> number (or a chart bar) to see which customers.</div>
 </main>
+
+<div class="modal-ov" id="ov">
+  <div class="modal">
+    <div class="modal-h"><span id="mtitle"></span><button type="button" onclick="closeModal()" aria-label="Close">✕</button></div>
+    <input id="mq" type="text" placeholder="Search name, area, salesperson…" autocomplete="off">
+    <div class="modal-body" id="mbody"></div>
+  </div>
+</div>
 
 <script>
 const TREND = {{ rev.trend | tojson }};
@@ -210,7 +233,7 @@ function drawGrowth(){
     const gx=padL+i*(grp+6);
     [['new',d.new,'#1a6b41'],['lost',d.lost,'#b91c1c']].forEach((s,j)=>{
       const h=(s[1]/max)*plotH, x=gx+j*(bw+3), y=padT+plotH-h, rr=h>3?3:0;
-      els+=`<path d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" fill="${s[2]}" data-t="${s[0]}" data-v="${s[1]}" data-l="${d.label}" data-x="${x+bw/2}" data-y="${y}" class="gb"></path>`;
+      els+=`<path d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" fill="${s[2]}" data-t="${s[0]}" data-v="${s[1]}" data-l="${d.label}" data-k="${d.key}" data-x="${x+bw/2}" data-y="${y}" class="gb"></path>`;
     });
     if (i%(n>8?2:1)===0) els+=`<text class="xlab" x="${gx+grp/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
   });
@@ -218,8 +241,34 @@ function drawGrowth(){
   svg.querySelectorAll('.gb').forEach(b=>{
     b.addEventListener('mouseenter',()=>{tip.style.opacity=1;tip.style.left=b.getAttribute('data-x')+'px';tip.style.top=(parseFloat(b.getAttribute('data-y'))-6)+'px';tip.innerHTML='<strong>'+b.getAttribute('data-v')+'</strong> '+b.getAttribute('data-t')+' · '+b.getAttribute('data-l');});
     b.addEventListener('mouseleave',()=>tip.style.opacity=0);
+    b.addEventListener('click',()=>{ if(+b.getAttribute('data-v')>0) showPeople(b.getAttribute('data-k'), b.getAttribute('data-t')); });
   });
 }
+
+let modalPeople=[], modalType='new';
+function showPeople(key,type){
+  const m=GROWTH.find(x=>x.key===key); if(!m) return;
+  modalType=type;
+  modalPeople = type==='new' ? m.new_customers : m.lost_customers;
+  document.getElementById('mtitle').textContent=(type==='new'?'Acquired':'Lost')+' · '+m.label+' ('+modalPeople.length+')';
+  document.getElementById('mq').value='';
+  document.getElementById('ov').classList.add('show');
+  renderPeople();
+  document.getElementById('mq').focus();
+}
+function renderPeople(){
+  const q=document.getElementById('mq').value.trim().toLowerCase();
+  const list=modalPeople.filter(p=>!q||p.name.toLowerCase().includes(q)||(p.area||'').toLowerCase().includes(q)||(p.salesperson||'').toLowerCase().includes(q));
+  document.getElementById('mbody').innerHTML = list.length ? list.map(p=>
+    '<a class="p-row" href="/dashboard/analytics/customer/'+p.id+'">'+
+      '<div><div>'+esc(p.name)+'</div>'+((p.area||p.salesperson)?'<div class="sub">'+[p.area,p.salesperson].filter(Boolean).map(esc).join(' · ')+'</div>':'')+'</div>'+
+      '<div class="p-date">'+(modalType==='new'?'first ':'last ')+esc(p.date)+'</div></a>'
+  ).join('') : '<div class="empty">No match.</div>';
+}
+function closeModal(){document.getElementById('ov').classList.remove('show');}
+document.getElementById('ov').addEventListener('click',e=>{if(e.target.id==='ov')closeModal();});
+document.getElementById('mq').addEventListener('input',renderPeople);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
 function drawTrend(){
   const svg = document.getElementById('trend'), tip = document.getElementById('tip');

@@ -2413,6 +2413,8 @@ def new_vs_lost(db: Session, today: date, months: int = 12) -> dict:
     curr_key = _month_key(today)
     acq = {k: 0 for k in keys}
     att = {k: 0 for k in keys}
+    acq_ids = {k: [] for k in keys}   # month → [(cid, date)] first invoice
+    att_ids = {k: [] for k in keys}   # month → [(cid, date)] last invoice
 
     for cid, first_d, last_d in rows:
         try:
@@ -2422,10 +2424,32 @@ def new_vs_lost(db: Session, today: date, months: int = 12) -> dict:
             continue
         if fm in key_set:
             acq[fm] += 1
+            acq_ids[fm].append((cid, first_d))
         if lm in key_set and lm != curr_key:
             att[lm] += 1
+            att_ids[lm].append((cid, last_d))
+
+    # resolve customer display info for the drill-down lists
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+    customers = {c.id: c for c in db.query(Customer).all()}
+
+    def _people(pairs):
+        out = []
+        for cid, d in pairs:
+            cust = customers.get(cid)
+            out.append({
+                "id": cid,
+                "name": (cust.restaurant_name if cust else None) or f"#{cid}",
+                "area": (cust.area if cust else "") or "",
+                "salesperson": (sp_name.get(cust.salesperson_id)
+                                if cust and cust.salesperson_id else "") or "",
+                "date": d.strftime("%d %b %y") if d else "",
+            })
+        out.sort(key=lambda r: r["name"].lower())
+        return out
 
     series = [{"key": k, "label": _month_label(k), "new": acq[k], "lost": att[k],
+               "new_customers": _people(acq_ids[k]), "lost_customers": _people(att_ids[k]),
                "net": acq[k] - att[k]} for k in keys]
 
     # Drop leading months before the first with any activity (data-history edge:
