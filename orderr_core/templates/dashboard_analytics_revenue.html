@@ -83,26 +83,34 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
     <div class="hero">
       <div>
         <div class="big">{{ rev.current_revenue_fmt }}</div>
-        <div class="lab">{{ rev.current_label }} (month to date)</div>
+        <div class="lab">{{ rev.current_label }}{% if rev.current_partial %} · first {{ rev.day_of_month }} day{{ 's' if rev.day_of_month != 1 else '' }}{% endif %}</div>
       </div>
       {% if rev.current_mom_pct is not none %}
-        <span class="mom {{ 'up' if rev.current_mom_pct > 0 else 'down' if rev.current_mom_pct < 0 else 'flat' }}">
+        <span class="mom {{ 'up' if rev.current_mom_pct > 0 else 'down' if rev.current_mom_pct < 0 else 'flat' }}"
+              title="{% if rev.current_partial %}Same period last month ({{ rev.prev_mtd_fmt }}){% else %}vs {{ rev.prev_label }}{% endif %}">
           {{ '▲' if rev.current_mom_pct > 0 else '▼' if rev.current_mom_pct < 0 else '■' }}
-          {{ rev.current_mom_pct }}% MoM
+          {{ rev.current_mom_pct }}% {{ 'vs same period' if rev.current_partial else 'MoM' }}
         </span>
       {% else %}
         <span class="mom flat">— MoM</span>
       {% endif %}
       <div style="margin-left:auto;text-align:right">
         <div style="font-size:16px;font-weight:700">{{ rev.prev_revenue_fmt }}</div>
-        <div class="lab">{{ rev.prev_label }}</div>
+        <div class="lab">{{ rev.prev_label }} (full month)</div>
       </div>
     </div>
+    {% if rev.current_partial %}
+    <div class="note" style="margin-top:2px">
+      📈 On track for ~<b>{{ rev.projection_fmt }}</b> this month at the current pace ·
+      same period last month was <b>{{ rev.prev_mtd_fmt }}</b>.
+    </div>
+    {% endif %}
     <div class="chart-wrap">
-      <svg class="trend" id="trend" role="img" aria-label="Monthly revenue, last 12 months"></svg>
+      <svg class="trend" id="trend" role="img" aria-label="Monthly revenue trend"></svg>
       <div class="tip" id="tip"></div>
     </div>
-    <div class="note">Revenue from <b>Vasy sales invoices</b> (source of truth), by invoice month. MoM % is vs the previous calendar month.</div>
+    <div class="note">Revenue from <b>Vasy sales invoices</b> (source of truth), by invoice month.
+      {% if rev.current_partial %}The current month is still in progress; its MoM % compares like-for-like against the same days last month.{% else %}MoM % is vs the previous calendar month.{% endif %}</div>
   </div>
 
   <div class="section-title">Monthly breakdown</div>
@@ -112,7 +120,7 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
       <tbody>
         {% for m in rev.trend %}
         <tr>
-          <td>{{ m.label }}</td>
+          <td>{{ m.label }}{% if m.partial %} <span class="chip">so far</span>{% endif %}</td>
           <td class="num">{{ m.revenue_fmt }}</td>
           <td class="num">
             {% if m.mom_pct is none %}<span class="pct mut">—</span>
@@ -164,7 +172,7 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
       <svg class="trend" id="growth" role="img" aria-label="New vs lost customers per month" style="height:220px"></svg>
       <div class="tip" id="gtip"></div>
     </div>
-    <div class="note">Acquisition = customer's first-ever order in that month; attrition = customer's last order in that month (current month excluded — still in progress). From order history.</div>
+    <div class="note">Acquisition = customer's first Vasy invoice in that month; attrition = customer's last invoice in that month (current month excluded — still in progress). Based on invoice history, which begins when Vasy data was first imported, so the earliest month over-counts "new".</div>
   </div>
   <div class="wrap"><div class="scroll">
     <table>
@@ -230,7 +238,9 @@ function drawTrend(){
   });
   TREND.forEach((d,i)=>{
     const x=padL+i*(bw+gap), h=(d.revenue/niceMax)*plotH, y=padT+plotH-h, r=Math.min(4,bw/2), rr=h>r?r:0;
-    els+=`<path class="bar" d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" data-l="${d.label}" data-v="${inr(d.revenue)}" data-x="${x+bw/2}" data-y="${y}"></path>`;
+    const partial = d.partial ? ' fill-opacity="0.5"' : '';
+    const vlab = d.partial ? inr(d.revenue)+' (so far)' : inr(d.revenue);
+    els+=`<path class="bar"${partial} d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" data-l="${d.label}" data-v="${vlab}" data-x="${x+bw/2}" data-y="${y}"></path>`;
     if (i%(n>8?2:1)===0) els+=`<text class="xlab" x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
   });
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=els;

@@ -13,6 +13,7 @@ grouping to match the app standard (client screens use toLocaleString('en-IN')).
 All figures exclude cancelled orders and void invoices.
 """
 import bisect
+import calendar
 from datetime import date, timedelta
 from statistics import median
 
@@ -2251,10 +2252,20 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
     keys = _last_n_months(today, months)
     key_set = set(keys)
 
-    # overall monthly totals + per-(customer,month) totals in one pass
+    curr_key = keys[-1]
+    prev_key = keys[-2] if len(keys) >= 2 else None
+
+    # Is the current calendar month still in progress? (today before month-end)
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    current_partial = today.day < days_in_month
+
+    # overall monthly totals + per-(customer,month) totals in one pass.
+    # prev_mtd = previous-month revenue up to the SAME day-of-month as today, so
+    # the current (partial) month is compared like-for-like, not against a full month.
     monthly = {k: 0.0 for k in keys}
     per_cust = {}  # customer_id → {month_key: revenue}
     scan_start = date(int(keys[0][:4]), int(keys[0][5:]), 1)
+    prev_mtd = 0.0
 
     inv_rows = (
         db.query(VasyInvoice.customer_id, VasyInvoice.invoice_date, VasyInvoice.total)
@@ -2269,10 +2280,12 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
         amt = float(total or 0)
         if mk in monthly:
             monthly[mk] += amt
+        if prev_key and mk == prev_key and bdate.day <= today.day:
+            prev_mtd += amt
         if cid is not None:
             per_cust.setdefault(cid, {})[mk] = per_cust.get(cid, {}).get(mk, 0.0) + amt
 
-    # overall trend with MoM
+    # overall trend with MoM (full-month vs full-month for history)
     trend = []
     prev_rev = None
     for k in keys:
@@ -2281,11 +2294,21 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
         trend.append({
             "key": k, "label": _month_label(k),
             "revenue": rev, "revenue_fmt": fmt_inr(rev), "mom_pct": mom,
+            "partial": False,
         })
         prev_rev = rev
 
-    curr_key = keys[-1]
-    prev_key = keys[-2] if len(keys) >= 2 else None
+    # The current month is partial: its full-vs-full MoM overstates a "drop".
+    # Restate it as MTD-vs-same-period-last-month and flag it for the UI.
+    prev_mtd = round(prev_mtd, 2)
+    if current_partial and trend:
+        trend[-1]["partial"] = True
+        trend[-1]["mom_pct"] = _pct_change(trend[-1]["revenue"], prev_mtd)
+
+    # Trim leading months that precede the first month with any revenue, so the
+    # chart doesn't show a run of ₹0 bars for months simply not yet imported.
+    first_nz = next((i for i, t in enumerate(trend) if t["revenue"] > 0), 0)
+    trend = trend[first_nz:]
 
     # per-customer curr vs prev month
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
@@ -2327,8 +2350,18 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
 
     cust_rows.sort(key=lambda r: r["delta"], reverse=True)
 
-    curr_total = monthly[curr_key]
-    prev_total = monthly[prev_key] if prev_key else 0.0
+    curr_total = round(monthly[curr_key], 2)
+    prev_total = round(monthly[prev_key], 2) if prev_key else 0.0
+
+    # Headline MoM: like-for-like when the month is partial (MTD vs prev-month
+    # same-period), else full-vs-full. Run-rate projects the partial month to a
+    # full-month estimate at the current daily pace.
+    if current_partial:
+        headline_mom = _pct_change(curr_total, prev_mtd)
+        projection = round(curr_total / today.day * days_in_month, 2) if today.day else 0.0
+    else:
+        headline_mom = _pct_change(curr_total, prev_total)
+        projection = curr_total
 
     return {
         "trend": trend,
@@ -2336,7 +2369,11 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
         "prev_label": _month_label(prev_key) if prev_key else "",
         "current_revenue_fmt": fmt_inr(curr_total),
         "prev_revenue_fmt": fmt_inr(prev_total),
-        "current_mom_pct": _pct_change(curr_total, prev_total),
+        "current_mom_pct": headline_mom,
+        "current_partial": current_partial,
+        "day_of_month": today.day,
+        "prev_mtd_fmt": fmt_inr(prev_mtd),
+        "projection_fmt": fmt_inr(projection),
         "customers": cust_rows,
         "areas": sorted(areas),
         "salespeople": sorted(salespeople),
@@ -2381,6 +2418,11 @@ def new_vs_lost(db: Session, today: date, months: int = 12) -> dict:
 
     series = [{"key": k, "label": _month_label(k), "new": acq[k], "lost": att[k],
                "net": acq[k] - att[k]} for k in keys]
+
+    # Drop leading months before the first with any activity (data-history edge:
+    # months simply not yet imported shouldn't read as "zero acquisitions").
+    first_active = next((i for i, s in enumerate(series) if s["new"] or s["lost"]), 0)
+    series = series[first_active:]
 
     return {
         "series": series,
