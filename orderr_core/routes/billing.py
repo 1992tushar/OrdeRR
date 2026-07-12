@@ -48,6 +48,7 @@ from orderr_core.services.invoice_generator import (
     InvoiceAlreadyExistsError,
     InvoiceHoldError,
     generate_invoice,
+    reissue_invoice,
 )
 from orderr_core.services.invoice_pdf import generate_invoice_pdf
 from orderr_core.services.order_service import get_current_business_date_str
@@ -682,6 +683,84 @@ async def api_generate_invoice(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.exception("Unexpected invoice generation error")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# correct-invoice — fix an ALREADY-invoiced order in place (same invoice number).
+# Applies any corrected delivered quantities, then rebuilds the existing invoice
+# from the corrected actuals (reissue_invoice) so its line items / total / PDF
+# match — without minting a new number or a duplicate downstream (Vasy).
+#
+# The cached PDF is deleted so it regenerates on next view. NOTE: this only fixes
+# OrdeRR's records; the matching Vasy voucher must be edited in place by hand
+# (the bot only ever CREATES vouchers — re-running it would duplicate).
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/correct-invoice")
+async def api_correct_invoice(request: Request, db: Session = Depends(get_db)):
+    body         = await request.json()
+    order_id     = body.get("order_id")
+    confirmed_by = (body.get("confirmed_by") or "plant_manager").strip()
+    items        = body.get("items") or []
+
+    if order_id is None:
+        return JSONResponse(status_code=400, content={"error": "order_id required"})
+
+    # 1) Apply any corrected quantities first (same validate-then-apply as
+    #    confirm-items, so a bad row never leaves the order half-corrected).
+    resolved: list[tuple[OrderItemActual, Decimal]] = []
+    for entry in items:
+        actual = db.get(OrderItemActual, entry.get("actual_id"))
+        if not actual:
+            return JSONResponse(status_code=404,
+                                content={"error": f"Item {entry.get('actual_id')} not found"})
+        try:
+            qty = Decimal(str(entry.get("actual_qty")))
+        except Exception:
+            return JSONResponse(status_code=400,
+                                content={"error": f"Invalid quantity for {actual.product}"})
+        if qty <= 0:
+            return JSONResponse(status_code=400,
+                                content={"error": f"Quantity for {actual.product} must be greater than 0"})
+        resolved.append((actual, qty))
+
+    now = datetime.now(timezone.utc)
+    for actual, qty in resolved:
+        actual.actual_quantity = qty
+        actual.actual_unit     = actual.actual_unit or actual.ordered_unit
+        actual.confidence      = "auto"
+        actual.confirmed_by    = confirmed_by
+        actual.confirmed_at    = now
+    if resolved:
+        db.flush()
+
+    # 2) Rebuild the invoice in place from the corrected actuals.
+    try:
+        invoice = reissue_invoice(db, order_id)
+    except InvoiceHoldError as e:
+        db.rollback()
+        return JSONResponse(status_code=422, content={"error": str(e)})
+    except ValueError as e:
+        db.rollback()
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        db.rollback()
+        logger.exception("Unexpected invoice reissue error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # 3) Drop the cached PDF(s) for this invoice so it regenerates on next view.
+    try:
+        for p in Path("invoices").glob(f"*_{invoice.invoice_number}.pdf"):
+            p.unlink()
+    except Exception:
+        logger.warning("could not clear cached PDF for %s", invoice.invoice_number)
+
+    return {
+        "ok":             True,
+        "invoice_number": invoice.invoice_number,
+        "invoice_id":     invoice.id,
+        "total":          float(invoice.total),
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -563,7 +563,10 @@ function buildItemsTable(h){
     '</tr></thead><tbody>'+rows+'</tbody></table>' +
     (anyEditable
       ? '<div class="action-bar" style="margin-top:12px">' +
-        '<button class="gen-btn" onclick="confirmAllItems('+h.order_id+')">Confirm delivered quantities</button>' +
+        (h.status==='invoiced'
+          ? '<button class="gen-btn" onclick="reissueInvoice('+h.order_id+')">Save correction &amp; reissue invoice</button>' +
+            '<span style="font-size:12px;color:var(--ink3);margin-left:10px">Updates this bill in place (same number). Then edit the matching voucher in Vasy by hand — do NOT re-run the bot.</span>'
+          : '<button class="gen-btn" onclick="confirmAllItems('+h.order_id+')">Confirm delivered quantities</button>') +
         '</div>'
       : '');
   return wrap;
@@ -697,6 +700,45 @@ async function confirmAllItems(orderId){
     });
     if(h.status!=='invoiced')
       h.status = isHotelClear(h) ? 'clear' : 'unclear';
+    rebuildCard(orderId);
+  } else showToast('Failed: '+(d.error||'unknown'));
+}
+
+// Correct an ALREADY-invoiced order: gather the edited delivered quantities and
+// rebuild the existing invoice in place (same number) via correct-invoice. Used
+// to fix a data-entry typo (e.g. 405 kg → 4.05 kg) without minting a new invoice
+// or a duplicate in Vasy. The Vasy voucher still has to be edited by hand.
+async function reissueInvoice(orderId){
+  const h = hotelResults.find(x=>x.order_id===orderId);
+  if(!h){ return; }
+
+  const payload = [];
+  for(const it of (h.items||[])){
+    const editable = (it.needs_review || it.actual_qty == null || it._editing) && it.actual_id != null;
+    if(!editable) continue;
+    const inp = document.getElementById('qi-'+orderId+'-'+it.actual_id);
+    const qty = parseFloat(inp ? inp.value : '');
+    if(!qty || qty<=0){
+      showToast('Enter a delivered quantity for '+erpName(it.product));
+      if(inp) inp.focus();
+      return;
+    }
+    payload.push({actual_id: it.actual_id, actual_qty: qty});
+  }
+  if(!payload.length){ showToast('Nothing to correct'); return; }
+
+  const r = await fetch('/billing/api/correct-invoice',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order_id:orderId, items:payload})
+  });
+  const d = await r.json();
+  if(d.ok){
+    showToast('Invoice '+d.invoice_number+' reissued — ₹'+(d.total||0).toFixed(2)+'. Now edit it in Vasy by hand.');
+    payload.forEach(p=>{
+      const it = h.items.find(i=>i.actual_id===p.actual_id);
+      if(it){ it.actual_qty=p.actual_qty; it.needs_review=false; it._editing=false; }
+    });
+    h.invoice_total = d.total;
     rebuildCard(orderId);
   } else showToast('Failed: '+(d.error||'unknown'));
 }
