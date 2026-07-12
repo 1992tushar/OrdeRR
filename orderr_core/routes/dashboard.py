@@ -465,6 +465,32 @@ def analytics_credit(
     )
 
 
+@router.get("/analytics/data-health", response_class=HTMLResponse)
+def analytics_data_health(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Data-health: customers split across an invoice-only record and an
+    AR-only record because the Vasy sales-invoice party name/phone didn't match
+    the customer master (the PATILVADA case)."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.customer_split_report(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_datahealth.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "dh"         : data,
+            "analytics_view": "datahealth",
+        },
+    )
+
+
 @router.get("/analytics/financials", response_class=HTMLResponse)
 def analytics_financials(
     request: Request,

@@ -1339,6 +1339,115 @@ def customer_360(db: Session, today: date, days=30) -> dict:
     }
 
 
+def _norm_name(s) -> str:
+    """Name-join key: uppercase, strip every non-alphanumeric char. Mirrors
+    vasy_import.normalize_name so this report reasons about the same keys the
+    importer used."""
+    import re
+    return re.sub(r"[^A-Z0-9]", "", str(s or "").upper())
+
+
+def customer_split_report(db: Session, today: date) -> dict:
+    """Data-health: find customers split across two OrdeRR records — one holding
+    the Vasy *invoices* (revenue) and another holding the *outstanding/receipts*
+    (AR) — because the sales-invoice export's party name/phone didn't match the
+    customer master (the PATILVADA / "PATILVADA HOTEL" case).
+
+    A record is 'invoice-only' if it has invoices but no outstanding and no
+    receipts; 'AR-only' if it has outstanding or receipts but no invoices. We
+    pair an invoice-only record to an AR-only record when one's normalized name
+    contains the other's (e.g. PATILVADA ⊂ PATILVADAHOTEL) — the exact signature
+    of an import name-mismatch. Read-only; suggests merges, changes nothing.
+    """
+    sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+
+    revenue = _vasy_revenue_by_customer(db, None, today)          # {cid: ₹ all-time}
+    inv_cnt = {cid: n for cid, n in db.query(
+        VasyInvoice.customer_id, func.count(VasyInvoice.id)).filter(
+        VasyInvoice.customer_id != None).group_by(VasyInvoice.customer_id).all()}  # noqa: E711
+    last_inv = {cid: d for cid, d in db.query(
+        VasyInvoice.customer_id, func.max(VasyInvoice.invoice_date)).filter(
+        VasyInvoice.customer_id != None).group_by(VasyInvoice.customer_id).all() if d}  # noqa: E711
+
+    latest_snap, _prev = _latest_two_snapshot_dates(db)
+    snap_now = {}
+    if latest_snap:
+        snap_now = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
+                    .filter(OutstandingSnapshot.snapshot_date == latest_snap,
+                            OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    rstats = _receipt_stats_by_customer(db)
+
+    invoice_only, ar_only = [], []
+    for c in db.query(Customer).all():
+        rev = revenue.get(c.id, 0.0)
+        ninv = inv_cnt.get(c.id, 0)
+        out = snap_now.get(c.id)
+        rec = rstats.get(c.id)
+        has_sales = ninv > 0
+        has_ar = (out is not None and round(out, 2) != 0) or rec is not None
+        info = {
+            "id": c.id,
+            "name": c.restaurant_name or (c.phone_number or f"#{c.id}"),
+            "norm": _norm_name(c.restaurant_name),
+            "phone": c.phone_number or "",
+            "area": c.area or "",
+            "salesperson": (sp_name.get(c.salesperson_id) if c.salesperson_id else "") or "",
+            "revenue": round(rev, 2), "revenue_fmt": fmt_inr(rev),
+            "invoices": ninv,
+            "last_invoice": last_inv[c.id].strftime("%d %b %Y") if c.id in last_inv else "never",
+            "outstanding": round(out, 2) if out is not None else "",
+            "outstanding_fmt": fmt_inr(out) if out is not None else "—",
+            "last_payment": rec[0].strftime("%d %b %Y") if rec and rec[0] else "never",
+        }
+        if has_sales and not has_ar:
+            invoice_only.append(info)
+        elif has_ar and not has_sales:
+            ar_only.append(info)
+
+    # pair invoice-only ↔ AR-only when one normalized name is a PREFIX of the
+    # other (PATILVADA→PATILVADAHOTEL, BABA→BABACHINESE, 712→712HOTEL). Prefix is
+    # tighter than substring, so mid-name coincidences don't create bad merges;
+    # the shorter key must be ≥3 chars to avoid 1–2 char false hits.
+    pairs, used_inv = [], set()
+    for ar in ar_only:
+        an = ar["norm"]
+        if len(an) < 3:
+            continue
+        match = None
+        for iv in invoice_only:
+            ivn = iv["norm"]
+            if iv["id"] in used_inv or len(ivn) < 3:
+                continue
+            if an.startswith(ivn) or ivn.startswith(an):
+                match = iv
+                break
+        if match:
+            used_inv.add(match["id"])
+            pairs.append({
+                "invoice_side": match,   # holds revenue, usually no phone (auto-created)
+                "ar_side": ar,           # holds outstanding + phone + salesperson
+                "combined_out_fmt": ar["outstanding_fmt"],
+                "combined_rev_fmt": match["revenue_fmt"],
+            })
+
+    pairs.sort(key=lambda p: (p["ar_side"]["outstanding"] or 0), reverse=True)
+    orphan_invoice = [iv for iv in invoice_only if iv["id"] not in used_inv]
+    orphan_invoice.sort(key=lambda r: r["revenue"], reverse=True)
+
+    return {
+        "has_data": bool(inv_cnt or snap_now),
+        "as_of": latest_snap.strftime("%d %b %Y") if latest_snap else None,
+        "pairs": pairs,
+        "orphan_invoice": orphan_invoice,   # invoice-only, no AR twin found
+        "counts": {
+            "pairs": len(pairs),
+            "invoice_only": len(invoice_only),
+            "ar_only": len(ar_only),
+            "orphan_invoice": len(orphan_invoice),
+        },
+    }
+
+
 # ── P1-3 Customer detail ───────────────────────────────────────────────────
 
 def _month_key(d: date) -> str:
@@ -2393,6 +2502,21 @@ def export_dataset(db: Session, today: date, name: str, days=None,
         total_out = sum(r["outstanding"] for r in src if r["outstanding"] != "")
         rows.append(["TOTAL", "", "", round(total_rev, 2), round(total_out, 2), "", ""])
         return (f"customers_{tag}.xlsx", "Customer 360", headers, rows)
+
+    if name == "data-health":
+        data = customer_split_report(db, today)
+        headers = ["Invoice record", "Invoice cust #", "Revenue (INR)", "Invoices",
+                   "Last invoice", "AR record", "AR cust #", "Phone", "Salesperson",
+                   "Area", "Outstanding (INR)", "Last payment", "Suggested action"]
+        rows = [[p["invoice_side"]["name"], p["invoice_side"]["id"],
+                 p["invoice_side"]["revenue"], p["invoice_side"]["invoices"],
+                 p["invoice_side"]["last_invoice"],
+                 p["ar_side"]["name"], p["ar_side"]["id"], p["ar_side"]["phone"],
+                 p["ar_side"]["salesperson"], p["ar_side"]["area"],
+                 p["ar_side"]["outstanding"], p["ar_side"]["last_payment"],
+                 f'Merge #{p["invoice_side"]["id"]} into #{p["ar_side"]["id"]}']
+                for p in data["pairs"]]
+        return (f"data_health_{tag}.xlsx", "Split customers", headers, rows)
 
     if name == "churn":
         data = churn_risk(db, today)
