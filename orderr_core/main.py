@@ -68,6 +68,8 @@ from orderr_core.models.vasy_sales_item import VasySalesItem             # noqa:
 
 # 5-Day Close (P2) — signed-off close history
 from orderr_core.models.close_period import ClosePeriod                  # noqa: F401
+# 5-Day Close (bank reconciliation) — uploaded bank statement mirror
+from orderr_core.models.bank_transaction import BankTransaction          # noqa: F401
 
 
 Base.metadata.create_all(bind=engine)

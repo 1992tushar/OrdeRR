@@ -35,6 +35,7 @@ from orderr_core.models.import_log import ImportLog
 from orderr_core.models.rate_unclear import RateUnclearItem
 from orderr_core.models.ocr_unmatched import OcrUnmatchedLine
 from orderr_core.models.close_period import ClosePeriod
+from orderr_core.models.bank_transaction import BankTransaction
 
 from orderr_core.services.analytics_service import (
     fmt_inr,
@@ -265,6 +266,67 @@ def _running_ap(db: Session):
     creditors.sort(key=lambda c: c["balance"], reverse=True)
     gross_ap = sum(c["balance"] for c in creditors)
     return gross_ap, creditors
+
+
+# ── bank reconciliation (4th check) ─────────────────────────────────────────
+
+def bank_recon(db: Session, from_date: date, to_date: date) -> dict:
+    """Reconcile the bank statement (money that actually moved) against what
+    Vasy recorded (non-cash receipts vs payments) for the window.
+
+    The bank can't be fudged, so this catches money that entered/left the account
+    but was never recorded (charges, missed entries, timing). Totals rarely tie to
+    zero — owner transfers, credit-card settlements, EMIs etc. hit the bank but
+    aren't sales/purchases — so the gap is a review signal, not a pass/fail.
+    """
+    has_bank = (db.query(BankTransaction.id)
+                .filter(BankTransaction.value_date >= from_date,
+                        BankTransaction.value_date <= to_date).first() is not None)
+
+    def _bank_sum(direction):
+        return float(db.query(func.coalesce(func.sum(BankTransaction.amount), 0))
+                     .filter(BankTransaction.value_date >= from_date,
+                             BankTransaction.value_date <= to_date,
+                             BankTransaction.direction == direction).scalar() or 0)
+
+    bank_in, bank_out = _bank_sum("cr"), _bank_sum("dr")
+
+    # Vasy non-cash (bank) sides. _collections_for_range returns (total, cash, bank).
+    _recv_total, _recv_cash, recv_bank = _collections_for_range(db, from_date, to_date)
+    vasy_in = recv_bank
+    pay_total = float(db.query(func.coalesce(func.sum(VasyPayment.amount), 0))
+                      .filter(VasyPayment.payment_date >= from_date,
+                              VasyPayment.payment_date <= to_date).scalar() or 0)
+    pay_cash = float(db.query(func.coalesce(func.sum(VasyPayment.amount), 0))
+                     .filter(VasyPayment.payment_date >= from_date,
+                             VasyPayment.payment_date <= to_date,
+                             func.lower(VasyPayment.mode) == "cash").scalar() or 0)
+    vasy_out = pay_total - pay_cash
+
+    def _top(direction):
+        rows = (db.query(BankTransaction)
+                .filter(BankTransaction.value_date >= from_date,
+                        BankTransaction.value_date <= to_date,
+                        BankTransaction.direction == direction)
+                .order_by(BankTransaction.amount.desc()).limit(6).all())
+        return [{"desc": (r.description or "")[:48], "amount_fmt": fmt_inr(r.amount),
+                 "date": r.value_date.strftime("%d %b")} for r in rows]
+
+    in_gap = bank_in - vasy_in
+    out_gap = bank_out - vasy_out
+    return {
+        "has_bank": has_bank,
+        "bank_in": bank_in, "bank_in_fmt": fmt_inr(bank_in),
+        "bank_out": bank_out, "bank_out_fmt": fmt_inr(bank_out),
+        "vasy_in": vasy_in, "vasy_in_fmt": fmt_inr(vasy_in),
+        "vasy_out": vasy_out, "vasy_out_fmt": fmt_inr(vasy_out),
+        "in_gap": round(in_gap, 2), "in_gap_fmt": fmt_inr(in_gap),
+        "out_gap": round(out_gap, 2), "out_gap_fmt": fmt_inr(out_gap),
+        "in_ties": abs(in_gap) < 1.0,
+        "out_ties": abs(out_gap) < 1.0,
+        "top_out": _top("dr"),
+        "top_in": _top("cr"),
+    }
 
 
 # ── tie-outs ────────────────────────────────────────────────────────────────
@@ -547,6 +609,7 @@ def five_day_close(db: Session, from_date: date, to_date: date, today: date) -> 
     debtors, creditors, cash, sales_recon = _tieouts(db, from_date, to_date)
     exceptions = _exceptions(db, from_date, to_date, today, sales_recon, debtors)
     fresh = freshness(db, to_date, today)
+    bank = bank_recon(db, from_date, to_date)
 
     warn_count = sum(1 for x in exceptions if x["severity"] == "warn")
 
@@ -588,6 +651,7 @@ def five_day_close(db: Session, from_date: date, to_date: date, today: date) -> 
         "creditors": creditors,
         "cash": cash,
         "sales_recon": sales_recon,
+        "bank": bank,
         "exceptions": exceptions,
         "exception_count": len(exceptions),
         "warn_count": warn_count,

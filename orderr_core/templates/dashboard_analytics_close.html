@@ -157,6 +157,12 @@ main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
 
   {% if flash == 'signed' %}
   <div class="flash">✓ Close signed & saved for {{ close.from_fmt }} → {{ close.to_fmt }}. Opening cash will carry into the next window.</div>
+  {% elif flash == 'bank_ok' %}
+  <div class="flash">✓ Bank statement imported — reconciliation updated below.</div>
+  {% elif flash == 'bank_err' %}
+  <div class="flash" style="background:var(--red-bg);border-color:var(--red-border);color:var(--red)">Couldn't read that file — make sure it's the bank statement CSV export.</div>
+  {% elif flash == 'bank_badtype' %}
+  <div class="flash" style="background:var(--red-bg);border-color:var(--red-border);color:var(--red)">Please upload a <b>.csv</b> bank statement.</div>
   {% endif %}
 
   <!-- window picker -->
@@ -271,6 +277,44 @@ main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
     {% endif %}
   </div>
   <div class="note" style="border-left-color:var(--blue-border)">OrdeRR invoices drive the operational exceptions below; Vasy drives the debtors tie-out. When they agree, both systems captured the same sales.</div>
+
+  <!-- bank reconciliation -->
+  <div class="section-title">Bank reconciliation <span style="font-weight:400;color:var(--ink3);font-size:12px">— what actually moved through the bank vs what's recorded</span></div>
+  {% if not close.bank.has_bank %}
+  <form class="winbar" method="post" action="/dashboard/analytics/close/bank-upload" enctype="multipart/form-data">
+    <input type="hidden" name="from" value="{{ close.from_date }}">
+    <input type="hidden" name="to" value="{{ close.to_date }}">
+    <div class="fld"><label>Bank statement (CSV)</label><input type="file" name="file" accept=".csv" required style="font-size:12px"></div>
+    <button class="go" type="submit">Upload &amp; reconcile</button>
+    <span class="span">Download this period's statement from your bank as CSV and drop it here — the bank is the one source that can't be fudged.</span>
+  </form>
+  {% else %}
+  <div class="recon">
+    <div class="item"><span class="n">{{ close.bank.bank_in_fmt }}</span><span class="l">Bank money in</span></div>
+    <div class="item"><span class="n">{{ close.bank.vasy_in_fmt }}</span><span class="l">Recorded in (bank receipts)</span></div>
+    <div class="item"><span class="n">{{ close.bank.in_gap_fmt }}</span><span class="l">Gap</span></div>
+    {% if close.bank.in_ties %}<span class="verdict ok">✓ ties</span>{% else %}<span class="verdict" style="background:var(--bg);color:var(--ink3)">review the gap</span>{% endif %}
+  </div>
+  <div class="recon" style="margin-top:10px">
+    <div class="item"><span class="n">{{ close.bank.bank_out_fmt }}</span><span class="l">Bank money out</span></div>
+    <div class="item"><span class="n">{{ close.bank.vasy_out_fmt }}</span><span class="l">Recorded out (payments)</span></div>
+    <div class="item"><span class="n">{{ close.bank.out_gap_fmt }}</span><span class="l">Gap</span></div>
+    {% if close.bank.out_ties %}<span class="verdict ok">✓ ties</span>{% else %}<span class="verdict" style="background:var(--bg);color:var(--ink3)">review the gap</span>{% endif %}
+  </div>
+  {% if close.bank.top_out %}
+  <div class="note">
+    <b>Biggest money out of the bank</b> (check each is recorded):
+    {% for t in close.bank.top_out %}<span class="s" style="display:inline-block;margin:2px 4px 0 0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 8px"><b>{{ t.amount_fmt }}</b> · {{ t.desc }} <span class="mut">{{ t.date }}</span></span>{% endfor %}
+  </div>
+  {% endif %}
+  <div class="note" style="border-left-color:var(--blue-border)">A gap is normal — owner transfers, credit-card settlements, salary and EMIs move through the bank but aren't sales or supplier payments. It's a prompt to check the big items are all recorded, not a pass/fail. <a href="#" onclick="document.getElementById('bankReupload').style.display='flex';return false;" style="color:inherit;font-weight:700">Replace statement</a></div>
+  <form class="winbar" id="bankReupload" method="post" action="/dashboard/analytics/close/bank-upload" enctype="multipart/form-data" style="display:none">
+    <input type="hidden" name="from" value="{{ close.from_date }}">
+    <input type="hidden" name="to" value="{{ close.to_date }}">
+    <div class="fld"><label>Bank statement (CSV)</label><input type="file" name="file" accept=".csv" required style="font-size:12px"></div>
+    <button class="go" type="submit">Re-upload &amp; reconcile</button>
+  </form>
+  {% endif %}
 
   <!-- exceptions -->
   <div class="section-title">What to review{% if close.exception_count %} ({{ close.exception_count }}){% endif %}</div>

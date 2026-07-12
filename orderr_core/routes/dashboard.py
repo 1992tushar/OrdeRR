@@ -240,6 +240,36 @@ def analytics_close_sign(
     return RedirectResponse(url=url, status_code=303)
 
 
+@router.post("/analytics/close/bank-upload")
+async def analytics_close_bank_upload(
+    file: UploadFile = File(...),
+    frm: str = Form(..., alias="from"),
+    to: str = Form(...),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Upload a bank-statement CSV for the bank-reconciliation check, then return
+    to the close for this window (Post/Redirect/Get)."""
+    from orderr_core.services import bank_import
+
+    fname = (file.filename or "").lower()
+    flash = "bank_ok"
+    if not fname.endswith(".csv"):
+        flash = "bank_badtype"
+    else:
+        contents = await file.read()
+        try:
+            bank_import.import_bank_statement(db, contents, source_file=file.filename)
+        except ValueError:
+            flash = "bank_err"
+    f, t = _parse_iso(frm), _parse_iso(to)
+    today = get_current_business_date()
+    if f is None or t is None:
+        f, t = _resolve_window(db, today, frm, to)
+    url = f"/dashboard/analytics/close?from={f.isoformat()}&to={t.isoformat()}&flash={flash}"
+    return RedirectResponse(url=url, status_code=303)
+
+
 @router.get("/analytics/churn", response_class=HTMLResponse)
 def analytics_churn(
     request: Request,
