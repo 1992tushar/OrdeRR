@@ -2264,6 +2264,7 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
     # the current (partial) month is compared like-for-like, not against a full month.
     monthly = {k: 0.0 for k in keys}
     per_cust = {}  # customer_id → {month_key: revenue}
+    per_cust_prev_mtd = {}  # customer_id → prev-month revenue up to today's day
     scan_start = date(int(keys[0][:4]), int(keys[0][5:]), 1)
     prev_mtd = 0.0
 
@@ -2282,6 +2283,8 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
             monthly[mk] += amt
         if prev_key and mk == prev_key and bdate.day <= today.day:
             prev_mtd += amt
+            if cid is not None:
+                per_cust_prev_mtd[cid] = per_cust_prev_mtd.get(cid, 0.0) + amt
         if cid is not None:
             per_cust.setdefault(cid, {})[mk] = per_cust.get(cid, {}).get(mk, 0.0) + amt
 
@@ -2317,7 +2320,13 @@ def revenue_trends(db: Session, today: date, months: int = 12) -> dict:
     areas, salespeople = set(), set()
     for cid, by_month in per_cust.items():
         curr = round(by_month.get(curr_key, 0.0), 2)
-        prev = round(by_month.get(prev_key, 0.0), 2) if prev_key else 0.0
+        # Compare like-for-like: when the current month is partial, the previous
+        # side is that month up to the same day (not the whole month), so a
+        # customer isn't shown as collapsing just because the month is young.
+        if current_partial:
+            prev = round(per_cust_prev_mtd.get(cid, 0.0), 2)
+        else:
+            prev = round(by_month.get(prev_key, 0.0), 2) if prev_key else 0.0
         if curr == 0 and prev == 0:
             continue
         cust = customers.get(cid)

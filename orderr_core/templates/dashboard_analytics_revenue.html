@@ -132,7 +132,7 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
     </table>
   </div></div>
 
-  <div class="section-title">Per-customer · {{ rev.current_label }} vs {{ rev.prev_label }}</div>
+  <div class="section-title">Per-customer · {{ rev.current_label }} vs {{ rev.prev_label }}{% if rev.current_partial %} <span style="font-weight:500;color:var(--ink3)">(same {{ rev.day_of_month }}-day period)</span>{% endif %}</div>
   <div class="toolbar">
     <input id="q" type="text" placeholder="Search customer…" autocomplete="off">
     <select id="fa"><option value="">All areas</option>{% for a in rev.areas %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select>
@@ -147,8 +147,8 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
       <thead><tr>
         <th class="srt" data-sort="name">Customer</th>
         <th class="srt" data-sort="area">Area</th>
-        <th class="srt num" data-sort="prev">{{ rev.prev_label }}</th>
-        <th class="srt num" data-sort="curr">{{ rev.current_label }}</th>
+        <th class="srt num" data-sort="prev">{{ rev.prev_label }}{% if rev.current_partial %} (1–{{ rev.day_of_month }}){% endif %}</th>
+        <th class="srt num" data-sort="curr">{{ rev.current_label }}{% if rev.current_partial %} (so far){% endif %}</th>
         <th class="srt num" data-sort="delta">Δ</th>
         <th class="srt num" data-sort="pct">MoM %</th>
       </tr></thead>
