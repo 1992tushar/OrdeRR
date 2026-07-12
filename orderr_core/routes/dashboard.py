@@ -491,6 +491,31 @@ def analytics_data_health(
     )
 
 
+@router.post("/analytics/data-health/merge")
+async def analytics_data_health_merge(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Merge one split pair: absorb the invoice-only record into the AR record,
+    record the name alias (so it never re-splits), delete the duplicate."""
+    from fastapi import HTTPException
+    from orderr_core.services import analytics_service
+
+    body = await request.json()
+    try:
+        invoice_id = int(body.get("invoice_id"))
+        ar_id = int(body.get("ar_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="invoice_id and ar_id are required.")
+    try:
+        result = analytics_service.merge_customer_split(db, invoice_id, ar_id)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse(result)
+
+
 @router.get("/analytics/financials", response_class=HTMLResponse)
 def analytics_financials(
     request: Request,

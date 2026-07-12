@@ -38,6 +38,7 @@ from orderr_core.models.customer import Customer
 from orderr_core.models.order import Order
 from orderr_core.models.inbound_message import InboundMessage  # ← reliability layer
 from orderr_core.models.customer_product_alias import CustomerProductAlias  # noqa: F401
+from orderr_core.models.customer_alias import CustomerAlias  # noqa: F401  ← Vasy split-customer merge
 from orderr_core.models.customer_product_stats import CustomerProductStats  # noqa: F401  ← unit inference (FRD §5.1)
 
 # Billing module models — billing owns these tables; shares OrdeRR's Base/metadata

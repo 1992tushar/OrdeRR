@@ -132,6 +132,15 @@ def _build_customer_lookup(db: Session):
                                        OutstandingSnapshot.customer_id != None).all()):  # noqa: E711
             if party_key:
                 by_name.setdefault(party_key, cid)
+
+    # manual aliases take PRECEDENCE — they exist precisely to override a name
+    # the automatic joins get wrong (the PATILVADA split). Overwrite, don't
+    # setdefault, and skip aliases whose target customer no longer exists.
+    from orderr_core.models.customer_alias import CustomerAlias
+    live_ids = {c.id for c in db.query(Customer.id).all()}
+    for alias_key, cid in db.query(CustomerAlias.alias_key, CustomerAlias.customer_id).all():
+        if alias_key and cid in live_ids:
+            by_name[alias_key] = cid
     return by_phone, by_name
 
 

@@ -1448,6 +1448,71 @@ def customer_split_report(db: Session, today: date) -> dict:
     }
 
 
+def merge_customer_split(db: Session, invoice_customer_id: int, ar_customer_id: int) -> dict:
+    """Permanently merge a split: move all money rows from the invoice-only
+    record into the AR record, record name aliases so future Vasy imports
+    auto-link (never re-split), then delete the now-empty duplicate.
+
+    `invoice_customer_id` is the auto-created invoice-holding record; it is
+    absorbed into `ar_customer_id` (the phone/outstanding-bearing real customer).
+    No customer_id column here has a unique constraint, so the re-point can't
+    collide. Approval-based — the Data-health screen calls this per pair.
+    """
+    from orderr_core.models.customer_alias import CustomerAlias
+    from orderr_core.models.vasy_sales_item import VasySalesItem
+
+    if invoice_customer_id == ar_customer_id:
+        raise ValueError("Cannot merge a customer into itself.")
+    src = db.get(Customer, invoice_customer_id)   # absorbed
+    dst = db.get(Customer, ar_customer_id)         # canonical
+    if src is None or dst is None:
+        raise ValueError("Both customers must exist.")
+
+    # 1) record aliases (the permanent fix): the duplicate's normalized name and
+    #    every party_key its invoices carried → the canonical customer.
+    keys = set()
+    if src.restaurant_name:
+        keys.add(_norm_name(src.restaurant_name))
+    for (pk,) in (db.query(VasyInvoice.party_key)
+                  .filter(VasyInvoice.customer_id == invoice_customer_id).distinct().all()):
+        if pk:
+            keys.add(pk)
+    for k in keys:
+        row = db.query(CustomerAlias).filter_by(alias_key=k).first()
+        if row:
+            row.customer_id = ar_customer_id
+        else:
+            db.add(CustomerAlias(alias_key=k, customer_id=ar_customer_id,
+                                 source="data-health-merge"))
+
+    # 2) re-point money rows src → dst (the 4 tables that carry customer_id)
+    moved = {
+        "invoices": db.query(VasyInvoice).filter_by(customer_id=invoice_customer_id)
+                      .update({"customer_id": ar_customer_id}, synchronize_session=False),
+        "sales_items": db.query(VasySalesItem).filter_by(customer_id=invoice_customer_id)
+                         .update({"customer_id": ar_customer_id}, synchronize_session=False),
+        "receipts": db.query(CustomerReceipt).filter_by(customer_id=invoice_customer_id)
+                      .update({"customer_id": ar_customer_id}, synchronize_session=False),
+        "outstanding": db.query(OutstandingSnapshot).filter_by(customer_id=invoice_customer_id)
+                         .update({"customer_id": ar_customer_id}, synchronize_session=False),
+    }
+
+    # 3) delete the now-empty duplicate
+    absorbed_name = src.restaurant_name
+    db.delete(src)
+    db.commit()
+
+    return {
+        "status": "ok",
+        "absorbed_id": invoice_customer_id,
+        "absorbed_name": absorbed_name,
+        "into_id": ar_customer_id,
+        "into_name": dst.restaurant_name,
+        "aliases": sorted(keys),
+        "moved": moved,
+    }
+
+
 # ── P1-3 Customer detail ───────────────────────────────────────────────────
 
 def _month_key(d: date) -> str:
