@@ -638,6 +638,78 @@ async def api_resolve_unmatched(request: Request, db: Session = Depends(get_db))
 
 
 # ---------------------------------------------------------------------------
+# add-item — add a product to an order right on the billing card, even if the
+# customer never ordered it (e.g. a standing daily item we always send). Creates
+# a confirmed OrderItemActual so it bills at its delivered quantity. If the same
+# product is already on the order, its quantity is updated instead of duplicated.
+#
+# For an already-invoiced order this only adds to the actuals — the caller then
+# reissues the invoice (correct-invoice) to fold the new line into the bill.
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/add-item")
+async def api_add_item(request: Request, db: Session = Depends(get_db)):
+    body         = await request.json()
+    order_id     = body.get("order_id")
+    product      = (body.get("product") or "").strip()
+    unit         = (body.get("unit") or "kg").strip()
+    confirmed_by = (body.get("confirmed_by") or "plant_manager").strip()
+
+    if not order_id or not product:
+        return JSONResponse(status_code=400, content={"error": "order_id and product required"})
+    try:
+        qty = Decimal(str(body.get("qty")))
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid quantity"})
+    if qty <= 0:
+        return JSONResponse(status_code=400, content={"error": "Quantity must be greater than 0"})
+
+    now = datetime.now(timezone.utc)
+
+    # Don't create a duplicate line — update the existing one if the product is
+    # already on this order.
+    existing = db.scalars(
+        select(OrderItemActual).where(
+            OrderItemActual.order_id == order_id,
+            OrderItemActual.product == product,
+        )
+    ).first()
+
+    if existing:
+        existing.actual_quantity = qty
+        existing.actual_unit     = unit
+        existing.confidence      = "auto"
+        existing.confirmed_by    = confirmed_by
+        existing.confirmed_at    = now
+        actual = existing
+    else:
+        actual = OrderItemActual(
+            order_id=order_id,
+            product=product,
+            ordered_quantity=qty,
+            ordered_unit=unit,
+            actual_quantity=qty,
+            actual_unit=unit,
+            capture_source="manual_add",
+            confidence="auto",
+            confirmed_by=confirmed_by,
+            confirmed_at=now,
+        )
+        db.add(actual)
+        db.flush()
+
+    db.commit()
+    return {
+        "ok":        True,
+        "actual_id": actual.id,
+        "product":   product,
+        "unit":      unit,
+        "qty":       float(qty),
+        "updated":   existing is not None,
+    }
+
+
+# ---------------------------------------------------------------------------
 # generate-invoice (unchanged)
 # ---------------------------------------------------------------------------
 
