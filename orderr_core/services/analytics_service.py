@@ -61,7 +61,7 @@ def fmt_inr(amount) -> str:
     except (TypeError, ValueError):
         return "₹0"
     neg = n < 0
-    n = abs(n)
+    n = round(abs(n), 2)   # round FIRST so float noise (…9999) doesn't truncate a rupee
     if n == int(n):
         body = _group_indian(str(int(n)))
     else:
@@ -1135,7 +1135,9 @@ def receivables(db: Session, today: date) -> dict:
             last_date, count, tot = rstats[s.customer_id]
             avg = tot / count if count else 0
             if last_date:
-                days_since = (today - last_date).days
+                # clamp at 0: a receipt dated after `today` (future-dated import)
+                # must not read as negative days-since-payment.
+                days_since = max(0, (today - last_date).days)
 
         # direction vs previous snapshot
         if prev_snap and s.party_key in prev_closing:
@@ -1172,6 +1174,11 @@ def receivables(db: Session, today: date) -> dict:
     top10 = sum(r["outstanding"] for r in rows[:10])
     top5 = sum(r["outstanding"] for r in rows[:5])
 
+    # Debtors with no payment on record (biggest first) — a collection blind
+    # spot: unaged in the recency buckets, so surfaced separately.
+    no_payment_rows = [r for r in rows if r["days_since_payment"] == ""]
+    no_payment_total = round(sum(r["outstanding"] for r in no_payment_rows), 2)
+
     return {
         "has_data": True,
         "as_of": latest_snap.strftime("%d %b %Y"),
@@ -1180,7 +1187,11 @@ def receivables(db: Session, today: date) -> dict:
         "rows": rows,
         "debtor_count": len(rows),
         "total_ar": round(total_ar, 2), "total_ar_fmt": fmt_inr(total_ar),
-        "credit_total_fmt": fmt_inr(credit_total),
+        "credit_total_fmt": fmt_inr(round(credit_total, 2)),
+        "no_payment_count": len(no_payment_rows),
+        "no_payment_total_fmt": fmt_inr(no_payment_total),
+        "no_payment_pct": round(no_payment_total / total_ar * 100, 1) if total_ar else 0,
+        "no_payment_top": no_payment_rows[:10],
         "top10_fmt": fmt_inr(top10), "top5_fmt": fmt_inr(top5),
         "top10_pct": round(top10 / total_ar * 100, 1) if total_ar else 0,
         "top5_pct": round(top5 / total_ar * 100, 1) if total_ar else 0,

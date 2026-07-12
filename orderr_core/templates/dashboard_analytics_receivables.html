@@ -109,10 +109,37 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
     customer's balance and lump-sum payments reduce it, with no invoice-by-invoice settlement.
     So buckets are by <b>days since the customer's last payment</b>, which is the right aging for
     this model — how long since money last came in against the balance.
-    “No payment on record” means <b>no receipt in the imported set</b> — receipts are a rolling
-    window (e.g. last 500), so a customer who paid before that window still shows here until
-    more history is imported.
+    “No payment on record” means <b>no receipt in the imported receipt history</b> — either a
+    genuine non-payer, or someone whose last payment predates the imported window. These balances
+    can't be aged by recency, so they're broken out separately below.
   </div>
+
+  {% if rec.no_payment_count %}
+  <div class="section-head"><div class="section-title" style="font-size:13px">⚠️ No payment on record · collection blind spot</div></div>
+  <div class="card" style="border-left:3px solid var(--red-border)">
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <span style="font-size:20px;font-weight:800;color:var(--red)">{{ rec.no_payment_total_fmt }}</span>
+      <span class="section-sub">{{ rec.no_payment_pct }}% of AR across {{ rec.no_payment_count }} debtor{{ 's' if rec.no_payment_count != 1 else '' }} with no receipt in the imported history — chase or verify first.</span>
+    </div>
+    <div class="scroll">
+      <table style="min-width:520px">
+        <thead><tr><th>Customer</th><th>Area</th><th class="num">Outstanding</th></tr></thead>
+        <tbody>
+          {% for r in rec.no_payment_top %}
+          <tr class="row"{% if r.customer_id is not none %} onclick="location.href='/dashboard/analytics/customer/{{ r.customer_id }}'"{% endif %}>
+            <td><div style="font-weight:600">{{ r.name }}</div>{% if r.salesperson %}<div class="cust-sub">🧑 {{ r.salesperson }}</div>{% endif %}</td>
+            <td>{% if r.area %}<span class="chip">{{ r.area }}</span>{% else %}<span class="cust-sub">—</span>{% endif %}</td>
+            <td class="num" style="font-weight:700">{{ r.outstanding_fmt }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if rec.no_payment_count > rec.no_payment_top|length %}
+    <div class="cust-sub" style="margin-top:8px">Showing top {{ rec.no_payment_top|length }} by balance · {{ rec.no_payment_count - rec.no_payment_top|length }} more in the table below.</div>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <div class="toolbar">
     <input id="q" type="text" placeholder="Search customer…" autocomplete="off">
