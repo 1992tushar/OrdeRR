@@ -242,8 +242,20 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
     # imports this module at load time, so importing it at module level here
     # would be circular.
     from orderr_core.models.customer_alias import CustomerAlias
-    from orderr_core.services.vasy_import import normalize_name
+    from orderr_core.services.vasy_import import normalize_name, deglue_name
     alias_map = {a.alias_key: a.customer_id for a in db.query(CustomerAlias).all()}
+
+    def _record_alias(key: str, cust_id: int):
+        """Get-or-create a CustomerAlias so glued party names keep joining."""
+        if not key or alias_map.get(key) == cust_id:
+            return
+        row = db.query(CustomerAlias).filter_by(alias_key=key).first()
+        if row is None:
+            db.add(CustomerAlias(alias_key=key, customer_id=cust_id,
+                                 source="import-deglue"))
+        else:
+            row.customer_id = cust_id
+        alias_map[key] = cust_id
 
     rows = ws.iter_rows(min_row=header_idx + 2, values_only=True)
     for row in rows:
@@ -253,6 +265,11 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
         name = (str(name).strip() if name is not None else "")
         if not name:
             continue  # skip blank / separator rows silently
+
+        # collapse Vasy glued Name+Company doubles ("TEJAS DHABA  TEJAS DHABA",
+        # "SUNDERBAN HOTEL SUNDERBUN HOTEL") — store the clean single name
+        raw_name = name
+        name = deglue_name(name)
 
         raw_phone = None
         if phone_col is not None and phone_col < len(row):
@@ -281,7 +298,8 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
         # ── Find an existing customer to update ────────────────────────────
         # alias first (explicit human decision), then phone, then name
         existing = None
-        alias_cid = alias_map.get(normalize_name(name))
+        alias_cid = (alias_map.get(normalize_name(raw_name))
+                     or alias_map.get(normalize_name(name)))
         if alias_cid:
             existing = db.query(Customer).filter(Customer.id == alias_cid).first()
         if existing is None and normalized:
@@ -289,9 +307,11 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
                 Customer.phone_number == normalized
             ).first()
         if existing is None:
-            # match by name (covers phone-less rows and pre-existing name-only records)
+            # match by name (covers phone-less rows and pre-existing name-only
+            # records; try both the de-glued and the raw file spelling)
             existing = db.query(Customer).filter(
-                func.lower(Customer.restaurant_name) == name.lower()
+                func.lower(Customer.restaurant_name).in_(
+                    [name.lower(), raw_name.lower()])
             ).first()
 
         if existing:
@@ -317,15 +337,23 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
                 existing.restaurant_name = name
             updated += 1
         else:
-            db.add(Customer(
+            existing = Customer(
                 restaurant_name=name,
                 phone_number=normalized,
                 outstanding=outstanding,
                 onboarding_status="active",
                 is_active=True,
                 is_daily_order_customer=False,
-            ))
+            )
+            db.add(existing)
             created += 1
+
+        # if the file name was glued, alias the glued key → this customer so
+        # party-name joins (outstanding/receipts/invoices) keep resolving
+        if name != raw_name:
+            if existing.id is None:
+                db.flush()
+            _record_alias(normalize_name(raw_name), existing.id)
 
         if not normalized:
             no_phone += 1

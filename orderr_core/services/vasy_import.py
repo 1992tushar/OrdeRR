@@ -18,6 +18,7 @@ customer_service.import_customers_from_xlsx for the customer/outstanding upsert
 import io
 import re
 from datetime import date, datetime
+from difflib import SequenceMatcher
 
 import openpyxl
 from sqlalchemy import func
@@ -52,6 +53,30 @@ def _phone_last10(s) -> str:
     """Last 10 digits of a phone string ('91-9850410033' → '9850410033')."""
     digits = re.sub(r"\D", "", str(s or ""))
     return digits[-10:] if len(digits) >= 10 else ""
+
+
+def deglue_name(s) -> str:
+    """Collapse a Vasy glued Name+Company name to its first half.
+
+    The Vasy export sometimes concatenates the party's Name and Company Name,
+    which are usually the same string — "TEJAS DHABA  TEJAS DHABA" — and
+    occasionally the same string with a typo in one half — "SUNDERBAN HOTEL
+    SUNDERBUN HOTEL". Detect: even word count AND the two normalized halves are
+    ≥90% similar (difflib). Collapse keeps the FIRST half verbatim. Genuine
+    names ("Tambda Pandhara", "KALE HOTEL - VADGAON") never trip this — their
+    halves are dissimilar or the word count is odd.
+    """
+    words = str(s or "").split()
+    if len(words) < 2 or len(words) % 2:
+        return str(s or "").strip()
+    half = len(words) // 2
+    a = normalize_name(" ".join(words[:half]))
+    b = normalize_name(" ".join(words[half:]))
+    if not a or not b:
+        return str(s or "").strip()
+    if a == b or SequenceMatcher(None, a, b).ratio() >= 0.90:
+        return " ".join(words[:half])
+    return str(s or "").strip()
 
 
 def _parse_date(v):
@@ -493,7 +518,7 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
             cust_id = new_by_key.get(key)
             if cust_id is None:
                 newc = Customer(
-                    restaurant_name=(inv["party"] or "").strip(),
+                    restaurant_name=deglue_name(inv["party"]),
                     phone_number=None,
                     onboarding_status="active",
                     is_active=True,
