@@ -872,8 +872,35 @@ def import_purchases(db: Session, file_bytes: bytes, source_file: str = None) ->
 
 # ── P3-10 Expenses import (opex; header level) ─────────────────────────────
 
+def _parse_payment_data(raw) -> tuple:
+    """Parse the Expense Register's 'Payment Data' cell into
+    (cash_paid, noncash_paid). Real samples (2026-07-13): 'bank : 300',
+    'Cash : 1200'. Tolerates multiple comma/semicolon/newline-separated
+    segments for split payments. Empty cell = no payment recorded → (0, 0)."""
+    import re
+    cash = noncash = 0.0
+    for mode, amt in re.findall(r"([A-Za-z]+)\s*[:=]\s*([\d,]+(?:\.\d+)?)",
+                                str(raw or "")):
+        val = float(amt.replace(",", ""))
+        if mode.strip().lower() == "cash":
+            cash += val
+        else:                       # bank / online / cheque / upi / …
+            noncash += val
+    return round(cash, 2), round(noncash, 2)
+
+
 def import_expenses(db: Session, file_bytes: bytes, source_file: str = None) -> dict:
-    """Import a Vasy expense export into VasyExpense (upsert on expense_no)."""
+    """Import a Vasy expense export into VasyExpense (upsert on expense_no).
+
+    Accepts BOTH known formats, auto-detected by headers:
+      1. Expense list export — Expense No. / Expense Date / Party Name /
+         Total / Paid / UnPaid.
+      2. Expense Register report (accountreport/expenseregister) exported WITH
+         the hidden 'Payment Data' column — Sr. No / Date / Vendor Name /
+         Expense No / Gross Total / Payment Data ('Cash : 1200', 'bank : 300').
+         This is the only export carrying the per-expense cash/bank split, so
+         it feeds the Cash Book cross-check (cash_paid / noncash_paid).
+    """
     try:
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     except Exception as e:
@@ -883,13 +910,17 @@ def import_expenses(db: Session, file_bytes: bytes, source_file: str = None) -> 
         "expense_no": ("expense no.", "expense no", "expense number"),
         "date": ("expense date", "date"),
         "party": ("party name", "party", "name"),
+        "vendor": ("vendor name",),
         "total": ("total",),
+        "gross": ("gross total",),
         "paid": ("paid",),
         "unpaid": ("unpaid",),
+        "payment_data": ("payment data",),
     }
     header_idx, col = _find_header(ws, labels)
     if "expense_no" not in col:
         raise ValueError("Expense export must have an 'Expense No.' column.")
+    register_mode = "payment_data" in col
 
     def cell(row, key):
         i = col.get(key)
@@ -897,7 +928,7 @@ def import_expenses(db: Session, file_bytes: bytes, source_file: str = None) -> 
 
     existing = {e.expense_no: e for e in db.query(VasyExpense).all()}
     created = updated = 0
-    total_amount = 0.0
+    total_amount = cash_total = 0.0
     seen = set()
     for row in ws.iter_rows(min_row=header_idx + 2, values_only=True):
         if not row:
@@ -907,7 +938,7 @@ def import_expenses(db: Session, file_bytes: bytes, source_file: str = None) -> 
         if _is_total_row(eno) or eno in seen:
             continue
         seen.add(eno)
-        total = _to_amount(cell(row, "total"))
+        total = _to_amount(cell(row, "total") if not register_mode else cell(row, "gross"))
         total_amount += float(total)
         rec = existing.get(eno)
         if rec is None:
@@ -915,16 +946,32 @@ def import_expenses(db: Session, file_bytes: bytes, source_file: str = None) -> 
         else:
             updated += 1
         rec.expense_date = _parse_date(cell(row, "date"))
-        rec.party_name = str(cell(row, "party") or "").strip()
+        party = cell(row, "party") if not register_mode else (cell(row, "vendor") or cell(row, "party"))
+        rec.party_name = str(party or "").strip()
         rec.party_key = normalize_name(rec.party_name)
         rec.total = total
-        rec.paid = _to_amount(cell(row, "paid"))
-        rec.unpaid = _to_amount(cell(row, "unpaid"))
+        if register_mode:
+            cash, noncash = _parse_payment_data(cell(row, "payment_data"))
+            rec.cash_paid, rec.noncash_paid = cash, noncash
+            cash_total += cash
+            # register export has no Paid/UnPaid — derive, but never clobber a
+            # figure the fuller list export already supplied for this row
+            if float(rec.paid or 0) == 0:
+                rec.paid = round(cash + noncash, 2)
+                rec.unpaid = round(float(total) - float(rec.paid), 2)
+        else:
+            rec.paid = _to_amount(cell(row, "paid"))
+            rec.unpaid = _to_amount(cell(row, "unpaid"))
+    fmt = "register (with Payment Data)" if register_mode else "list"
+    notes = f"format={fmt}; total={round(total_amount, 2)}"
+    if register_mode:
+        notes += f"; cash={round(cash_total, 2)}"
     db.add(ImportLog(entity="expenses", source_file=source_file, rows_total=created + updated,
-                     created=created, updated=updated, unmatched=0, notes=f"total={round(total_amount,2)}"))
+                     created=created, updated=updated, unmatched=0, notes=notes))
     db.commit()
     return {"entity": "expenses", "rows": created + updated, "created": created,
-            "updated": updated, "unmatched": 0, "total_fmt": _fmt_inr_local(total_amount)}
+            "updated": updated, "unmatched": 0, "total_fmt": _fmt_inr_local(total_amount),
+            "format": fmt}
 
 
 # ── P3-10 Payments import (money out; header level) ────────────────────────

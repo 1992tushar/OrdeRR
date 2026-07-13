@@ -76,6 +76,9 @@ from orderr_core.models.sundry import SundryItem, SundryPurchase         # noqa:
 from orderr_core.models.critical_note import CriticalNote                # noqa: F401
 from orderr_core.models.important_date import ImportantDate              # noqa: F401
 
+# Cash Book — manual drawer lines (drawings, bank deposits, float, spot counts)
+from orderr_core.models.cash_entry import CashEntry                      # noqa: F401
+
 # 5-Day Close (P2) — signed-off close history
 from orderr_core.models.close_period import ClosePeriod                  # noqa: F401
 # 5-Day Close (bank reconciliation) — uploaded bank statement mirror
@@ -233,6 +236,27 @@ def _ensure_customer_credit_limit_column():
 
 
 _ensure_customer_credit_limit_column()
+
+
+def _ensure_vasy_expense_mode_columns():
+    """Add vasy_expenses.cash_paid / .noncash_paid (nullable) if missing —
+    Cash Book cross-check needs the Expense Register's per-expense payment-mode
+    split. create_all never alters existing tables, so add explicitly.
+    Idempotent; safe on SQLite and PostgreSQL."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "vasy_expenses" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the current schema
+    cols = {c["name"] for c in insp.get_columns("vasy_expenses")}
+    with engine.begin() as conn:
+        for col in ("cash_paid", "noncash_paid"):
+            if col not in cols:
+                conn.execute(text(f"ALTER TABLE vasy_expenses ADD COLUMN {col} NUMERIC(14,2)"))
+                print(f"✅ Migration: added vasy_expenses.{col} column")
+
+
+_ensure_vasy_expense_mode_columns()
 
 from orderr_core.constants import IST
 

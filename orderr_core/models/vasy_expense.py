@@ -27,6 +27,11 @@ class VasyExpense(Base):
     total: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     paid: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     unpaid: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # From the Expense Register export's hidden "Payment Data" column
+    # ('Cash : 1200' / 'bank : 300') — per-expense payment-mode split, used by
+    # the Cash Book cross-check. NULL = that export hasn't covered this row yet.
+    cash_paid: Mapped[Optional[float]] = mapped_column(Numeric(14, 2), nullable=True)
+    noncash_paid: Mapped[Optional[float]] = mapped_column(Numeric(14, 2), nullable=True)
     imported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

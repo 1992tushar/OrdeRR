@@ -911,6 +911,75 @@ def analytics_rfm(
     )
 
 
+@router.get("/analytics/cashbook", response_class=HTMLResponse)
+def analytics_cashbook(
+    request: Request,
+    d: str = Query(default=None, description="Day to view, YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Cash Book — daily cash-drawer ledger (spec: CASH_BOOK_REQUIREMENTS.md)."""
+    from orderr_core.services import cashbook_service
+
+    today = get_current_business_date()
+    try:
+        day = date.fromisoformat(d) if d else today
+    except ValueError:
+        day = today
+    if day > today:
+        day = today
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_cashbook.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "today"      : today.strftime("%Y-%m-%d"),
+            "is_today"   : day == today,
+            "prev_day"   : (day - timedelta(days=1)).strftime("%Y-%m-%d"),
+            "next_day"   : (day + timedelta(days=1)).strftime("%Y-%m-%d"),
+            "page"       : cashbook_service.day_page(db, day),
+            "strip"      : cashbook_service.month_strip(db, day),
+            "month_label": day.strftime("%B %Y"),
+            "freshness"  : cashbook_service.freshness(db),
+            "crosscheck" : cashbook_service.expense_crosscheck(db),
+            "analytics_view": "cashbook",
+        },
+    )
+
+
+@router.post("/analytics/cashbook/entry")
+async def analytics_cashbook_add_entry(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Add a manual Cash Book line (drawing / bank deposit / float / spot count)."""
+    from orderr_core.services import cashbook_service
+
+    body = await request.json()
+    err = cashbook_service.add_entry(db, body, get_current_business_date())
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return JSONResponse({"status": "ok"})
+
+
+@router.post("/analytics/cashbook/entry/{entry_id}/delete")
+async def analytics_cashbook_delete_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Remove a manual Cash Book line (imported lines can't be touched)."""
+    from orderr_core.services import cashbook_service
+
+    err = cashbook_service.delete_entry(db, entry_id)
+    if err:
+        raise HTTPException(status_code=404, detail=err)
+    return JSONResponse({"status": "ok"})
+
+
 @router.get("/analytics/portfolio", response_class=HTMLResponse)
 def analytics_portfolio(
     request: Request,
