@@ -981,15 +981,19 @@ def analytics_lifecycle(
 def analytics_team(
     request: Request,
     team_days: str = Query(default="30", description="Window: 7|30|90|all"),
+    vol: str = Query(default="today", description="Volume window: today|yesterday|7|30|all"),
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    """P1-11 — salesperson & area performance (sales)."""
+    """P1-11 — salesperson & area performance (sales) + KG volume by route."""
     from orderr_core.services import analytics_service
 
     today = get_current_business_date()
     days = analytics_service.C360_WINDOWS.get(team_days, 30)
     team = analytics_service.team_performance(db, today, days=days)
+    if vol not in analytics_service.VOLUME_WINDOWS:
+        vol = "today"
+    volume = analytics_service.volume_report(db, today, window=vol)
 
     return templates.TemplateResponse(
         request=request,
@@ -1000,6 +1004,8 @@ def analytics_team(
             "today_display": today.strftime("%d %b %Y"),
             "team"       : team,
             "team_days"  : team_days,
+            "volume"     : volume,
+            "vol"        : vol,
             "analytics_view": "team",
         },
     )

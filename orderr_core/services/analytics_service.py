@@ -2939,6 +2939,96 @@ def team_performance(db: Session, today: date, days=30) -> dict:
     }
 
 
+# ── Volume (KG) sold by route/area, day-level windows ───────────────────────
+
+VOLUME_WINDOWS = ("today", "yesterday", "7", "30", "all")
+
+
+def volume_report(db: Session, today: date, window: str = "today") -> dict:
+    """KG sold by route (customer area) and by SKU, for a day-level window
+    (today / yesterday / 7d / 30d / all), from the Vasy Sales Item Register.
+
+    Everything is billed by weight (verified: every SKU shows fractional
+    quantities), so a cross-SKU KG total is meaningful. ₹0 lines are EXCLUDED —
+    they are internal transfers (Dead Bird, Plant Wastage, workers' food), not
+    sales; their kg is reported separately as `internal_kg`. Sales Returns
+    (negative-value lines) subtract from both kg and value.
+    """
+    from sqlalchemy import case
+    from orderr_core.models.vasy_sales_item import VasySalesItem
+
+    if window == "yesterday":
+        y = today - timedelta(days=1)
+        start, end, label = y, y, f"Yesterday · {y.strftime('%d %b')}"
+    elif window == "7":
+        start, end, label = today - timedelta(days=6), today, "Last 7 days"
+    elif window == "30":
+        start, end, label = today - timedelta(days=29), today, "Last 30 days"
+    elif window == "all":
+        start, end, label = None, today, "All time"
+    else:  # "today"
+        window = "today"
+        start, end, label = today, today, f"Today · {today.strftime('%d %b')}"
+
+    signed_qty = case((VasySalesItem.sale_type == "Sales Return", -VasySalesItem.qty),
+                      else_=VasySalesItem.qty)
+
+    def base(q):
+        q = q.filter(VasySalesItem.invoice_date != None,          # noqa: E711
+                     VasySalesItem.invoice_date <= end)
+        if start:
+            q = q.filter(VasySalesItem.invoice_date >= start)
+        return q
+
+    sold = VasySalesItem.net_amount != 0    # ₹0 = internal transfer, not a sale
+
+    # by route/area (via the customer master; unmatched/blank → Unassigned)
+    area_q = base(
+        db.query(func.coalesce(Customer.area, "Unassigned"),
+                 func.coalesce(func.sum(signed_qty), 0),
+                 func.coalesce(func.sum(VasySalesItem.net_amount), 0),
+                 func.count(func.distinct(VasySalesItem.voucher_no)))
+        .outerjoin(Customer, Customer.id == VasySalesItem.customer_id)
+        .filter(sold)
+    ).group_by(func.coalesce(Customer.area, "Unassigned")).all()
+
+    # by SKU
+    prod_q = base(
+        db.query(func.coalesce(VasySalesItem.product_name, VasySalesItem.item_code, "Unknown"),
+                 func.coalesce(func.sum(signed_qty), 0),
+                 func.coalesce(func.sum(VasySalesItem.net_amount), 0))
+        .filter(sold)
+    ).group_by(func.coalesce(VasySalesItem.product_name, VasySalesItem.item_code, "Unknown")).all()
+
+    # internal (₹0) kg in the same window — context, not sales
+    internal_kg = float(base(
+        db.query(func.coalesce(func.sum(signed_qty), 0))
+        .filter(VasySalesItem.net_amount == 0)
+    ).scalar() or 0)
+
+    areas = [{"name": a, "kg": round(float(kg), 1), "kg_fmt": fmt_kg(float(kg)),
+              "value": round(float(v), 2), "value_fmt": fmt_inr(float(v)),
+              "invoices": int(n)} for a, kg, v, n in area_q]
+    areas.sort(key=lambda r: r["kg"], reverse=True)
+
+    products = [{"name": p, "kg": round(float(kg), 1), "kg_fmt": fmt_kg(float(kg)),
+                 "value": round(float(v), 2), "value_fmt": fmt_inr(float(v))}
+                for p, kg, v in prod_q]
+    products.sort(key=lambda r: r["kg"], reverse=True)
+
+    total_kg = sum(r["kg"] for r in areas)
+    total_value = sum(r["value"] for r in areas)
+    return {
+        "window": window, "window_label": label,
+        "areas": areas, "products": products,
+        "total_kg": round(total_kg, 1), "total_kg_fmt": fmt_kg(total_kg),
+        "total_value": round(total_value, 2), "total_value_fmt": fmt_inr(total_value),
+        "invoices": sum(r["invoices"] for r in areas),
+        "internal_kg": round(internal_kg, 1), "internal_kg_fmt": fmt_kg(internal_kg),
+        "has_data": bool(areas),
+    }
+
+
 # ── P3-8 Demand forecast (per SKU, for production planning) ────────────────
 
 def demand_forecast(db: Session, today: date, lookback: int = 28) -> dict:

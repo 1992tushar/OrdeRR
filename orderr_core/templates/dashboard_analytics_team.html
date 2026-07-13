@@ -59,11 +59,73 @@ tr:last-child td{border-bottom:none}
   {% include "_analytics_subnav.html" %}
 
   <div class="section-head">
+    <div class="section-title">Volume sold (KG) · by route</div>
+    <div class="seg">
+      {% for opt, lbl in [("today","Today"),("yesterday","Yesterday"),("7","7d"),("30","30d"),("all","All")] %}
+      <a href="/dashboard/analytics/team?vol={{ opt }}&team_days={{ team_days }}" class="{{ 'active' if vol == opt else '' }}">{{ lbl }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="wrap" style="padding:14px 16px;margin-bottom:14px;display:flex;gap:28px;flex-wrap:wrap;align-items:baseline">
+    <div><div style="font-size:22px;font-weight:800">{{ volume.total_kg_fmt }} <span style="font-size:13px;font-weight:600;color:var(--ink3)">kg</span></div><div class="sub">SOLD · {{ volume.window_label }}</div></div>
+    <div><div style="font-size:22px;font-weight:800">{{ volume.total_value_fmt }}</div><div class="sub">BILLED VALUE</div></div>
+    <div><div style="font-size:22px;font-weight:800">{{ volume.invoices }}</div><div class="sub">INVOICES</div></div>
+    {% if volume.internal_kg > 0 %}<div><div style="font-size:22px;font-weight:800;color:var(--ink3)">{{ volume.internal_kg_fmt }} <span style="font-size:13px;font-weight:600">kg</span></div><div class="sub">INTERNAL (₹0 — wastage/dead bird), not counted</div></div>{% endif %}
+  </div>
+
+  <div class="grid2">
+    <div>
+      <div class="section-title" style="font-size:13px;margin:0 2px 8px">By route / area · {{ volume.window_label }}</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>Route</th><th class="num">KG</th><th class="num">Value</th><th class="num">Invoices</th></tr></thead>
+          <tbody>
+            {% set maxkg = volume.areas[0].kg if volume.areas and volume.areas[0].kg > 0 else 1 %}
+            {% for r in volume.areas %}
+            <tr>
+              <td class="name-cell">{{ r.name }}<div class="rev-bar"><i style="width:{{ (r.kg / maxkg * 100) }}%"></i></div></td>
+              <td class="num" style="font-weight:600">{{ r.kg_fmt }}</td>
+              <td class="num">{{ r.value_fmt }}</td>
+              <td class="num">{{ r.invoices }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty">No sales in this window.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+    <div>
+      <div class="section-title" style="font-size:13px;margin:0 2px 8px">By product · {{ volume.window_label }}</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>Product</th><th class="num">KG</th><th class="num">Value</th></tr></thead>
+          <tbody>
+            {% for r in volume.products %}
+            <tr>
+              <td class="name-cell">{{ r.name }}</td>
+              <td class="num" style="font-weight:600">{{ r.kg_fmt }}</td>
+              <td class="num">{{ r.value_fmt }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="empty">No sales in this window.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+  </div>
+  <div style="font-size:11px;color:var(--ink3);margin:10px 2px 0">
+    From the Vasy Sales Item Register (billed truth). Route = the customer's area; customers with no area roll into <em>Unassigned</em>. ₹0 lines (plant wastage, dead bird, workers' food) are internal transfers and excluded from sold KG.
+  </div>
+
+  <div class="section-head">
     <div class="section-title">Salesperson &amp; area performance</div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="seg">
         {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
-        <a href="/dashboard/analytics/team?team_days={{ opt }}" class="{{ 'active' if team_days == opt else '' }}">{{ lbl }}</a>
+        <a href="/dashboard/analytics/team?team_days={{ opt }}&vol={{ vol }}" class="{{ 'active' if team_days == opt else '' }}">{{ lbl }}</a>
         {% endfor %}
       </div>
       <a href="/dashboard/analytics/export/team?days={{ team_days }}"
