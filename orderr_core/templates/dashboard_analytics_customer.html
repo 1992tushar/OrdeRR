@@ -109,6 +109,20 @@ tr:last-child td{border-bottom:none}
     </div>
   </div>
 
+  {% if open_notes %}
+  <div style="background:var(--red-bg,#fee2e2);border:1px solid var(--red-border,#fca5a5);border-radius:10px;padding:12px 16px;margin-bottom:16px">
+    <div style="font-size:13px;font-weight:800;color:var(--red,#b91c1c);margin-bottom:6px">📝 Open critical notes ({{ open_notes|length }})</div>
+    {% for n in open_notes %}
+    <div style="font-size:13px;margin:4px 0">
+      • {{ n.note }}{% if n.amount_fmt %} — <b>{{ n.amount_fmt }}</b>{% endif %}
+      {% if n.event_date %}<span style="color:#888;font-size:12px">({{ n.event_date }})</span>{% endif %}
+      {% if n.overdue %}<span style="color:var(--red,#b91c1c);font-weight:700;font-size:12px"> · follow-up overdue</span>{% endif %}
+    </div>
+    {% endfor %}
+    <a href="/dashboard/reminders?tab=notes" style="font-size:12px;color:var(--red,#b91c1c)">Manage on the Reminders screen →</a>
+  </div>
+  {% endif %}
+
   {% set intel = d.intelligence %}
   <div class="intel">
     <div class="intel-top">

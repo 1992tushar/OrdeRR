@@ -642,6 +642,19 @@ def send_manager_digest(db: Session) -> bool:
     if not MANAGER_PHONE:
         print("⚠️ Manager digest skipped — MANAGER_PHONE not set")
         return False
-    digest = manager_digest(db, get_current_business_date())
+    today = get_current_business_date()
+    digest = manager_digest(db, today)
     resp = send_whatsapp_message(MANAGER_PHONE, digest["text"])
+
+    # Registers & Reminders — dedicated attention message ("both channels",
+    # owner decision 2026-07-13). Sent only when the feed is non-empty.
+    try:
+        from orderr_core.services.reminders_service import attention_message
+        nag = attention_message(db, today)
+        if nag:
+            send_whatsapp_message(MANAGER_PHONE, nag)
+            print("✅ Reminders attention message sent")
+    except Exception as e:
+        print(f"⚠️ Reminders attention message failed: {e}")
+
     return resp is not None

@@ -99,6 +99,14 @@ def dashboard(
     except Exception:
         pass
 
+    # Reminders attention strip — never let it break the dashboard
+    attention = {"count": 0, "overdue": 0, "due_soon": 0, "nudges": 0, "items": []}
+    try:
+        from orderr_core.services import reminders_service
+        attention = reminders_service.attention_feed(db, today)
+    except Exception:
+        pass
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -119,6 +127,7 @@ def dashboard(
             "tomorrow"           : tomorrow,
             "failed_messages"    : failed_messages,
             "reliability_stats"  : reliability_stats,
+            "attention"          : attention,
         },
     )
 
@@ -1132,6 +1141,14 @@ def analytics_customer(
     if detail is None:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    # Open critical notes for this customer (Registers & Reminders P2)
+    open_notes = []
+    try:
+        from orderr_core.services import reminders_service
+        open_notes = reminders_service.open_notes_for_customer(db, customer_id, today)
+    except Exception:
+        pass
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard_analytics_customer.html",
@@ -1139,5 +1156,6 @@ def analytics_customer(
             "plant_name" : PLANT_NAME,
             "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "d"          : detail,
+            "open_notes" : open_notes,
         },
     )

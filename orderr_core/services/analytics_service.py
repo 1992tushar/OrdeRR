@@ -880,6 +880,17 @@ def manager_digest(db: Session, today: date) -> dict:
         lines.append(f"🔻 Silent-churn risk: {len(churn['rows'])} customers "
                      f"({churn['high']} high)")
 
+    # Registers & Reminders — attention section (counts + worst three)
+    try:
+        from orderr_core.services import reminders_service
+        att = reminders_service.attention_digest_lines(db, today)
+        if att:
+            if lines[-1] != "":
+                lines.append("")
+            lines.extend(att)
+    except Exception:
+        pass
+
     text = "\n".join(lines).strip()
     return {
         "text": text,

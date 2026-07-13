@@ -321,8 +321,21 @@
     <button class="tab-btn" onclick="location.href='/billing'" id="billing-tab-btn">💰 Billing</button>
     <button class="tab-btn" onclick="location.href='/staff'" id="staff-tab-btn">🧑‍💼 Staff</button>
     <button class="tab-btn" onclick="location.href='/dashboard/analytics'" id="analytics-tab-btn">📊 Analytics</button>
+    <button class="tab-btn" onclick="location.href='/dashboard/reminders'" id="reminders-tab-btn">📌 Reminders</button>
     <button class="tab-btn {% if not reliability_stats.has_issues %}hidden{% endif %}" data-tab="failed" onclick="onTabClick('failed',this)" id="failed-tab-btn">⚠️ Failed<span class="tab-dot"></span></button>
 </div>
+
+{% if attention and attention.count %}
+<a href="/dashboard/reminders" style="display:flex;align-items:center;gap:10px;margin:10px 12px 0;padding:10px 14px;background:{% if attention.overdue %}#fee2e2{% else %}#fef3c7{% endif %};border:1px solid {% if attention.overdue %}#fca5a5{% else %}#f5cc6e{% endif %};border-radius:10px;text-decoration:none;color:#333;font-size:13px">
+  <span style="font-size:16px">📌</span>
+  <span style="flex:1">
+    <b>Needs attention:</b>
+    {% if attention.overdue %}<span style="color:#c62828;font-weight:700">{{ attention.overdue }} overdue</span>{% endif %}{% if attention.overdue and (attention.due_soon or attention.nudges) %} · {% endif %}{% if attention.due_soon %}{{ attention.due_soon }} due soon{% endif %}{% if attention.due_soon and attention.nudges %} · {% endif %}{% if attention.nudges %}{{ attention.nudges }} to re-buy{% endif %}
+    {% if attention['items'] %}<span style="color:#888"> — {{ attention['items'][0].title|truncate(60) }}{% if attention.count > 1 %} +{{ attention.count - 1 }} more{% endif %}</span>{% endif %}
+  </span>
+  <span style="color:#888">›</span>
+</a>
+{% endif %}
 
 <!-- ══════════════════════════════════════════════════════════════════════════
      ORDERS TAB

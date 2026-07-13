@@ -1006,13 +1006,31 @@ def post_order_on_behalf(
 
     # Credit guardrail — warn (once) before posting for an over-limit / long-overdue
     # customer. The manager can acknowledge and proceed (acknowledge_credit=true).
+    # Open critical notes on the customer ride the same gate (Registers & Reminders P2).
     if not payload.acknowledge_credit:
         from orderr_core.services import analytics_service
         should_warn, warn_msg = analytics_service.credit_gate(
             db, customer, get_current_business_date())
-        if should_warn:
+        note_lines = []
+        try:
+            from orderr_core.services import reminders_service
+            notes = reminders_service.open_notes_for_customer(
+                db, customer.id, get_current_business_date())
+            note_lines = [f"📝 {n['note']}" + (f" ({n['amount_fmt']})" if n['amount_fmt'] else "")
+                          for n in notes[:3]]
+        except Exception:
+            pass
+        if should_warn or note_lines:
+            parts = []
+            if should_warn:
+                parts.append(warn_msg)
+            if note_lines:
+                name = customer.restaurant_name or "this customer"
+                parts.append(f"Open critical note(s) on {name}:\n" + "\n".join(note_lines)
+                             + "\nPost the order anyway?")
             raise HTTPException(status_code=409,
-                                detail={"code": "credit_warning", "message": warn_msg})
+                                detail={"code": "credit_warning",
+                                        "message": "\n\n".join(parts)})
 
     existing_orders = (
         db.query(Order)
