@@ -92,6 +92,14 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
     <div class="kpi"><div class="n">{{ rec.credit_total_fmt }}</div><div class="l">Customers in credit</div></div>
   </div>
 
+  {% if rec.bad_debt_count %}
+  <div class="note">
+    Excludes <b>{{ rec.bad_debt_total_fmt }}</b> written off as bad debt
+    ({{ rec.bad_debt_count }} customer{{ 's' if rec.bad_debt_count != 1 }}) —
+    managed on the <a href="/dashboard/analytics/portfolio">Portfolio</a> page.
+  </div>
+  {% endif %}
+
   <div class="section-head"><div class="section-title" style="font-size:13px">Exposure by payment recency</div></div>
   <div class="card">
     {% set maxa = rec.aging|map(attribute='amount')|max %}

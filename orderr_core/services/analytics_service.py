@@ -28,6 +28,7 @@ from orderr_core.models.salesperson import Salesperson
 from orderr_core.models.actuals import OrderItemActual
 from orderr_core.models.customer_receipt import CustomerReceipt
 from orderr_core.models.outstanding_snapshot import OutstandingSnapshot
+from orderr_core.models.bad_debt import BadDebt
 from orderr_core.models.vasy_invoice import VasyInvoice
 from orderr_core.models.vasy_purchase import VasyPurchase
 from orderr_core.models.vasy_expense import VasyExpense
@@ -241,16 +242,30 @@ def _closing_by_customer(db: Session, snapshot_date) -> dict:
     return {cid: float(total) for cid, total in rows}
 
 
-def _outstanding_total(db: Session, snapshot_date):
-    """Gross AR = sum of DEBTOR balances only (closing > 0). Customers in credit
-    (negative closing) are a separate advance/liability, not netted into AR — so
-    this matches the Receivables page's 'Total outstanding (AR)'. Netting credits
-    in here understated AR and made the two screens disagree."""
+def _bad_debt_ids(db: Session) -> set:
+    """customer_ids whose balance the owner has written off as unrecoverable
+    (hotel closed, owner fled…). AR views exclude these customers' balances;
+    the write-off itself lives only in OrdeRR — the Vasy ledger is untouched."""
+    return {cid for (cid,) in db.query(BadDebt.customer_id).all()}
+
+
+def _outstanding_total(db: Session, snapshot_date, bad_ids: set = None):
+    """Gross AR = sum of DEBTOR balances only (closing > 0), excluding customers
+    written off as bad debt. Customers in credit (negative closing) are a
+    separate advance/liability, not netted into AR — so this matches the
+    Receivables page's 'Total outstanding (AR)'. Netting credits in here
+    understated AR and made the two screens disagree."""
     if snapshot_date is None:
         return 0.0
-    return float(db.query(func.coalesce(func.sum(OutstandingSnapshot.closing), 0))
-                 .filter(OutstandingSnapshot.snapshot_date == snapshot_date,
-                         OutstandingSnapshot.closing > 0).scalar() or 0)
+    if bad_ids is None:
+        bad_ids = _bad_debt_ids(db)
+    q = db.query(func.coalesce(func.sum(OutstandingSnapshot.closing), 0)) \
+        .filter(OutstandingSnapshot.snapshot_date == snapshot_date,
+                OutstandingSnapshot.closing > 0)
+    if bad_ids:
+        q = q.filter((OutstandingSnapshot.customer_id == None) |               # noqa: E711
+                     (OutstandingSnapshot.customer_id.notin_(bad_ids)))
+    return float(q.scalar() or 0)
 
 
 def _collections_for_range(db: Session, start: date, end: date):
@@ -1116,15 +1131,24 @@ def receivables(db: Session, today: date) -> dict:
     rstats = _receipt_stats_by_customer(db)
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
     cust = {c.id: c for c in db.query(Customer).all()}
+    bad_ids = _bad_debt_ids(db)
 
     rows = []
     total_ar = 0.0
     credit_total = 0.0
+    bad_debt_total = 0.0
+    bad_debt_customers = set()
     areas, salespeople = set(), set()
     aging = {"0-30": 0.0, "31-60": 0.0, "61-90": 0.0, "90+": 0.0, "no-payment": 0.0}
 
     for s in snaps:
         closing = float(s.closing)
+        if s.customer_id in bad_ids:
+            # written off as bad debt — out of AR, tallied separately
+            if closing > 0:
+                bad_debt_total += closing
+                bad_debt_customers.add(s.customer_id)
+            continue
         if closing < 0:
             credit_total += closing
         if closing <= 0:
@@ -1198,6 +1222,9 @@ def receivables(db: Session, today: date) -> dict:
         "debtor_count": len(rows),
         "total_ar": round(total_ar, 2), "total_ar_fmt": fmt_inr(total_ar),
         "credit_total_fmt": fmt_inr(round(credit_total, 2)),
+        "bad_debt_total": round(bad_debt_total, 2),
+        "bad_debt_total_fmt": fmt_inr(round(bad_debt_total, 2)),
+        "bad_debt_count": len(bad_debt_customers),
         "no_payment_count": len(no_payment_rows),
         "no_payment_total_fmt": fmt_inr(no_payment_total),
         "no_payment_pct": round(no_payment_total / total_ar * 100, 1) if total_ar else 0,
@@ -1910,6 +1937,7 @@ def portfolio(db: Session, today: date) -> dict:
     """
     customers = {c.id: c for c in db.query(Customer).all()}
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
+    bad_recs = {b.customer_id: b for b in db.query(BadDebt).all()}
     rev = _vasy_revenue_by_customer(db, None, today)   # {cid: all-time revenue}
 
     inv_span = {}
@@ -1940,11 +1968,26 @@ def portfolio(db: Session, today: date) -> dict:
             out_by[cid] = float(closing)
 
     rows = []
+    bad_rows = []
     for cid, c in customers.items():
         revenue = float(rev.get(cid, 0.0))
         cur_out = out_by.get(cid, float(c.outstanding or 0))
         if cur_out < 0:
             cur_out = 0.0                               # credit balance → no AR risk
+        if cid in bad_recs:
+            # written off as bad debt — kept out of the risk map, listed apart
+            b = bad_recs[cid]
+            bad_rows.append({
+                "customer_id": cid,
+                "name": c.restaurant_name or (c.phone_number or f"#{cid}"),
+                "area": c.area or "",
+                "salesperson": (sp_name.get(c.salesperson_id, "") if c.salesperson_id else ""),
+                "amount": float(b.amount or 0), "amount_fmt": fmt_inr(b.amount),
+                "current_outstanding_fmt": fmt_inr(cur_out),
+                "reason": b.reason, "note": b.note or "",
+                "written_off_on": b.written_off_on.strftime("%d %b %Y") if b.written_off_on else "",
+            })
+            continue
         if revenue <= 0 and cur_out <= 0:
             continue                                    # never transacted → skip
         lo = inv_span.get(cid)
@@ -1992,6 +2035,8 @@ def portfolio(db: Session, today: date) -> dict:
         })
 
     rows.sort(key=lambda r: r["outstanding"], reverse=True)
+    bad_rows.sort(key=lambda r: r["amount"], reverse=True)
+    bad_total = sum(r["amount"] for r in bad_rows)
     return {
         "rows": rows,
         "quadrants": quads,
@@ -2001,7 +2046,55 @@ def portfolio(db: Session, today: date) -> dict:
         "areas": sorted({r["area"] for r in rows if r["area"]}),
         "salespeople": sorted({r["salesperson"] for r in rows if r["salesperson"]}),
         "as_of": latest_snap.strftime("%d %b %Y") if latest_snap else None,
+        "bad_debt": {
+            "rows": bad_rows,
+            "count": len(bad_rows),
+            "total_fmt": fmt_inr(round(bad_total, 2)),
+        },
     }
+
+
+def write_off_bad_debt(db: Session, customer_id: int, reason: str, note: str, today: date):
+    """Mark a customer's balance as bad debt (unrecoverable). Records the
+    balance at write-off (latest snapshot sum, falling back to the scalar
+    customer.outstanding) for the audit trail. OrdeRR-side overlay only — the
+    Vasy ledger is untouched. Returns an error string, or None on success."""
+    customer = db.query(Customer).get(customer_id)
+    if customer is None:
+        return "Customer not found."
+    if db.query(BadDebt).filter_by(customer_id=customer_id).first():
+        return "This customer is already written off."
+
+    latest = db.query(func.max(OutstandingSnapshot.snapshot_date)).scalar()
+    amount = None
+    if latest is not None:
+        row = (db.query(func.sum(OutstandingSnapshot.closing))
+               .filter(OutstandingSnapshot.snapshot_date == latest,
+                       OutstandingSnapshot.customer_id == customer_id).scalar())
+        if row is not None:
+            amount = float(row)
+    if amount is None:
+        amount = float(customer.outstanding or 0)
+    if amount <= 0:
+        return "This customer has no outstanding balance to write off."
+
+    db.add(BadDebt(customer_id=customer_id, amount=round(amount, 2),
+                   reason=(reason or "Other").strip() or "Other",
+                   note=(note or "").strip() or None,
+                   written_off_on=today))
+    db.commit()
+    return None
+
+
+def undo_bad_debt(db: Session, customer_id: int):
+    """Remove a bad-debt write-off — the customer's balance rejoins AR on the
+    next screen load. Returns an error string, or None on success."""
+    rec = db.query(BadDebt).filter_by(customer_id=customer_id).first()
+    if rec is None:
+        return "No bad-debt write-off on record for this customer."
+    db.delete(rec)
+    db.commit()
+    return None
 
 
 # ── Phase 4.3 — Payment behaviour: DSO, concentration, early warnings ───────
@@ -2036,13 +2129,13 @@ def payment_behaviour(db: Session, today: date) -> dict:
             break
     top20 = sum(r["outstanding"] for r in rows[:20])
 
-    # AR over time (total positive balances per snapshot date).
+    # AR over time (total positive balances per snapshot date, bad debt excluded
+    # throughout so the series matches the netted Total AR KPI).
+    bad_ids = _bad_debt_ids(db)
     ar_series = []
     for (d,) in (db.query(OutstandingSnapshot.snapshot_date).distinct()
                  .order_by(OutstandingSnapshot.snapshot_date).all()):
-        tot = float(db.query(func.coalesce(func.sum(OutstandingSnapshot.closing), 0))
-                    .filter(OutstandingSnapshot.snapshot_date == d,
-                            OutstandingSnapshot.closing > 0).scalar() or 0)
+        tot = _outstanding_total(db, d, bad_ids)
         ar_series.append({"date": d.strftime("%d %b"), "amount": round(tot, 2), "amount_fmt": fmt_inr(tot)})
 
     # Deteriorating payers: rising balance and/or long silence, ranked by

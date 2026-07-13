@@ -1074,6 +1074,48 @@ async def analytics_set_credit_limit(
                                           if customer.credit_limit is not None else None)})
 
 
+@router.post("/analytics/bad-debt")
+async def analytics_write_off_bad_debt(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Write a customer's balance off as bad debt (hotel closed, owner fled…).
+    OrdeRR-side only — the Vasy ledger is untouched; undo restores AR."""
+    from orderr_core.services import analytics_service
+
+    body = await request.json()
+    try:
+        customer_id = int(body.get("customer_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid customer id.")
+
+    err = analytics_service.write_off_bad_debt(
+        db, customer_id,
+        reason=str(body.get("reason") or ""),
+        note=str(body.get("note") or ""),
+        today=get_current_business_date(),
+    )
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return JSONResponse({"status": "ok"})
+
+
+@router.post("/analytics/bad-debt/{customer_id}/delete")
+async def analytics_undo_bad_debt(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Undo a bad-debt write-off — the balance rejoins AR immediately."""
+    from orderr_core.services import analytics_service
+
+    err = analytics_service.undo_bad_debt(db, customer_id)
+    if err:
+        raise HTTPException(status_code=404, detail=err)
+    return JSONResponse({"status": "ok"})
+
+
 @router.get("/analytics/customer/{customer_id}", response_class=HTMLResponse)
 def analytics_customer(
     request: Request,

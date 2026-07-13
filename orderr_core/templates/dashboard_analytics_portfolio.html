@@ -63,6 +63,18 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
 .qtag.good{background:var(--green-bg);color:var(--green)} .qtag.red{background:var(--red-bg);color:var(--red)}
 .qtag.amber{background:var(--amber-bg);color:var(--amber)} .qtag.blue{background:var(--blue-bg);color:var(--blue)}
 .empty{color:var(--ink3);text-align:center;padding:28px}
+
+/* bad debt */
+.bd-section{margin-top:28px}
+.bd-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:12px}
+.bd-form select,.bd-form input{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.bd-form input{flex:1;min-width:150px}
+.btn{font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn.danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn.danger:hover{filter:brightness(1.1)}
+.btn-undo{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink2);cursor:pointer}
+.btn-undo:hover{color:var(--red);border-color:var(--red)}
+.bd-err{font-size:12px;color:var(--red);margin:0 2px 10px;display:none}
 </style>
 </head>
 <body>
@@ -135,6 +147,65 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
       <tbody id="body"></tbody>
     </table>
   </div></div>
+
+  <!-- ── Bad debt (written off) ─────────────────────────────────────────── -->
+  <div class="bd-section">
+    <div class="section-head">
+      <div class="section-title">Bad debt · written off</div>
+      <div style="font-size:12px;color:var(--ink3)">
+        {% if pf.bad_debt.count %}{{ pf.bad_debt.total_fmt }} across {{ pf.bad_debt.count }} customer{{ 's' if pf.bad_debt.count != 1 }}{% else %}nothing written off{% endif %}
+      </div>
+    </div>
+    <div class="note">
+      Money a customer will never pay back — hotel closed, owner left town, a dead dispute.
+      Writing it off removes the balance from AR, receivables and the risk map above, so those show
+      what's actually collectible. Recorded in OrdeRR only — the Vasy ledger is untouched — and
+      <b>Undo</b> puts the balance straight back.
+    </div>
+
+    <div class="bd-form">
+      <select id="bd-cust"><option value="">Select customer to write off…</option></select>
+      <select id="bd-reason">
+        <option>Hotel closed</option>
+        <option>Owner left / absconded</option>
+        <option>Dispute</option>
+        <option>Other</option>
+      </select>
+      <input id="bd-note" type="text" placeholder="Note (optional)" maxlength="200" autocomplete="off">
+      <button class="btn danger" id="bd-save" onclick="writeOff()">Write off</button>
+    </div>
+    <div class="bd-err" id="bd-err"></div>
+
+    {% if pf.bad_debt.rows %}
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Customer</th>
+          <th class="num">Written off</th>
+          <th class="num">Balance now</th>
+          <th>Reason</th>
+          <th>Date</th>
+          <th>Note</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          {% for b in pf.bad_debt.rows %}
+          <tr>
+            <td><div class="cust-name"><a href="/dashboard/analytics/customer/{{ b.customer_id }}" style="color:inherit;text-decoration:none">{{ b.name }}</a></div>
+              {% if b.salesperson %}<div class="cust-sub">🧑 {{ b.salesperson }}</div>{% endif %}</td>
+            <td class="num" style="color:var(--red);font-weight:600">{{ b.amount_fmt }}</td>
+            <td class="num">{{ b.current_outstanding_fmt }}</td>
+            <td><span class="chip">{{ b.reason }}</span></td>
+            <td>{{ b.written_off_on }}</td>
+            <td class="cust-sub">{{ b.note or '—' }}</td>
+            <td><button class="btn-undo" onclick="undoWriteOff({{ b.customer_id }}, this)">Undo</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {% endif %}
+  </div>
 </main>
 
 <script>
@@ -184,6 +255,44 @@ document.querySelectorAll('th[data-sort]').forEach(th=>th.addEventListener('clic
 }));
 ['q','fa','fs'].forEach(id=>document.getElementById(id).addEventListener('input',render));
 render();
+
+// ── bad debt ──
+const bdSel=document.getElementById('bd-cust');
+ROWS.filter(r=>r.outstanding>0).sort((a,b)=>b.outstanding-a.outstanding).forEach(r=>{
+  const o=document.createElement('option');
+  o.value=r.customer_id; o.textContent=r.name+' — '+r.outstanding_fmt;
+  bdSel.appendChild(o);
+});
+function bdError(msg){
+  const el=document.getElementById('bd-err');
+  el.textContent=msg||''; el.style.display=msg?'block':'none';
+}
+async function writeOff(){
+  bdError('');
+  const cid=bdSel.value;
+  if(!cid){ bdError('Pick a customer first.'); return; }
+  const name=bdSel.options[bdSel.selectedIndex].textContent;
+  if(!confirm('Write off '+name+' as bad debt?\n\nTheir balance leaves AR and the risk map. You can undo this any time.')) return;
+  const btn=document.getElementById('bd-save'); btn.disabled=true;
+  try{
+    const res=await fetch('/dashboard/analytics/bad-debt',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({customer_id:parseInt(cid,10),
+                           reason:document.getElementById('bd-reason').value,
+                           note:document.getElementById('bd-note').value.trim()})});
+    if(!res.ok){ const j=await res.json().catch(()=>({})); bdError(j.detail||'Could not write off.'); btn.disabled=false; return; }
+    location.reload();
+  }catch(e){ bdError('Network error — try again.'); btn.disabled=false; }
+}
+async function undoWriteOff(cid, btn){
+  if(!confirm('Undo this write-off? The balance rejoins AR immediately.')) return;
+  btn.disabled=true;
+  try{
+    const res=await fetch('/dashboard/analytics/bad-debt/'+cid+'/delete',{method:'POST'});
+    if(!res.ok){ const j=await res.json().catch(()=>({})); bdError(j.detail||'Could not undo.'); btn.disabled=false; return; }
+    location.reload();
+  }catch(e){ bdError('Network error — try again.'); btn.disabled=false; }
+}
 </script>
 </body>
 </html>
