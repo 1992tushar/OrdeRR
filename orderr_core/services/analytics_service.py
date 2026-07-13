@@ -224,6 +224,23 @@ def _latest_two_snapshot_dates(db: Session):
     return latest, prev
 
 
+def _closing_by_customer(db: Session, snapshot_date) -> dict:
+    """customer_id → SUM of closing across that customer's snapshot rows.
+
+    Summed, not last-row-wins: one customer can legitimately own several Vasy
+    ledgers (two outlets merged via alias, running + old account). A plain
+    {customer_id: closing} dict comprehension silently dropped all but one row
+    — the 13 Jul 2026 ₹6.85L undercount in Customer 360."""
+    if snapshot_date is None:
+        return {}
+    rows = (db.query(OutstandingSnapshot.customer_id,
+                     func.coalesce(func.sum(OutstandingSnapshot.closing), 0))
+            .filter(OutstandingSnapshot.snapshot_date == snapshot_date,
+                    OutstandingSnapshot.customer_id != None)  # noqa: E711
+            .group_by(OutstandingSnapshot.customer_id).all())
+    return {cid: float(total) for cid, total in rows}
+
+
 def _outstanding_total(db: Session, snapshot_date):
     """Gross AR = sum of DEBTOR balances only (closing > 0). Customers in credit
     (negative closing) are a separate advance/liability, not netted into AR — so
@@ -401,15 +418,8 @@ def credit_intelligence(db: Session, today: date) -> dict:
     customers with any exposure / order / payment history.
     """
     latest_snap, prev_snap = _latest_two_snapshot_dates(db)
-    snap_now, snap_prev = {}, {}
-    if latest_snap:
-        snap_now = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
-                    .filter(OutstandingSnapshot.snapshot_date == latest_snap,
-                            OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
-    if prev_snap:
-        snap_prev = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
-                     .filter(OutstandingSnapshot.snapshot_date == prev_snap,
-                             OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    snap_now = _closing_by_customer(db, latest_snap)    # summed per customer
+    snap_prev = _closing_by_customer(db, prev_snap)
     rstats = _receipt_stats_by_customer(db)
     dates_by_cust = _vasy_invoice_dates_by_customer(db, today)   # billing cadence
     sp_name = {s.id: s.name for s in db.query(Salesperson).all()}
@@ -1232,16 +1242,8 @@ def customer_360(db: Session, today: date, days=30) -> dict:
 
     # ── P2-7 payment enrichment: outstanding + receipt behaviour per customer ──
     latest_snap, prev_snap = _latest_two_snapshot_dates(db)
-    snap_now = {}
-    if latest_snap:
-        snap_now = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
-                    .filter(OutstandingSnapshot.snapshot_date == latest_snap,
-                            OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
-    snap_prev = {}
-    if prev_snap:
-        snap_prev = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
-                     .filter(OutstandingSnapshot.snapshot_date == prev_snap,
-                             OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    snap_now = _closing_by_customer(db, latest_snap)    # summed per customer
+    snap_prev = _closing_by_customer(db, prev_snap)
     rstats = _receipt_stats_by_customer(db)
     has_money = bool(latest_snap) or bool(rstats)
 
@@ -1382,11 +1384,7 @@ def customer_split_report(db: Session, today: date) -> dict:
         VasyInvoice.customer_id != None).group_by(VasyInvoice.customer_id).all() if d}  # noqa: E711
 
     latest_snap, _prev = _latest_two_snapshot_dates(db)
-    snap_now = {}
-    if latest_snap:
-        snap_now = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
-                    .filter(OutstandingSnapshot.snapshot_date == latest_snap,
-                            OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    snap_now = _closing_by_customer(db, latest_snap)    # summed per customer
     rstats = _receipt_stats_by_customer(db)
 
     invoice_only, ar_only = [], []
@@ -1572,11 +1570,12 @@ def credit_gate(db: Session, customer, today: date):
     latest = db.query(func.max(OutstandingSnapshot.snapshot_date)).scalar()
     out = None
     if latest is not None:
-        row = (db.query(OutstandingSnapshot.closing)
+        # sum, not .first() — a customer can own several Vasy ledgers (aliased outlets)
+        row = (db.query(func.sum(OutstandingSnapshot.closing))
                .filter(OutstandingSnapshot.snapshot_date == latest,
-                       OutstandingSnapshot.customer_id == customer.id).first())
-        if row:
-            out = float(row[0])
+                       OutstandingSnapshot.customer_id == customer.id).scalar())
+        if row is not None:
+            out = float(row)
     if out is None:
         out = float(customer.outstanding or 0)
     limit = float(customer.credit_limit) if customer.credit_limit else None
@@ -2894,13 +2893,9 @@ def team_performance(db: Session, today: date, days=30) -> dict:
         col_q = col_q.filter(CustomerReceipt.receipt_date >= window_start)
     collected = {cid: float(t) for cid, t in col_q.group_by(CustomerReceipt.customer_id).all()}
 
-    # current outstanding (latest snapshot) by customer_id
+    # current outstanding (latest snapshot) by customer_id — summed per customer
     latest_snap, _ = _latest_two_snapshot_dates(db)
-    outstanding = {}
-    if latest_snap:
-        outstanding = {s.customer_id: float(s.closing) for s in db.query(OutstandingSnapshot)
-                       .filter(OutstandingSnapshot.snapshot_date == latest_snap,
-                               OutstandingSnapshot.customer_id != None).all()}  # noqa: E711
+    outstanding = _closing_by_customer(db, latest_snap)
 
     def _bucket():
         return {"revenue": 0.0, "orders": 0, "active": 0, "portfolio": 0,

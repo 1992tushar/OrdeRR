@@ -105,7 +105,7 @@ def _erp_code_to_name():
 
 
 def _build_customer_lookup(db: Session):
-    """Return (by_phone, by_name) dicts → customer_id.
+    """Return (by_phone, by_name, by_alias) dicts → customer_id.
 
     by_name is keyed by normalized name. It's built from BOTH the customer
     master AND the latest OutstandingSnapshot's clean Vasy party names. The
@@ -114,6 +114,12 @@ def _build_customer_lookup(db: Session):
     single Vasy name on invoices/receipts — but the outstanding import already
     linked each clean party name to the right customer (phone-anchored), so
     that mapping recovers the join. Customer-master names take precedence.
+
+    by_alias holds ONLY the manual CustomerAlias entries. Callers that match
+    phone-first MUST consult by_alias before the phone: an alias is an explicit
+    human decision, and two real outlets can share one contact number in Vasy
+    (the SANTOSH MAGGIE case — KHANDALA and Lonvla outlets, same owner phone),
+    so a phone-first match would silently glue them into one customer.
     """
     by_phone, by_name = {}, {}
     for c in db.query(Customer.id, Customer.phone_number, Customer.restaurant_name).all():
@@ -138,10 +144,12 @@ def _build_customer_lookup(db: Session):
     # setdefault, and skip aliases whose target customer no longer exists.
     from orderr_core.models.customer_alias import CustomerAlias
     live_ids = {c.id for c in db.query(Customer.id).all()}
+    by_alias = {}
     for alias_key, cid in db.query(CustomerAlias.alias_key, CustomerAlias.customer_id).all():
         if alias_key and cid in live_ids:
             by_name[alias_key] = cid
-    return by_phone, by_name
+            by_alias[alias_key] = cid
+    return by_phone, by_name, by_alias
 
 
 # ── P2-2 receipts import ────────────────────────────────────────────────────
@@ -171,7 +179,7 @@ def import_receipts(db: Session, file_bytes: bytes, source_file: str = None) -> 
     if "receipt_no" not in col or "party" not in col:
         raise ValueError("Receipt export must have 'Receipt No.' and 'Party Name' columns.")
 
-    _, by_name = _build_customer_lookup(db)
+    _, by_name, _ = _build_customer_lookup(db)
 
     # preload existing receipts for idempotent upsert
     existing = {r.receipt_no: r for r in db.query(CustomerReceipt).all()}
@@ -279,7 +287,7 @@ def import_outstanding(db: Session, file_bytes: bytes, snapshot_date: date = Non
     if "party" not in col or "closing" not in col:
         raise ValueError("Outstanding export must have 'Party Name' and 'Closing' columns.")
 
-    by_phone, by_name = _build_customer_lookup(db)  # after layer 1 → includes new customers
+    by_phone, by_name, by_alias = _build_customer_lookup(db)  # after layer 1 → includes new customers
 
     existing = {s.party_key: s for s in db.query(OutstandingSnapshot)
                 .filter(OutstandingSnapshot.snapshot_date == snapshot_date).all()}
@@ -309,11 +317,14 @@ def import_outstanding(db: Session, file_bytes: bytes, snapshot_date: date = Non
         credit = _to_amount(cell(row, "credit"))
         closing = _to_amount(cell(row, "closing"))
 
-        # phone-first, then name
-        cust_id = None
-        p10 = _phone_last10(contact)
-        if p10:
-            cust_id = by_phone.get(p10)
+        # alias-first (explicit human decision), then phone, then name. Phone
+        # must NOT outrank an alias: two outlets can share one contact number
+        # in Vasy, and phone-first would map both ledgers onto one customer.
+        cust_id = by_alias.get(key)
+        if cust_id is None:
+            p10 = _phone_last10(contact)
+            if p10:
+                cust_id = by_phone.get(p10)
         if cust_id is None:
             cust_id = by_name.get(key)
         if cust_id is None:
@@ -337,10 +348,22 @@ def import_outstanding(db: Session, file_bytes: bytes, snapshot_date: date = Non
             snap.closing = closing
             updated += 1
 
+    # Purge rows for this snapshot_date whose party is NOT in the file. A party
+    # renamed in Vasy re-imports under a new party_key, and the old-key row
+    # would otherwise survive as a second ledger for the same customer —
+    # double-counting AR (the 13 Jul 2026 ₹6.85L overstatement). The export is
+    # the complete debtor list for the date, so anything absent from it is stale.
+    removed = 0
+    for key, snap in existing.items():
+        if key not in seen:
+            db.delete(snap)
+            removed += 1
+
     db.add(ImportLog(entity="outstanding", source_file=source_file,
                      rows_total=created + updated, created=created,
                      updated=updated, unmatched=unmatched,
                      notes=f"snapshot_date={snapshot_date.isoformat()}; "
+                           f"stale_removed={removed}; "
                            f"customers +{cust_summary.get('created',0)}/"
                            f"~{cust_summary.get('updated',0)}"))
     db.commit()
@@ -352,6 +375,7 @@ def import_outstanding(db: Session, file_bytes: bytes, snapshot_date: date = Non
         "rows": created + updated,
         "created": created,
         "updated": updated,
+        "removed": removed,
         "unmatched": unmatched,
         "matched": created + updated - unmatched,
         "customers": cust_summary,
@@ -393,7 +417,7 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
     if "voucher" not in col or "party" not in col:
         raise ValueError("Sales-invoice export must have 'Voucher No' and 'Party Name' columns.")
 
-    by_phone, by_name = _build_customer_lookup(db)
+    by_phone, by_name, by_alias = _build_customer_lookup(db)
     erp = _erp_code_to_name()
 
     def cell(row, key):
@@ -451,10 +475,13 @@ def import_sales_invoices(db: Session, file_bytes: bytes, source_file: str = Non
         total = sum(float(l["net"]) for l in inv["lines"])
         total_amount += total
         key = normalize_name(inv["party"])
-        cust_id = None
-        p10 = _phone_last10(inv["mobile"])
-        if p10:
-            cust_id = by_phone.get(p10)
+        # alias-first (explicit human decision), then phone, then name — same
+        # order as the outstanding import; see _build_customer_lookup.
+        cust_id = by_alias.get(key)
+        if cust_id is None:
+            p10 = _phone_last10(inv["mobile"])
+            if p10:
+                cust_id = by_phone.get(p10)
         if cust_id is None:
             cust_id = by_name.get(key)
         if cust_id is None and total > 0 and key:
@@ -603,7 +630,7 @@ def import_sales_items(db: Session, file_bytes: bytes, source_file: str = None) 
     if "party" not in col or "product" not in col:
         raise ValueError("Sales item register must have 'Party Name' and 'Product Name' columns.")
 
-    _by_phone, by_name = _build_customer_lookup(db)
+    _by_phone, by_name, _by_alias = _build_customer_lookup(db)
     erp = _erp_code_to_name()
 
     def cell(row, key):

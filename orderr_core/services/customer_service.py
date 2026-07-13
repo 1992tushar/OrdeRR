@@ -234,6 +234,17 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
     issues: list[str] = []
     seen_keys: set = set()   # guard against duplicate rows within one file
 
+    # Manual aliases outrank phone/name matching — an alias is an explicit
+    # human decision about which customer a party name IS. Needed because two
+    # real outlets can share one contact number in Vasy (SANTOSH MAGGIE:
+    # KHANDALA + Lonvla outlets, same owner phone) — phone-first matching
+    # would rename/merge them into one customer. Local imports: vasy_import
+    # imports this module at load time, so importing it at module level here
+    # would be circular.
+    from orderr_core.models.customer_alias import CustomerAlias
+    from orderr_core.services.vasy_import import normalize_name
+    alias_map = {a.alias_key: a.customer_id for a in db.query(CustomerAlias).all()}
+
     rows = ws.iter_rows(min_row=header_idx + 2, values_only=True)
     for row in rows:
         if not row:
@@ -268,8 +279,12 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
         seen_keys.add(key)
 
         # ── Find an existing customer to update ────────────────────────────
+        # alias first (explicit human decision), then phone, then name
         existing = None
-        if normalized:
+        alias_cid = alias_map.get(normalize_name(name))
+        if alias_cid:
+            existing = db.query(Customer).filter(Customer.id == alias_cid).first()
+        if existing is None and normalized:
             existing = db.query(Customer).filter(
                 Customer.phone_number == normalized
             ).first()
@@ -282,12 +297,23 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
         if existing:
             existing.outstanding = outstanding
             if normalized and not existing.phone_number:
-                existing.phone_number = normalized
+                # backfill only if no OTHER customer owns this number — two
+                # outlets can share a contact in Vasy, and stealing the phone
+                # here would make phone-matching nondeterministic everywhere
+                phone_taken = db.query(Customer.id).filter(
+                    Customer.phone_number == normalized,
+                    Customer.id != existing.id,
+                ).first() is not None
+                if not phone_taken:
+                    existing.phone_number = normalized
             # Refresh the name from Vasy (source of truth). Previously only set
             # when empty, which meant corrected Vasy names never overwrote an
             # existing (possibly glued Name+Company) customer name. Vasy is
-            # authoritative for the party name, so keep OrdeRR in sync.
-            if name:
+            # authoritative for the party name, so keep OrdeRR in sync — EXCEPT
+            # when we matched via an alias: the alias name is the known-wrong
+            # variant, and renaming the canonical customer to it would undo the
+            # data-health merge that created the alias.
+            if name and not alias_cid:
                 existing.restaurant_name = name
             updated += 1
         else:
