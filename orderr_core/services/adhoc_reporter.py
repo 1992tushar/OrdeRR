@@ -32,7 +32,7 @@ from orderr_core.services.notifier import (
     send_manager_menu,
     send_salesperson_menu,
 )
-from orderr_core.config import MANAGER_PHONE, PLANT_NAME, report_url
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME, report_url, sp_report_url
 from orderr_core.constants import IST
 
 # All ad-hoc replies here answer an inbound message, so the 24-hour service
@@ -148,7 +148,7 @@ def handle_button_reply(phone: str, button_id: str, db: Session) -> bool:
             f"❓ *Help — {PLANT_NAME}*\n\n"
             f"Hi {name}, here's what you can do:\n\n"
             f"📋 *My Pending* — See which of your customers haven't ordered yet today\n\n"
-            f"📱 Live status page (bookmark it):\n{report_url()}\n\n"
+            f"📱 Your live status page (bookmark it):\n{sp_report_url(sp.name) if sp else report_url()}\n\n"
             f"You'll also receive an automatic notification at *11:15 PM* each night "
             f"listing any customers who still haven't placed their order.\n\n"
             f"Reply *menu* anytime to see this menu again."
@@ -323,7 +323,7 @@ def _send_salesperson_adhoc_report(sp_phone: str, sp: Salesperson, db: Session):
     lines += [f"{i + 1}. {c.restaurant_name}" + (f" ({c.area})" if c.area else "")
               for i, c in enumerate(sp_pending)]
     lines += ["", f"Total pending: {len(sp_pending)}",
-              f"📱 Live status: {report_url()}"]
+              f"📱 Your live status: {sp_report_url(sp.name)}"]
 
     send_whatsapp_message(sp_phone, "\n".join(lines))
     print(f"   ✅ Pending list sent → {sp.name} ({len(sp_pending)} pending)")

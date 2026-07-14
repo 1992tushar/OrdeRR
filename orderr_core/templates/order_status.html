@@ -43,7 +43,7 @@ main{max-width:560px;margin:0 auto;padding:14px 12px 60px}
 
 <header>
   <h1>📊 {{ plant_name }} — Order Status</h1>
-  <div class="d">{{ date_display }}</div>
+  <div class="d">{{ date_display }}{% if viewer %} · 🧑 {{ viewer }}{% endif %}</div>
 </header>
 
 <main>
@@ -55,7 +55,8 @@ main{max-width:560px;margin:0 auto;padding:14px 12px 60px}
 
   {% for s in sections %}
   <div class="sec">
-    <div class="sec-h">🧑 {{ s.salesperson }}
+    <div class="sec-h">🧑
+      {% if s.slug and not viewer %}<a href="/r/{{ link_key }}/{{ s.slug }}" style="color:inherit">{{ s.salesperson }}</a>{% else %}{{ s.salesperson }}{% endif %}
       <span class="cnt">{% if s.pending %}<b>{{ s.pending }} pending</b> · {% endif %}{{ s.total - s.pending }}/{{ s.total }} ordered</span>
     </div>
     {% for r in s.rows %}

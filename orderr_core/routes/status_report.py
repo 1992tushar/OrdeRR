@@ -14,10 +14,11 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from orderr_core.config import PLANT_NAME, REPORT_LINK_KEY
+from orderr_core.config import PLANT_NAME, REPORT_LINK_KEY, sp_slug
 from orderr_core.constants import IST, RESET_HOUR
 from orderr_core.database import get_db
 from orderr_core.dates import get_current_business_date
+from orderr_core.models.customer import Customer
 from orderr_core.models.order import Order
 from orderr_core.models.salesperson import Salesperson
 from orderr_core.services.pending_orders import active_daily_customers_q, ordered_sets
@@ -27,14 +28,19 @@ router = APIRouter()
 templates = make_templates()
 
 
-def order_status_data(db: Session) -> dict:
+def order_status_data(db: Session, salesperson_id: int | None = None) -> dict:
     """Who has ordered vs who is pending for the current business date,
     grouped by salesperson. Roster = the 📣 Broadcast list; "ordered" =
-    OrdeRR (WhatsApp) order OR Vasy invoice for the day. Pure/testable."""
+    OrdeRR (WhatsApp) order OR Vasy invoice for the day. Pass
+    `salesperson_id` to restrict to one salesperson's customers (their
+    personal page). Pure/testable."""
     delivery_date = get_current_business_date()
     date_str = delivery_date.strftime("%Y-%m-%d")
 
-    customers = active_daily_customers_q(db).all()
+    roster_q = active_daily_customers_q(db)
+    if salesperson_id is not None:
+        roster_q = roster_q.filter(Customer.salesperson_id == salesperson_id)
+    customers = roster_q.all()
     ordered_phones, invoiced_ids = ordered_sets(db, delivery_date)
     orders = (db.query(Order)
               .filter(Order.business_date == date_str,
@@ -75,8 +81,10 @@ def order_status_data(db: Session) -> dict:
     for sp_id, rows in groups.items():
         rows.sort(key=lambda r: (r["ordered"], r["name"]))  # pending first
         pending = sum(1 for r in rows if not r["ordered"])
+        name = sp_names.get(sp_id)
         sections.append({
-            "salesperson": sp_names.get(sp_id) or "Unassigned",
+            "salesperson": name or "Unassigned",
+            "slug": sp_slug(name) if name else None,   # link to their personal page
             "rows": rows,
             "pending": pending,
             "total": len(rows),
@@ -98,11 +106,32 @@ def order_status_data(db: Session) -> dict:
 
 @router.get("/r/{key}", response_class=HTMLResponse)
 def order_status_page(key: str, request: Request, db: Session = Depends(get_db)):
-    """Public live status page (manager + salespersons share the one link)."""
+    """Public live status page — all salespersons (the manager's view)."""
     if key != REPORT_LINK_KEY:
         raise HTTPException(status_code=404, detail="Not found")
     return templates.TemplateResponse(
         request=request,
         name="order_status.html",
-        context={"plant_name": PLANT_NAME, **order_status_data(db)},
+        context={"plant_name": PLANT_NAME, "viewer": None,
+                 "link_key": REPORT_LINK_KEY, **order_status_data(db)},
+    )
+
+
+@router.get("/r/{key}/{slug}", response_class=HTMLResponse)
+def salesperson_status_page(key: str, slug: str, request: Request,
+                            db: Session = Depends(get_db)):
+    """A salesperson's personal page — only their customers. Slug = first
+    name (config.sp_slug), e.g. /r/<key>/ganesh."""
+    if key != REPORT_LINK_KEY:
+        raise HTTPException(status_code=404, detail="Not found")
+    sp = next((s for s in db.query(Salesperson).filter(Salesperson.active == True).all()  # noqa: E712
+               if sp_slug(s.name) == slug.lower()), None)
+    if not sp:
+        raise HTTPException(status_code=404, detail="Not found")
+    return templates.TemplateResponse(
+        request=request,
+        name="order_status.html",
+        context={"plant_name": PLANT_NAME, "viewer": sp.name,
+                 "link_key": REPORT_LINK_KEY,
+                 **order_status_data(db, salesperson_id=sp.id)},
     )

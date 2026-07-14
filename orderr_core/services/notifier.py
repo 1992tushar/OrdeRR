@@ -10,7 +10,7 @@ from orderr_core.services.template_parser import erp_display_name
 
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN")
 META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
-from orderr_core.config import MANAGER_PHONE, PLANT_NAME, report_url as _report_url
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME, report_url as _report_url, sp_report_url as _sp_report_url
 
 logger = logging.getLogger(__name__)
 
@@ -380,7 +380,7 @@ def send_salesperson_menu(phone: str, name: str = "there") -> dict:
                     "type": "button",
                     "body": {
                         "text": (f"🧑 *{PLANT_NAME} — Hi {name}!*\n\n"
-                                 f"📱 Live order status:\n{_report_url()}\n\n"
+                                 f"📱 Your live order status:\n{_sp_report_url(name)}\n\n"
                                  f"What would you like to do?")
                     },
                     "action": {

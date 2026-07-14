@@ -37,5 +37,17 @@ REPORT_LINK_KEY = os.getenv("REPORT_LINK_KEY", "fluffy-status")
 
 
 def report_url() -> str:
-    """Absolute URL of the live order-status page."""
+    """Absolute URL of the live order-status page (all salespersons)."""
     return f"{BASE_URL.rstrip('/')}/r/{REPORT_LINK_KEY}"
+
+
+def sp_slug(name: str) -> str:
+    """URL slug for a salesperson's personal status page — their first name,
+    lowercased, letters/digits only (e.g. 'Ganesh Raundhal' → 'ganesh')."""
+    first = (name or "").strip().split()[0] if (name or "").strip() else ""
+    return "".join(ch for ch in first.lower() if ch.isalnum())
+
+
+def sp_report_url(name: str) -> str:
+    """Absolute URL of a salesperson's personal status page (their customers only)."""
+    return f"{report_url()}/{sp_slug(name)}"
