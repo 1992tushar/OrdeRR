@@ -140,10 +140,19 @@ tfoot td{font-weight:700;background:var(--bg)}
   <div class="section-title">Payables (AP)</div>
   {% if fin.payables.ap.has_bills %}
   <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
-    <div class="kpi cogs"><div class="n">{{ fin.payables.ap.ap_total_fmt }}</div><div class="l">Total payable (supplier bills)</div></div>
+    <div class="kpi cogs"><div class="n">{{ fin.payables.ap.ap_total_fmt }}</div><div class="l">Total payable{% if fin.payables.ap.has_netting %} (net of unallocated payments){% else %} (supplier bills){% endif %}</div></div>
     <div class="kpi"><div class="n">{{ fin.payables.ap.open_bills }}</div><div class="l">Open bills</div></div>
     <div class="kpi"><div class="n">{{ fin.payables.unpaid_total_fmt }}</div><div class="l">+ unpaid expenses</div></div>
   </div>
+  {% if fin.payables.ap.has_netting %}
+  <div class="note">
+    ⚠️ Bills show <b>{{ fin.payables.ap.gross_due_fmt }}</b> due, but <b>{{ fin.payables.ap.unallocated_fmt }}</b> of
+    payment vouchers were never allocated to bills in Vasy
+    ({% for n in fin.payables.ap.netting %}{{ n.vendor }} {{ n.credit_fmt }}{% if not loop.last %}, {% endif %}{% endfor %}).
+    They're netted here against each vendor's oldest bills first, so aging for these vendors is approximate.
+    To make it exact, allocate payments to bills in Vasy and re-import.
+  </div>
+  {% endif %}
   <div class="grid2" style="margin-top:14px">
     <div>
       <div class="section-title" style="font-size:13px;margin-top:4px">AP aging (by due date)</div>
@@ -174,7 +183,7 @@ tfoot td{font-weight:700;background:var(--bg)}
       </div></div>
     </div>
   </div>
-  <div class="note" style="border-left-color:var(--green-border)">True AP from the Vasy Supplier Bill List — bill-level with due dates, so aging is real (not a proxy). Also tracked: unpaid expenses {{ fin.payables.unpaid_total_fmt }}.</div>
+  <div class="note" style="border-left-color:var(--green-border)">Bill-level AP from the Vasy Supplier Bill List, with due dates{% if fin.payables.ap.has_netting %} — netted for payment vouchers not allocated to bills (see above){% else %}, so aging is real (not a proxy){% endif %}. Also tracked: unpaid expenses {{ fin.payables.unpaid_total_fmt }}.</div>
   {% else %}
   <div class="note" style="border-left-color:var(--blue-border)">
     Upload the <b>Supplier Outstanding</b> export on the Imports page for true bill-level AP + aging.

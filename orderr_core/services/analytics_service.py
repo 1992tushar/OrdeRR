@@ -718,11 +718,52 @@ def plant_financials(db: Session, today: date, months: int = 12) -> dict:
     ap = {"has_bills": has_ap}
     if has_ap:
         bills = db.query(VasySupplierBill).filter(VasySupplierBill.due > 0).all()
-        ap_total = sum(float(b.due) for b in bills)
-        # true aging by due date (days overdue = today − due_date)
-        buckets = {"current": 0.0, "0-30": 0.0, "31-60": 0.0, "61-90": 0.0, "90+": 0.0, "no-date": 0.0}
-        for b in bills:
+        gross_due = sum(float(b.due) for b in bills)
+
+        # Big-supplier payments are often entered as standalone vouchers that
+        # never get allocated to bills in Vasy, so bill `due` overstates real
+        # AP (audit 2026-07-14: Yewale showed ₹73L due with ₹67L already paid
+        # by voucher). Per vendor: unallocated credit = payment vouchers −
+        # bill-allocated paid − expense-register paid (vouchers to expense
+        # heads mirror the expense ledger, not bills). Net the credit against
+        # that vendor's open bills oldest-first.
+        vendor_keys = {b.vendor_key for b in bills}
+        vouchers = dict(db.query(VasyPayment.party_key,
+                                 func.coalesce(func.sum(VasyPayment.amount), 0))
+                        .filter(VasyPayment.party_key.in_(vendor_keys))
+                        .group_by(VasyPayment.party_key).all())
+        bill_paid = dict(db.query(VasySupplierBill.vendor_key,
+                                  func.coalesce(func.sum(VasySupplierBill.paid), 0))
+                         .group_by(VasySupplierBill.vendor_key).all())
+        exp_paid = dict(db.query(VasyExpense.party_key,
+                                 func.coalesce(func.sum(VasyExpense.paid), 0))
+                        .filter(VasyExpense.party_key.in_(vendor_keys))
+                        .group_by(VasyExpense.party_key).all())
+        credit = {}
+        for vk in vendor_keys:
+            c = (float(vouchers.get(vk, 0)) - float(bill_paid.get(vk, 0))
+                 - float(exp_paid.get(vk, 0)))
+            if c > 0.005:
+                credit[vk] = c
+
+        remaining = dict(credit)
+        eff_due = {}
+        for b in sorted(bills, key=lambda b: (b.due_date or b.bill_date or today, b.bill_no)):
             due = float(b.due)
+            take = min(due, remaining.get(b.vendor_key, 0.0))
+            if take > 0:
+                due -= take
+                remaining[b.vendor_key] -= take
+            eff_due[b.id] = due
+
+        open_bills = [b for b in bills if eff_due[b.id] > 0.005]
+        ap_total = sum(eff_due[b.id] for b in open_bills)
+        applied = sum(credit.values()) - sum(remaining.values())
+
+        # aging by due date (days overdue = today − due_date), on netted dues
+        buckets = {"current": 0.0, "0-30": 0.0, "31-60": 0.0, "61-90": 0.0, "90+": 0.0, "no-date": 0.0}
+        for b in open_bills:
+            due = eff_due[b.id]
             if b.due_date is None:
                 buckets["no-date"] += due
             else:
@@ -738,12 +779,23 @@ def plant_financials(db: Session, today: date, months: int = 12) -> dict:
                 else:
                     buckets["90+"] += due
         creditors = {}
-        for b in bills:
-            creditors[b.vendor] = creditors.get(b.vendor, 0.0) + float(b.due)
+        for b in open_bills:
+            creditors[b.vendor] = creditors.get(b.vendor, 0.0) + eff_due[b.id]
         top_creditors = sorted(creditors.items(), key=lambda kv: kv[1], reverse=True)[:10]
+
+        vendor_name = {}
+        for b in bills:
+            vendor_name.setdefault(b.vendor_key, b.vendor)
+        netted = sorted(((vendor_name[vk], credit[vk] - remaining.get(vk, 0.0))
+                         for vk in credit if credit[vk] - remaining.get(vk, 0.0) > 0.005),
+                        key=lambda kv: kv[1], reverse=True)
         ap.update({
             "ap_total_fmt": fmt_inr(ap_total),
-            "open_bills": len(bills),
+            "gross_due_fmt": fmt_inr(gross_due),
+            "unallocated_fmt": fmt_inr(applied),
+            "has_netting": bool(netted),
+            "netting": [{"vendor": v, "credit_fmt": fmt_inr(a)} for v, a in netted[:5]],
+            "open_bills": len(open_bills),
             "aging": [
                 {"bucket": "Not yet due", "amount_fmt": fmt_inr(buckets["current"])},
                 {"bucket": "1–30 days overdue", "amount_fmt": fmt_inr(buckets["0-30"])},
