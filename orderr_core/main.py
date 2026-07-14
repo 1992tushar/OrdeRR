@@ -24,9 +24,9 @@ from orderr_core.routes.billing import router as billing_router
 from orderr_core.routes.staff import router as staff_router
 from orderr_core.routes.wastage import router as wastage_router
 from orderr_core.routes.reminders import router as reminders_router
+from orderr_core.routes.broadcast import router as broadcast_router
 from orderr_core.services.reporter import send_daily_report
 from orderr_core.services.pending_notifier import (
-    send_customer_reminders,
     notify_salespersons_pending,
     send_management_summary,
 )
@@ -83,6 +83,9 @@ from orderr_core.models.cash_entry import CashEntry                      # noqa:
 from orderr_core.models.close_period import ClosePeriod                  # noqa: F401
 # 5-Day Close (bank reconciliation) — uploaded bank statement mirror
 from orderr_core.models.bank_transaction import BankTransaction          # noqa: F401
+
+# 📣 Broadcast — owner-curated order-reminder list (manual send)
+from orderr_core.models.broadcast_recipient import BroadcastRecipient    # noqa: F401
 
 
 Base.metadata.create_all(bind=engine)
@@ -277,15 +280,6 @@ def daily_report_job():
         db.close()
 
 
-def customer_reminders_job():
-    db = SessionLocal()
-    try:
-        print("\n⏰ AUTO SCHEDULER — Customer Reminders triggered")
-        send_customer_reminders(db)
-    finally:
-        db.close()
-
-
 def salesperson_notification_job():
     db = SessionLocal()
     try:
@@ -339,12 +333,8 @@ async def lifespan(app: FastAPI):
         id="daily_report", name=f"Daily Report at {report_time} IST",
     )
 
-    # Customer reminders — PROD: hour=22, minute=50
-    scheduler.add_job(
-        customer_reminders_job,
-        CronTrigger(hour=22, minute=10, timezone="Asia/Kolkata"),
-        id="customer_reminders", name="Customer Reminders at 22:00 IST",
-    )
+    # Customer reminders: auto-send removed 2026-07-14 — now manual via the
+    # 📣 Broadcast screen (owner-curated list, /dashboard/broadcast).
 
     # Salesperson notifications PROD: hour=23, minute=00
     scheduler.add_job(
@@ -395,7 +385,7 @@ async def lifespan(app: FastAPI):
 
     print("\n✅ OrdeRR Scheduler Started!")
     print(f"   📅 Daily report          → Every day at {report_time} IST")
-    print(f"   🔔 Customer reminders    → Every day at 22:00 IST")
+    print(f"   📣 Customer reminders    → Manual only (Broadcast screen)")
     print(f"   📋 Salesperson alerts    → Every day at 23:00 IST")
     print(f"   📊 Management summary    → Every day at 23:00 IST")
     print(f"   💓 Keep-alive ping       → Every 10 minutes")
@@ -431,6 +421,7 @@ app.include_router(billing_router,  tags=["Billing"])
 app.include_router(staff_router,    tags=["Staff"])
 app.include_router(wastage_router,  prefix="/dashboard", tags=["Analytics"])
 app.include_router(reminders_router, prefix="/dashboard", tags=["Reminders"])
+app.include_router(broadcast_router, prefix="/dashboard", tags=["Broadcast"])
 
 
 @app.get("/")

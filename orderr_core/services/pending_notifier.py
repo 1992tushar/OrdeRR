@@ -1,77 +1,36 @@
 """
 pending_notifier.py
 -------------------
-Three scheduled WhatsApp notifications built on top of
+Scheduled WhatsApp notifications built on top of
 pending_orders.get_pending_customers():
 
-  22:00 IST  →  send_customer_reminders()
   23:05 IST  →  notify_salespersons_pending()
   23:10 IST  →  send_management_summary()
 
-All three are called from main.py scheduler jobs.
+Both are called from main.py scheduler jobs.
+
+The 22:00 auto customer reminder was removed 2026-07-14 — it messaged every
+pending customer. Customer reminders are now manual, from the owner-curated
+📣 Broadcast screen (services/broadcast_service.py).
 """
 
-import os
 from datetime import date
 
 from sqlalchemy.orm import Session
 
 from orderr_core.models.salesperson import Salesperson
-from orderr_core.models.customer import Customer
 from orderr_core.services.pending_orders import (
     get_pending_customers,
     get_delivery_date_for_now,
     active_daily_customers_q,
 )
-from orderr_core.services.notifier import send_whatsapp_template, send_whatsapp_message
+from orderr_core.services.notifier import send_whatsapp_template
 
 from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 
 # ── Approved template names ───────────────────────────────────────────────────
-# NOTE: customer_daily_reminder is MARKETING category — cannot deliver without opt-in.
-#       Customer reminders now use free-form messages instead (customers always
-#       message during the day to order, keeping the 24hr window open at 10 PM).
 TEMPLATE_SALESPERSON_PENDING = "salesperson_pending_orders"
 TEMPLATE_MANAGER_SUMMARY     = "manager_daily_summary"
-TEMPLATE_CUSTOMER_REMINDER    = "customer_order_reminder_v2"
-
-# ── 22:00 — Customer reminders ───────────────────────────────────────────────
-
-def send_customer_reminders(db: Session, delivery_date: date | None = None):
-    """
-    Template-based reminder to pending customers at 22:00 IST.
-
-    Uses customer_order_reminder_v2 (UTILITY category) which bypasses the
-    24hr messaging window — no free-form fallback needed.
-
-    Do NOT deploy until template status is APPROVED in Meta Business Manager.
-    Template variables:
-      {{1}} = customer.restaurant_name
-      {{2}} = PLANT_NAME
-    """
-    if delivery_date is None:
-        delivery_date = get_delivery_date_for_now()
-
-    grouped = get_pending_customers(db, delivery_date)
-    all_pending_customers = [c for customers in grouped.values() for c in customers]
-
-    print(f"\n⏰ Customer Reminders — {len(all_pending_customers)} pending customers identified")
-
-    sent = 0
-
-    for customer in all_pending_customers:
-        result = send_whatsapp_template(
-            customer.phone_number,
-            TEMPLATE_CUSTOMER_REMINDER,
-            [customer.restaurant_name, PLANT_NAME]
-        )
-
-        if result:
-            sent += 1
-            print(f"   ✅ Reminder sent → {customer.restaurant_name} ({customer.phone_number})")
-
-    print(f"   📤 Reminders sent: {sent}/{len(all_pending_customers)}\n")
-
 
 # ── 23:05 — Salesperson notifications ────────────────────────────────────────
 

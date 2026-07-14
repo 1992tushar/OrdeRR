@@ -1718,16 +1718,13 @@ def delete_customer_alias(alias_id: int, db: Session = Depends(get_db), username
 # ── Test notifications ────────────────────────────────────────────────────────
 
 from orderr_core.services.pending_notifier import (
-    send_customer_reminders,
     notify_salespersons_pending,
     send_management_summary,
 )
 from orderr_core.services.reporter import send_daily_report
 
-@router.post("/test-notifications/customer-reminders")
-def test_customer_reminders(db: Session = Depends(get_db), username: str = Depends(require_auth)):
-    send_customer_reminders(db)
-    return {"status": "sent"}
+# /test-notifications/customer-reminders removed 2026-07-14 — customer
+# reminders are manual now, via the 📣 Broadcast screen (/dashboard/broadcast).
 
 @router.post("/test-notifications/salesperson-pending")
 def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depends(require_auth)):
