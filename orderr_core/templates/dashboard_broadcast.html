@@ -58,11 +58,12 @@ tr:last-child td{border-bottom:none}
 <main>
   <div class="section-title" style="margin-top:0">Order reminder broadcast</div>
   <div class="sendbar">
-    <button class="btn btn-send" id="send-btn" onclick="sendAll(this)" {% if not members %}disabled{% endif %}>
-      📤 Send reminder to {{ members|length }} customer{{ '' if members|length == 1 else 's' }}
+    <button class="btn btn-send" id="send-btn" onclick="sendAll(this)" {% if not pending %}disabled{% endif %}>
+      📤 Send reminder to {{ pending }} pending customer{{ '' if pending == 1 else 's' }}
     </button>
-    <span class="who">Free chat message for customers who messaged in the last 24h; the
-      <b>customer_order_reminder_v2</b> template for the rest (needs WhatsApp balance — delivery not guaranteed).</span>
+    <span class="who">Members who already ordered today are skipped. Free chat message for customers
+      who messaged in the last 24h; the <b>customer_order_reminder_v2</b> template for the rest
+      (needs WhatsApp balance — delivery not guaranteed).</span>
   </div>
   <div class="result" id="send-result"></div>
 
@@ -80,27 +81,28 @@ tr:last-child td{border-bottom:none}
 
   <div class="wrap"><div class="scroll">
     <table>
-      <thead><tr><th>Customer</th><th>Area</th><th>Phone</th><th>Last sent</th><th></th></tr></thead>
+      <thead><tr><th>Customer</th><th>Area</th><th>Today</th><th>Phone</th><th>Last sent</th><th></th></tr></thead>
       <tbody>
         {% for m in members %}
         <tr>
           <td><b>{{ m.name }}</b></td>
           <td>{{ m.area or '—' }}</td>
+          <td>{% if m.ordered %}✅ ordered{% else %}<span style="color:var(--red)">pending</span>{% endif %}</td>
           <td class="mut">{{ m.phone }}</td>
           <td class="mut">{{ m.last_sent or 'never' }}</td>
           <td style="text-align:right"><button class="btn-x" onclick="removeMember({{ m.customer_id }}, this)">✕ remove</button></td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="empty">Nobody on the list yet — add customers above.</td></tr>
+        <tr><td colspan="6" class="empty">Nobody on the list yet — add customers above.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div></div>
 
   <div class="note">
-    Only customers on this list get the reminder — the old automatic 10&nbsp;PM reminder to every
-    pending customer is switched off. Keep the list tight to avoid spamming; add or remove customers
-    any time, changes take effect on the next send.
+    This list is also the roster for the <a href="{{ status_url }}" target="_blank">📊 live status page</a> —
+    customers here appear there and count toward pending. Only customers on this list get the reminder;
+    the old automatic 10&nbsp;PM reminder is switched off. Add or remove customers any time.
   </div>
 </main>
 
@@ -128,17 +130,17 @@ async function removeMember(id, btn){
 }
 
 async function sendAll(btn){
-  const n = {{ members|length }};
-  if(!confirm('Send the WhatsApp reminder to ' + n + ' customer' + (n===1?'':'s') + ' now?')) return;
+  const n = {{ pending }};
+  if(!confirm('Send the WhatsApp reminder to ' + n + ' pending customer' + (n===1?'':'s') + ' now?')) return;
   btn.disabled = true;
   btn.textContent = 'Sending…';
   const r = await post('/dashboard/broadcast/send', {}, btn);
   const box = document.getElementById('send-result');
   if(r){
     box.className = 'result ' + (r.failed ? 'bad' : 'ok');
-    let msg = '✅ Sent ' + r.sent + ' of ' + r.total +
-              ' — ' + r.via_chat + ' via chat window';
+    let msg = '✅ Sent ' + r.sent + ' — ' + r.via_chat + ' via chat window';
     if(r.via_template) msg += ', ' + r.via_template + ' via template (delivery depends on WhatsApp balance)';
+    if(r.skipped_ordered) msg += '; skipped ' + r.skipped_ordered + ' who already ordered';
     msg += '.';
     if(r.failed){
       msg = '⚠️ ' + msg + ' ' + r.failed + ' failed: ' +
@@ -148,7 +150,7 @@ async function sendAll(btn){
     setTimeout(()=>location.reload(), 6000);
   }else{
     btn.disabled = false;
-    btn.textContent = '📤 Send reminder to ' + n + ' customer' + (n===1?'':'s');
+    btn.textContent = '📤 Send reminder to ' + n + ' pending customer' + (n===1?'':'s');
   }
 }
 </script>

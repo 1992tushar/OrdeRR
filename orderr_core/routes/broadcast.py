@@ -27,6 +27,7 @@ def broadcast_screen(
     username: str = Depends(require_auth),
 ):
     """📣 Broadcast — manage the reminder list and send on demand."""
+    from orderr_core.config import report_url
     data = broadcast_service.overview(db)
     return templates.TemplateResponse(
         request=request,
@@ -36,6 +37,8 @@ def broadcast_screen(
             "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "members": data["members"],
             "addable": data["addable"],
+            "pending": data["pending"],
+            "status_url": report_url(),
         },
     )
 

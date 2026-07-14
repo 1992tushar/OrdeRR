@@ -1,10 +1,13 @@
 """
-broadcast_recipients — the owner-curated WhatsApp broadcast list for order
-reminders. Replaces the old 22:00 auto-reminder to every pending customer
-(removed 2026-07-14): the owner adds/removes customers here and sends the
-`customer_order_reminder_v2` Meta template on demand from the 📣 Broadcast
-screen. One row per customer; membership only, the message itself is the
-approved Meta template.
+broadcast_recipients — the owner-curated list of daily-order customers.
+One row per customer. This list is the single roster for:
+
+  - the 📣 Broadcast screen's manual order reminder (replaced the 22:00
+    auto-reminder, removed 2026-07-14),
+  - the public live status page /r/<REPORT_LINK_KEY> (who ordered vs pending),
+  - pending_orders.active_daily_customers_q — so the 23:15 salesperson nudge
+    and ad-hoc pending replies too (replaced the never-populated
+    is_daily_order_customer flag, owner decision 2026-07-14).
 """
 from datetime import datetime
 from typing import Optional

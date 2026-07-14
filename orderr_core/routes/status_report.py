@@ -20,7 +20,7 @@ from orderr_core.database import get_db
 from orderr_core.dates import get_current_business_date
 from orderr_core.models.order import Order
 from orderr_core.models.salesperson import Salesperson
-from orderr_core.services.pending_orders import active_daily_customers_q
+from orderr_core.services.pending_orders import active_daily_customers_q, ordered_sets
 from orderr_core.templating import make_templates
 
 router = APIRouter()
@@ -29,11 +29,13 @@ templates = make_templates()
 
 def order_status_data(db: Session) -> dict:
     """Who has ordered vs who is pending for the current business date,
-    grouped by salesperson. Pure/testable."""
+    grouped by salesperson. Roster = the 📣 Broadcast list; "ordered" =
+    OrdeRR (WhatsApp) order OR Vasy invoice for the day. Pure/testable."""
     delivery_date = get_current_business_date()
     date_str = delivery_date.strftime("%Y-%m-%d")
 
     customers = active_daily_customers_q(db).all()
+    ordered_phones, invoiced_ids = ordered_sets(db, delivery_date)
     orders = (db.query(Order)
               .filter(Order.business_date == date_str,
                       Order.is_cancelled == False)          # noqa: E712
@@ -51,7 +53,8 @@ def order_status_data(db: Session) -> dict:
     ordered_count = 0
     for c in customers:
         order = order_by_phone.get(c.phone_number)
-        if order:
+        ordered = (c.phone_number in ordered_phones) or (c.id in invoiced_ids)
+        if ordered:
             ordered_count += 1
         at = None
         if order and order.created_at:
@@ -59,10 +62,12 @@ def order_status_data(db: Session) -> dict:
                 at = order.created_at.astimezone(IST).strftime("%I:%M %p").lstrip("0")
             except Exception:
                 at = None
+        elif ordered:
+            at = "🧾 billed"     # phone order — arrived via the Vasy import
         groups[c.salesperson_id].append({
             "name": c.restaurant_name or c.owner_name or f"#{c.id}",
             "area": c.area,
-            "ordered": order is not None,
+            "ordered": ordered,
             "at": at,
         })
 

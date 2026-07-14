@@ -42,8 +42,15 @@ def _open_window_phones(db: Session) -> set[str]:
 
 
 def overview(db: Session) -> dict:
-    """Members of the list (with customer details) + active customers with a
-    phone number who can still be added."""
+    """Members of the list (with customer details + ordered-today state) +
+    active customers with a phone number who can still be added. This list
+    doubles as the daily roster for the live status page (/r/<key>)."""
+    from orderr_core.dates import get_current_business_date
+    from orderr_core.services.pending_orders import ordered_sets
+
+    delivery_date = get_current_business_date()
+    ordered_phones, invoiced_ids = ordered_sets(db, delivery_date)
+
     rows = (db.query(BroadcastRecipient, Customer)
             .join(Customer, Customer.id == BroadcastRecipient.customer_id)
             .order_by(Customer.restaurant_name).all())
@@ -52,6 +59,7 @@ def overview(db: Session) -> dict:
         "name": c.restaurant_name or c.owner_name or f"#{c.id}",
         "phone": c.phone_number,
         "area": c.area,
+        "ordered": (c.phone_number in ordered_phones) or (c.id in invoiced_ids),
         "last_sent": r.last_sent_at.astimezone(IST).strftime("%d %b, %I:%M %p")
                      if r.last_sent_at else None,
     } for r, c in rows]
@@ -67,7 +75,8 @@ def overview(db: Session) -> dict:
                 .order_by(Customer.restaurant_name).all())
         if c.id not in member_ids]
 
-    return {"members": members, "addable": addable}
+    pending = sum(1 for m in members if not m["ordered"])
+    return {"members": members, "addable": addable, "pending": pending}
 
 
 def add(db: Session, customer_id) -> str | None:
@@ -102,23 +111,34 @@ def remove(db: Session, customer_id) -> str | None:
 
 
 def send_reminders(db: Session) -> dict:
-    """Send the reminder to everyone on the list — free-form text when the
-    customer's 24-hour window is open (reliable + free), the approved template
-    otherwise (paid; Meta drops it silently when prepaid balance is out, and
-    the API still answers "accepted" — so template counts are attempts, not
-    confirmed deliveries). Returns {total, sent, via_chat, via_template,
-    failed, failures:[{name, reason}]}."""
+    """Send the reminder to list members who have NOT ordered yet for the
+    current business date (the template says "you haven't placed your order
+    yet" — nagging someone who already ordered would be wrong). Free-form
+    text when the customer's 24-hour window is open (reliable + free), the
+    approved template otherwise (paid; Meta drops it silently when prepaid
+    balance is out, and the API still answers "accepted" — so template counts
+    are attempts, not confirmed deliveries). Returns {total, sent, via_chat,
+    via_template, skipped_ordered, failed, failures:[{name, reason}]}."""
+    from orderr_core.dates import get_current_business_date
+    from orderr_core.services.pending_orders import ordered_sets
+
+    delivery_date = get_current_business_date()
+    ordered_phones, invoiced_ids = ordered_sets(db, delivery_date)
+
     rows = (db.query(BroadcastRecipient, Customer)
             .join(Customer, Customer.id == BroadcastRecipient.customer_id)
             .order_by(Customer.restaurant_name).all())
     open_windows = _open_window_phones(db)
 
-    via_chat, via_template, failures = 0, 0, []
+    via_chat, via_template, skipped_ordered, failures = 0, 0, 0, []
     now = datetime.now(IST)
     for rec, cust in rows:
         name = cust.restaurant_name or cust.owner_name or f"#{cust.id}"
         if not cust.phone_number:
             failures.append({"name": name, "reason": "no phone number"})
+            continue
+        if cust.phone_number in ordered_phones or cust.id in invoiced_ids:
+            skipped_ordered += 1
             continue
         in_window = normalize_phone(cust.phone_number) in open_windows
         if in_window:
@@ -139,4 +159,5 @@ def send_reminders(db: Session) -> dict:
 
     return {"total": len(rows), "sent": via_chat + via_template,
             "via_chat": via_chat, "via_template": via_template,
+            "skipped_ordered": skipped_ordered,
             "failed": len(failures), "failures": failures}
