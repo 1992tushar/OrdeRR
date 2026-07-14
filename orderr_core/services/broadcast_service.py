@@ -7,7 +7,7 @@ Replaces the scheduled 22:00 reminder-to-every-pending-customer (removed
 template (UTILITY category, so no 24-hour window) to everyone on it with one
 button.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -15,10 +15,30 @@ from orderr_core.constants import IST
 from orderr_core.config import PLANT_NAME
 from orderr_core.models.customer import Customer
 from orderr_core.models.broadcast_recipient import BroadcastRecipient
-from orderr_core.services.notifier import send_whatsapp_template
+from orderr_core.models.inbound_message import InboundMessage
+from orderr_core.services.customer_service import normalize_phone
+from orderr_core.services.notifier import send_whatsapp_template, send_whatsapp_message
 
-# Approved Meta template — {{1}} = restaurant name, {{2}} = plant name
+# Approved Meta template — {{1}} = restaurant name, {{2}} = plant name.
+# MARKETING category (Meta reclassified it), so delivery is unreliable; it is
+# only the fallback when the customer's 24-hour service window is closed.
 TEMPLATE_CUSTOMER_REMINDER = "customer_order_reminder_v2"
+
+
+def _reminder_text(name: str) -> str:
+    """Free-form reminder — mirrors the approved template body."""
+    return (f"Hi {name}, you haven't placed your order with {PLANT_NAME} yet "
+            f"today. Reply with your order anytime.")
+
+
+def _open_window_phones(db: Session) -> set[str]:
+    """Normalized phones that messaged us in the last 24h — their WhatsApp
+    service window is open, so a free-form message delivers (and is free,
+    unlike paid template sends which Meta drops when prepaid balance is out)."""
+    cutoff = datetime.now(IST) - timedelta(hours=24)
+    rows = (db.query(InboundMessage.customer_phone)
+            .filter(InboundMessage.received_at >= cutoff).distinct().all())
+    return {normalize_phone(p) for (p,) in rows if p}
 
 
 def overview(db: Session) -> dict:
@@ -82,29 +102,41 @@ def remove(db: Session, customer_id) -> str | None:
 
 
 def send_reminders(db: Session) -> dict:
-    """Send the reminder template to everyone on the list. Returns a summary
-    {total, sent, failed, failures:[{name, reason}]}. A send counts as failed
-    when Meta returns an error payload (no `messages` key)."""
+    """Send the reminder to everyone on the list — free-form text when the
+    customer's 24-hour window is open (reliable + free), the approved template
+    otherwise (paid; Meta drops it silently when prepaid balance is out, and
+    the API still answers "accepted" — so template counts are attempts, not
+    confirmed deliveries). Returns {total, sent, via_chat, via_template,
+    failed, failures:[{name, reason}]}."""
     rows = (db.query(BroadcastRecipient, Customer)
             .join(Customer, Customer.id == BroadcastRecipient.customer_id)
             .order_by(Customer.restaurant_name).all())
+    open_windows = _open_window_phones(db)
 
-    sent, failures = 0, []
+    via_chat, via_template, failures = 0, 0, []
     now = datetime.now(IST)
     for rec, cust in rows:
         name = cust.restaurant_name or cust.owner_name or f"#{cust.id}"
         if not cust.phone_number:
             failures.append({"name": name, "reason": "no phone number"})
             continue
-        result = send_whatsapp_template(
-            cust.phone_number, TEMPLATE_CUSTOMER_REMINDER, [name, PLANT_NAME])
+        in_window = normalize_phone(cust.phone_number) in open_windows
+        if in_window:
+            result = send_whatsapp_message(cust.phone_number, _reminder_text(name))
+        else:
+            result = send_whatsapp_template(
+                cust.phone_number, TEMPLATE_CUSTOMER_REMINDER, [name, PLANT_NAME])
         if result and ("messages" in result or result.get("status") == "simulated"):
-            sent += 1
+            if in_window:
+                via_chat += 1
+            else:
+                via_template += 1
             rec.last_sent_at = now
         else:
             reason = (result or {}).get("error", {}).get("message", "send failed")
             failures.append({"name": name, "reason": reason})
     db.commit()
 
-    return {"total": len(rows), "sent": sent,
+    return {"total": len(rows), "sent": via_chat + via_template,
+            "via_chat": via_chat, "via_template": via_template,
             "failed": len(failures), "failures": failures}
