@@ -28,18 +28,18 @@ from orderr_core.models.salesperson import Salesperson
 from orderr_core.services.pending_orders import get_pending_customers, get_delivery_date_for_now
 from orderr_core.services.template_parser import erp_display_name
 from orderr_core.services.notifier import (
-    send_whatsapp_template,
     send_whatsapp_message,
     send_manager_menu,
     send_salesperson_menu,
 )
-from orderr_core.config import MANAGER_PHONE, PLANT_NAME
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME, report_url
 from orderr_core.constants import IST
 
-# ── Approved template names ───────────────────────────────────────────────────
-TEMPLATE_MANAGER_SUMMARY  = "manager_daily_summary"
-TEMPLATE_MANAGER_REPORT   = "manager_daily_report"
-TEMPLATE_SP_PENDING       = "salesperson_pending_orders"
+# All ad-hoc replies here answer an inbound message, so the 24-hour service
+# window is open — free-form messages deliver reliably, cost nothing, and
+# allow multi-line lists (template params can't contain newlines). The
+# manager_daily_summary / manager_daily_report templates were deleted
+# 2026-07-14; the live status page (report_url()) replaced them.
 
 # ── Keywords that trigger an ad hoc report ────────────────────────────────────
 REPORT_KEYWORDS = {
@@ -132,7 +132,7 @@ def handle_button_reply(phone: str, button_id: str, db: Session) -> bool:
             f"*ADD CUSTOMER <phone> <restaurant name>*\n\n"
             f"Example:\n"
             f"ADD CUSTOMER 919876543210 Hotel Delicious\n\n"
-            f"The customer will be registered immediately and sent a welcome message."
+            f"The customer will be registered immediately and can start ordering right away."
         )
         return True
 
@@ -148,7 +148,8 @@ def handle_button_reply(phone: str, button_id: str, db: Session) -> bool:
             f"❓ *Help — {PLANT_NAME}*\n\n"
             f"Hi {name}, here's what you can do:\n\n"
             f"📋 *My Pending* — See which of your customers haven't ordered yet today\n\n"
-            f"You'll also receive an automatic notification at *11:05 PM* each night "
+            f"📱 Live status page (bookmark it):\n{report_url()}\n\n"
+            f"You'll also receive an automatic notification at *11:15 PM* each night "
             f"listing any customers who still haven't placed their order.\n\n"
             f"Reply *menu* anytime to see this menu again."
         )
@@ -210,27 +211,43 @@ def _send_manager_adhoc_report(manager_phone: str, db: Session):
 
 
 def _send_manager_summary(manager_phone: str, db: Session):
-    """Sends the manager daily summary template (shared builder with the
-    scheduled 23:10 send in pending_notifier)."""
+    """Free-form order-status summary + link to the live status page."""
     from orderr_core.services.order_service import get_current_business_date
-    from orderr_core.services.pending_notifier import build_management_summary_params
+    from orderr_core.services.pending_orders import active_daily_customers_q
 
     delivery_date = get_current_business_date()
     print(f"\n📊 Manager summary requested by {manager_phone}")
 
-    params, total_received, total_active = build_management_summary_params(db, delivery_date)
-    send_whatsapp_template(manager_phone, TEMPLATE_MANAGER_SUMMARY, params)
+    grouped = get_pending_customers(db, delivery_date)
+    total_active = active_daily_customers_q(db).count()
+    all_pending = [c for customers in grouped.values() for c in customers]
+    total_received = total_active - len(all_pending)
+
+    lines = [f"📊 *Order Status — {PLANT_NAME}*",
+             delivery_date.strftime("%d %B %Y"), "",
+             f"Customers: {total_active}",
+             f"Ordered: {total_received}",
+             f"Pending: {len(all_pending)}"]
+    if all_pending:
+        by_area: dict = {}
+        for c in all_pending:
+            by_area.setdefault(c.area or "Unassigned", []).append(c.restaurant_name)
+        lines.append("")
+        lines.append("*Pending by area:*")
+        for area, names in sorted(by_area.items()):
+            lines.append(f"• {area} ({len(names)}): {', '.join(names)}")
+    lines += ["", f"📱 Live status: {report_url()}"]
+
+    send_whatsapp_message(manager_phone, "\n".join(lines))
     print(f"   ✅ Summary sent → {total_received}/{total_active} received")
 
-# Add this helper after the TEMPLATE_DAILY_REPORT line:
 # Was a divergent local copy that crashed on native-list (JSONB) input and
 # silently returned [] — now the shared, robust helper.
 from orderr_core.utils import safe_list as _safe_list
 
 
 def _send_manager_daily_report_only(manager_phone: str, db: Session):
-    """Sends the manager daily report template (product totals). Skips if no orders."""
-    import json
+    """Free-form product-totals report. Skips if no orders."""
     from orderr_core.services.order_service import get_current_business_date
 
     delivery_date = get_current_business_date()
@@ -248,7 +265,7 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
     )
 
     if not orders:
-        print(f"   ℹ️  No orders today — skipping free-form message (window may be closed)")
+        print(f"   ℹ️  No orders today — skipping daily report message")
         return
 
     product_totals: dict = {}
@@ -261,14 +278,12 @@ def _send_manager_daily_report_only(manager_phone: str, db: Session):
             product_totals[key] = product_totals.get(key, 0) + item["quantity"]
 
     total_items_count = sum(product_totals.values())
-    items_text        = ", ".join(f"{erp_display_name(p)} x{fmt_qty(q)}" for p, q in product_totals.items())
-    product_summary   = " | ".join(f"{erp_display_name(p)}: {fmt_qty(q)}" for p, q in product_totals.items())
+    lines = [f"📋 *Daily Report — {PLANT_NAME}*", date_str, "",
+             f"Total orders: {len(orders)}", "", "*Product totals:*"]
+    lines += [f"• {erp_display_name(p)}: {fmt_qty(q)}" for p, q in product_totals.items()]
+    lines += ["", f"📱 Live status: {report_url()}"]
 
-    send_whatsapp_template(
-        manager_phone,
-        TEMPLATE_MANAGER_REPORT,
-        [PLANT_NAME, date_str, str(len(orders)), items_text, product_summary],
-    )
+    send_whatsapp_message(manager_phone, "\n".join(lines))
     print(f"   ✅ Daily report sent → {len(orders)} orders, {total_items_count} items")
 
     # ── Email delivery sheet ──────────────────────────────────────────────────
@@ -303,14 +318,12 @@ def _send_salesperson_adhoc_report(sp_phone: str, sp: Salesperson, db: Session):
         print(f"   ✅ All-clear sent → {sp.name}")
         return
 
-    customer_list = ", ".join(
-        f"{i+1}. {c.restaurant_name}" + (f" ({c.area})" if c.area else "")
-        for i, c in enumerate(sp_pending)
-    )
+    lines = [f"📋 *Pending Orders — {PLANT_NAME}*", "",
+             f"Hi {sp.name}, these customers haven't ordered yet:", ""]
+    lines += [f"{i + 1}. {c.restaurant_name}" + (f" ({c.area})" if c.area else "")
+              for i, c in enumerate(sp_pending)]
+    lines += ["", f"Total pending: {len(sp_pending)}",
+              f"📱 Live status: {report_url()}"]
 
-    send_whatsapp_template(
-        sp_phone,
-        TEMPLATE_SP_PENDING,
-        [PLANT_NAME, sp.name, customer_list, str(len(sp_pending))],
-    )
+    send_whatsapp_message(sp_phone, "\n".join(lines))
     print(f"   ✅ Pending list sent → {sp.name} ({len(sp_pending)} pending)")

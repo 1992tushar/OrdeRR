@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="refresh" content="300">
+<title>{{ plant_name }} · Order status</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --r:12px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;background:var(--bg);color:var(--ink);min-height:100vh}
+header{background:var(--green);color:#fff;padding:16px;text-align:center}
+header h1{font-size:17px;font-weight:700}
+header .d{font-size:13px;opacity:.85;margin-top:3px}
+main{max-width:560px;margin:0 auto;padding:14px 12px 60px}
+.chips{display:flex;gap:8px;margin-bottom:14px}
+.chip{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 8px;text-align:center}
+.chip .n{font-size:22px;font-weight:800;line-height:1}
+.chip .l{font-size:11px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+.chip.ok .n{color:var(--green)} .chip.bad .n{color:var(--red)}
+.sec{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden}
+.sec-h{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--bg);border-bottom:1px solid var(--border);font-weight:700;font-size:14px}
+.sec-h .cnt{margin-left:auto;font-size:12px;font-weight:600;color:var(--ink2)}
+.sec-h .cnt b{color:var(--red)}
+.row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:14px}
+.row:last-child{border-bottom:none}
+.row .st{width:22px;text-align:center;flex:none}
+.row .nm{flex:1;min-width:0}
+.row .nm .ar{color:var(--ink3);font-size:12px}
+.row .at{color:var(--ink3);font-size:12px;flex:none}
+.row.pending{background:#fff8f8}
+.row.pending .nm{font-weight:600}
+.foot{text-align:center;color:var(--ink3);font-size:12px;margin-top:16px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 {{ plant_name }} — Order Status</h1>
+  <div class="d">{{ date_display }}</div>
+</header>
+
+<main>
+  <div class="chips">
+    <div class="chip"><div class="n">{{ total }}</div><div class="l">Customers</div></div>
+    <div class="chip ok"><div class="n">{{ ordered }}</div><div class="l">Ordered</div></div>
+    <div class="chip bad"><div class="n">{{ pending }}</div><div class="l">Pending</div></div>
+  </div>
+
+  {% for s in sections %}
+  <div class="sec">
+    <div class="sec-h">🧑 {{ s.salesperson }}
+      <span class="cnt">{% if s.pending %}<b>{{ s.pending }} pending</b> · {% endif %}{{ s.total - s.pending }}/{{ s.total }} ordered</span>
+    </div>
+    {% for r in s.rows %}
+    <div class="row {{ 'pending' if not r.ordered }}">
+      <span class="st">{{ '❌' if not r.ordered else '✅' }}</span>
+      <span class="nm">{{ r.name }}{% if r.area %} <span class="ar">· {{ r.area }}</span>{% endif %}</span>
+      {% if r.at %}<span class="at">{{ r.at }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="sec"><div class="row">No active daily-order customers.</div></div>
+  {% endfor %}
+
+  <div class="foot">
+    Updated {{ updated }} · refreshes automatically every 5 min<br>
+    Day rolls over to the next delivery date at {{ reset_hour_display }}.
+  </div>
+</main>
+</body>
+</html>

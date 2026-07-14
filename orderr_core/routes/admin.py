@@ -57,7 +57,7 @@ from orderr_core.services.order_service import get_current_business_date_str, ge
 from orderr_core.services.notifier import send_manager_alert
 from orderr_core.services.customer_service import get_customer_by_phone
 from orderr_core.models.noise_phrase import NoisePhrase
-from orderr_core.services.notifier import send_whatsapp_message, send_customer_registration_welcome
+from orderr_core.services.notifier import send_whatsapp_message
 from sqlalchemy.exc import IntegrityError
 
 from fastapi.responses import HTMLResponse
@@ -768,10 +768,7 @@ def add_customer_manually(
         except Exception as e:
             logger.warning(f"Manager notification failed for new customer {customer.phone_number}: {e}")
 
-        try:
-            send_customer_registration_welcome(customer.phone_number, PLANT_NAME)
-        except Exception as e:
-            logger.warning(f"Welcome template failed for {customer.phone_number}: {e}")
+        # Welcome template removed 2026-07-14 (owner decision — 3-template setup).
 
         return {"status": "created", "customer": _customer_row(customer, db)}
     except (ValueError, IntegrityError):
@@ -1717,23 +1714,16 @@ def delete_customer_alias(alias_id: int, db: Session = Depends(get_db), username
 
 # ── Test notifications ────────────────────────────────────────────────────────
 
-from orderr_core.services.pending_notifier import (
-    notify_salespersons_pending,
-    send_management_summary,
-)
+from orderr_core.services.pending_notifier import notify_salespersons_pending
 from orderr_core.services.reporter import send_daily_report
 
-# /test-notifications/customer-reminders removed 2026-07-14 — customer
-# reminders are manual now, via the 📣 Broadcast screen (/dashboard/broadcast).
+# Removed 2026-07-14 (owner decision — reports live on the status page now):
+#   /test-notifications/customer-reminders  → manual 📣 Broadcast screen
+#   /test-notifications/management-summary  → template dropped
 
 @router.post("/test-notifications/salesperson-pending")
 def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depends(require_auth)):
     notify_salespersons_pending(db)
-    return {"status": "sent"}
-
-@router.post("/test-notifications/management-summary")
-def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth)):
-    send_management_summary(db)
     return {"status": "sent"}
 
 @router.post("/test-notifications/daily-report")

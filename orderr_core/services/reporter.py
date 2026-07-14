@@ -14,16 +14,13 @@ from sqlalchemy import func
 from orderr_core.models.order import Order
 from orderr_core.models.inbound_message import InboundMessage
 from orderr_core.models.customer import Customer
-from orderr_core.services.notifier import send_whatsapp_template, send_whatsapp_message
+from orderr_core.services.notifier import send_whatsapp_message
 from orderr_core.services.order_service import get_current_business_date_str
 
 from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 from orderr_core.constants import IST
 
-# ── Approved template name ────────────────────────────────────────────────────
-TEMPLATE_DAILY_REPORT = "manager_daily_report"
-
-# ── Email config (all optional — WhatsApp still works if unset) ───────────────
+# ── Email config ──────────────────────────────────────────────────────────────
 REPORT_EMAIL   = os.getenv("REPORT_EMAIL", "")
 SMTP_HOST      = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT      = int(os.getenv("SMTP_PORT", "587"))
@@ -582,29 +579,13 @@ def _send_email_report(data: dict, notes: list[dict]):
 # ── public entry point ────────────────────────────────────────────────────────
 
 def send_daily_report(db: Session):
-    """Send daily consolidated report to manager via WhatsApp template.
-    Also sends a printable HTML delivery sheet to REPORT_EMAIL if configured."""
+    """Daily consolidated report: printable HTML delivery sheet to REPORT_EMAIL
+    + customer-notes WhatsApp follow-up. The manager_daily_report WhatsApp
+    template was dropped 2026-07-14 (owner decision) — the live status page
+    (config.report_url()) replaced WhatsApp report messages."""
     print("\n⏰ Generating Daily Production Report...")
 
     data = generate_daily_report(db)
-
-    # ── 1. WhatsApp (unchanged) ───────────────────────────────────────────────
-    result = send_whatsapp_template(
-        MANAGER_PHONE,
-        TEMPLATE_DAILY_REPORT,
-        [
-            PLANT_NAME,
-            data["date_str"],
-            data["total_orders"],
-            data["total_items"],
-            data["product_summary"],
-        ],
-    )
-
-    if result:
-        print("✅ Daily report sent via WhatsApp!")
-    else:
-        print("❌ WhatsApp daily report failed!")
 
     # ── Customer notes follow-up (unchanged) ──────────────────────────────────
     notes = []

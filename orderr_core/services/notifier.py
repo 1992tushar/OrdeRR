@@ -10,16 +10,18 @@ from orderr_core.services.template_parser import erp_display_name
 
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN")
 META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
-from orderr_core.config import MANAGER_PHONE, PLANT_NAME
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME, report_url as _report_url
 
 logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
 
 # ── Approved template names ───────────────────────────────────────────────────
+# Only 3 templates remain (owner decision 2026-07-14): manager_new_order here,
+# salesperson_pending_orders (pending_notifier) and customer_order_reminder_v2
+# (broadcast_service). Registration welcomes and manager report/summary
+# templates were deleted — reports live on the fixed status page instead.
 TEMPLATE_MANAGER_NEW_ORDER         = "manager_new_order"
-TEMPLATE_CUSTOMER_REGISTRATION     = "customer_registration_welcome_v2"
-TEMPLATE_SALESPERSON_REGISTRATION  = "salesperson_registration_welcome"
 
 
 # ── Send helper ───────────────────────────────────────────────────────────────
@@ -123,35 +125,6 @@ def send_whatsapp_template(phone: str, template_name: str, parameters: list) -> 
         print(f"\n📤 SIMULATION — Template: {template_name} → To: {phone}")
         print(f"   Params: {parameters}\n")
         return {"status": "simulated"}
-
-
-# ── Registration welcome templates ────────────────────────────────────────────
-
-def send_customer_registration_welcome(phone: str, plant_name: str) -> dict:
-    """
-    Send customer registration welcome via approved template.
-    Template: customer_registration_welcome_v2
-    {{1}} = plant_name
-    """
-    return send_whatsapp_template(
-        phone,
-        TEMPLATE_CUSTOMER_REGISTRATION,
-        [plant_name],
-    )
-
-
-def send_salesperson_registration_welcome(phone: str, name: str, area: str) -> dict:
-    """
-    Send salesperson registration welcome via approved template.
-    Template: salesperson_registration_welcome
-    {{1}} = salesperson name
-    {{2}} = area
-    """
-    return send_whatsapp_template(
-        phone,
-        TEMPLATE_SALESPERSON_REGISTRATION,
-        [name, area],
-    )
 
 
 # ── Order notifications ───────────────────────────────────────────────────────
@@ -342,7 +315,9 @@ def send_manager_menu(phone: str) -> dict:
                 "interactive": {
                     "type": "button",
                     "body": {
-                        "text": f"👔 *{PLANT_NAME} Manager Menu*\n\nWhat would you like to do?"
+                        "text": (f"👔 *{PLANT_NAME} Manager Menu*\n\n"
+                                 f"📱 Live order status:\n{_report_url()}\n\n"
+                                 f"What would you like to do?")
                     },
                     "action": {
                         "buttons": [
@@ -404,7 +379,9 @@ def send_salesperson_menu(phone: str, name: str = "there") -> dict:
                 "interactive": {
                     "type": "button",
                     "body": {
-                        "text": f"🧑 *{PLANT_NAME} — Hi {name}!*\n\nWhat would you like to do?"
+                        "text": (f"🧑 *{PLANT_NAME} — Hi {name}!*\n\n"
+                                 f"📱 Live order status:\n{_report_url()}\n\n"
+                                 f"What would you like to do?")
                     },
                     "action": {
                         "buttons": [

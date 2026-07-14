@@ -26,3 +26,16 @@ LATE_MARK_FINE = float(os.getenv("LATE_MARK_FINE", "200"))
 # that selling rates are eroding margin vs purchase cost. Aggregate (buy whole
 # birds → sell cuts), since per-SKU cost isn't maintained.
 MARGIN_ALERT_PCT = float(os.getenv("MARGIN_ALERT_PCT", "20"))
+
+# Public base URL of the app (Render) — used to build shareable links.
+BASE_URL = os.getenv("BASE_URL", "")
+
+# Path segment of the public live order-status page (/r/<key>). One static
+# link shared by the manager and salespersons — no login, content follows the
+# 8 PM business-date rollover.
+REPORT_LINK_KEY = os.getenv("REPORT_LINK_KEY", "fluffy-status")
+
+
+def report_url() -> str:
+    """Absolute URL of the live order-status page."""
+    return f"{BASE_URL.rstrip('/')}/r/{REPORT_LINK_KEY}"

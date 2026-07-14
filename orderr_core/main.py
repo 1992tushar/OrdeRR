@@ -25,11 +25,9 @@ from orderr_core.routes.staff import router as staff_router
 from orderr_core.routes.wastage import router as wastage_router
 from orderr_core.routes.reminders import router as reminders_router
 from orderr_core.routes.broadcast import router as broadcast_router
+from orderr_core.routes.status_report import router as status_report_router
 from orderr_core.services.reporter import send_daily_report
-from orderr_core.services.pending_notifier import (
-    notify_salespersons_pending,
-    send_management_summary,
-)
+from orderr_core.services.pending_notifier import notify_salespersons_pending
 from orderr_core.services.retry_scheduler import retry_failed_messages
 from orderr_core.services.webhook_health import check_webhook_health
 
@@ -289,15 +287,6 @@ def salesperson_notification_job():
         db.close()
 
 
-def management_summary_job():
-    db = SessionLocal()
-    try:
-        print("\n⏰ AUTO SCHEDULER — Management Summary triggered")
-        send_management_summary(db)
-    finally:
-        db.close()
-
-
 def manager_digest_job():
     db = SessionLocal()
     try:
@@ -343,12 +332,8 @@ async def lifespan(app: FastAPI):
         id="salesperson_notifications", name="Salesperson Notifications at 23:05 IST",
     )
 
-    # Management summary — TEST: 10:32 IST  (PROD: hour=23, minute=00)
-    scheduler.add_job(
-        management_summary_job,
-        CronTrigger(hour=23, minute=17, timezone="Asia/Kolkata"),
-        id="management_summary", name="Management Summary at 23:10 IST",
-    )
+    # Management summary job removed 2026-07-14 — replaced by the live status
+    # page (/r/<REPORT_LINK_KEY>, config.report_url()).
 
     # Manager analytics digest — daily (configurable via DIGEST_TIME env var)
     digest_time = os.getenv("DIGEST_TIME", "09:00")
@@ -384,10 +369,10 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
 
     print("\n✅ OrdeRR Scheduler Started!")
-    print(f"   📅 Daily report          → Every day at {report_time} IST")
+    print(f"   📅 Daily report (email)  → Every day at {report_time} IST")
     print(f"   📣 Customer reminders    → Manual only (Broadcast screen)")
-    print(f"   📋 Salesperson alerts    → Every day at 23:00 IST")
-    print(f"   📊 Management summary    → Every day at 23:00 IST")
+    print(f"   📋 Salesperson alerts    → Every day at 23:15 IST")
+    print(f"   📊 Manager reports       → Live status page (/r/…)")
     print(f"   💓 Keep-alive ping       → Every 10 minutes")
     print(f"   🔁 Retry failed msgs     → Every 1 minute")
     print(f"   🩺 Webhook health check  → Every 30 minutes\n")
@@ -422,6 +407,7 @@ app.include_router(staff_router,    tags=["Staff"])
 app.include_router(wastage_router,  prefix="/dashboard", tags=["Analytics"])
 app.include_router(reminders_router, prefix="/dashboard", tags=["Reminders"])
 app.include_router(broadcast_router, prefix="/dashboard", tags=["Broadcast"])
+app.include_router(status_report_router, tags=["Reports"])   # public /r/<key>, no auth
 
 
 @app.get("/")
