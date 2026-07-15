@@ -103,6 +103,37 @@ def _period_bounds(today: date):
     ]
 
 
+# Segmented filter options for the Business Pulse / Collections cards
+# (key, short label for the seg control). Order = display order.
+PULSE_OPTIONS = [
+    ("today", "Today"), ("yesterday", "Yesterday"),
+    ("7", "7d"), ("30", "30d"), ("mtd", "MTD"), ("all", "All"),
+]
+PULSE_KEYS = {k for k, _ in PULSE_OPTIONS} | {"week", "month"}  # +legacy aliases
+
+
+def _pulse_bounds(today: date, period: str):
+    """Resolve one pulse period key → (key, label, sublabel, start, end),
+    inclusive of `today`. start is None for 'all' (no lower bound).
+    Legacy aliases: week→7d rolling, month→month-to-date."""
+    if period == "yesterday":
+        y = today - timedelta(days=1)
+        return "yesterday", "Yesterday", y.strftime("%d %b"), y, y
+    if period in ("7", "week"):
+        return period, "Last 7 days", \
+            f"{(today - timedelta(days=6)).strftime('%d %b')} – {today.strftime('%d %b')}", \
+            today - timedelta(days=6), today
+    if period == "30":
+        return "30", "Last 30 days", \
+            f"{(today - timedelta(days=29)).strftime('%d %b')} – {today.strftime('%d %b')}", \
+            today - timedelta(days=29), today
+    if period in ("mtd", "month"):
+        return period, "Month to date", today.strftime("%b %Y"), today.replace(day=1), today
+    if period == "all":
+        return "all", "All time", "cumulative", None, today
+    return "today", "Today", today.strftime("%d %b"), today, today
+
+
 def _sales_for_range(db: Session, start: date, end: date):
     """(sales_rupees, sales_kg) from non-void invoices whose business_date is
     within [start, end]. Invoice.business_date is a Date column."""
@@ -149,15 +180,14 @@ def _orders_for_range(db: Session, start: date, end: date):
 def _vasy_sales_for_range(db: Session, start: date, end: date):
     """(revenue, invoice_count, billed_customers) from Vasy sales invoices
     (the authoritative revenue source) with invoice_date in [start, end]."""
-    rev, cnt, custs = (
-        db.query(
-            func.coalesce(func.sum(VasyInvoice.total), 0),
-            func.count(VasyInvoice.id),
-            func.count(func.distinct(VasyInvoice.customer_id)),
-        )
-        .filter(VasyInvoice.invoice_date >= start, VasyInvoice.invoice_date <= end)
-        .one()
-    )
+    q = db.query(
+        func.coalesce(func.sum(VasyInvoice.total), 0),
+        func.count(VasyInvoice.id),
+        func.count(func.distinct(VasyInvoice.customer_id)),
+    ).filter(VasyInvoice.invoice_date <= end)
+    if start is not None:
+        q = q.filter(VasyInvoice.invoice_date >= start)
+    rev, cnt, custs = q.one()
     return float(rev or 0), int(cnt or 0), int(custs or 0)
 
 
@@ -191,18 +221,19 @@ def _vasy_invoice_dates_by_customer(db: Session, upto: date):
     return out
 
 
-def business_pulse(db: Session, today: date) -> dict:
+def business_pulse(db: Session, today: date, periods=("today", "week", "month")) -> dict:
     """P1-1 — Business Pulse KPI strip.
 
     Sales come from **Vasy** sales invoices (the source of truth for revenue);
-    OrdeRR is only the operational order-consolidation layer. Per period
-    (Today / Last 7 Days / Month-to-Date): revenue ₹, invoice count, billed
-    customers.
+    OrdeRR is only the operational order-consolidation layer. Builds one entry
+    per requested period key (see `_pulse_bounds`): revenue ₹, invoice count,
+    billed customers. Default = the classic Today / Last 7 Days / MTD trio.
     """
-    periods = []
-    for key, label, sublabel, start, end in _period_bounds(today):
+    out = []
+    for pk in periods:
+        key, label, sublabel, start, end = _pulse_bounds(today, pk)
         rupees, invoices, customers = _vasy_sales_for_range(db, start, end)
-        periods.append({
+        out.append({
             "key": key,
             "label": label,
             "sublabel": sublabel,
@@ -211,7 +242,7 @@ def business_pulse(db: Session, today: date) -> dict:
             "invoices": invoices,
             "active_customers": customers,
         })
-    return {"periods": periods}
+    return {"periods": out}
 
 
 # ── P2 money helpers: latest / previous outstanding snapshot ───────────────
@@ -271,8 +302,10 @@ def _outstanding_total(db: Session, snapshot_date, bad_ids: set = None):
 def _collections_for_range(db: Session, start: date, end: date):
     """(total, cash, bank) collections from receipts with receipt_date in range."""
     q = db.query(CustomerReceipt.mode, func.coalesce(func.sum(CustomerReceipt.amount), 0)) \
-        .filter(CustomerReceipt.receipt_date >= start, CustomerReceipt.receipt_date <= end) \
-        .group_by(CustomerReceipt.mode).all()
+        .filter(CustomerReceipt.receipt_date <= end)
+    if start is not None:
+        q = q.filter(CustomerReceipt.receipt_date >= start)
+    q = q.group_by(CustomerReceipt.mode).all()
     total = cash = bank = 0.0
     for mode, amt in q:
         amt = float(amt or 0)
@@ -284,16 +317,20 @@ def _collections_for_range(db: Session, start: date, end: date):
     return total, cash, bank
 
 
-def money_pulse(db: Session, today: date) -> dict:
+def money_pulse(db: Session, today: date, periods=("today", "week", "month")) -> dict:
     """P2-6 — money KPIs: collections per period (from receipts), billed vs
-    collected (this month), and total outstanding + trend vs the previous
-    snapshot. Returns has_data=False when no receipts/snapshots imported yet.
+    collected, and total outstanding + trend vs the previous snapshot. Builds
+    one entry per requested period key (see `_pulse_bounds`); default = the
+    classic Today / Last 7 Days / MTD trio. has_data=False when no
+    receipts/snapshots imported yet.
     """
     has_receipts = db.query(CustomerReceipt.id).first() is not None
     latest_snap, prev_snap = _latest_two_snapshot_dates(db)
 
+    period_keys = periods
     periods = []
-    for key, label, sublabel, start, end in _period_bounds(today):
+    for pk in period_keys:
+        key, label, sublabel, start, end = _pulse_bounds(today, pk)
         total, cash, bank = _collections_for_range(db, start, end)
         billed, _, _ = _vasy_sales_for_range(db, start, end)   # Vasy invoices = billed truth
         periods.append({
