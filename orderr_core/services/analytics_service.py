@@ -2108,6 +2108,20 @@ def portfolio(db: Session, today: date) -> dict:
     rows.sort(key=lambda r: r["outstanding"], reverse=True)
     bad_rows.sort(key=lambda r: r["amount"], reverse=True)
     bad_total = sum(r["amount"] for r in bad_rows)
+
+    # Bad debt grouped by salesperson (who carried the customers that went bad)
+    bd_by_sp = {}
+    for r in bad_rows:
+        sp = r["salesperson"] or "Unassigned"
+        e = bd_by_sp.setdefault(sp, {"salesperson": sp, "amount": 0.0, "count": 0})
+        e["amount"] += r["amount"]
+        e["count"] += 1
+    bad_by_sp = sorted(bd_by_sp.values(), key=lambda x: x["amount"], reverse=True)
+    for e in bad_by_sp:
+        e["amount"] = round(e["amount"], 2)
+        e["amount_fmt"] = fmt_inr(e["amount"])
+        e["pct"] = round(e["amount"] / bad_total * 100) if bad_total else 0
+
     return {
         "rows": rows,
         "quadrants": quads,
@@ -2121,6 +2135,7 @@ def portfolio(db: Session, today: date) -> dict:
             "rows": bad_rows,
             "count": len(bad_rows),
             "total_fmt": fmt_inr(round(bad_total, 2)),
+            "by_salesperson": bad_by_sp,
         },
     }
 

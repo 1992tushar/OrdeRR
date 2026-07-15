@@ -176,7 +176,32 @@ tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
     </div>
     <div class="bd-err" id="bd-err"></div>
 
+    {% if pf.bad_debt.by_salesperson %}
+    <div style="font-size:12px;font-weight:700;color:var(--ink2);margin:4px 2px 8px">By salesperson</div>
+    <div class="wrap" style="margin-bottom:16px"><div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Salesperson</th>
+          <th class="num">Written off</th>
+          <th class="num">Share</th>
+          <th class="num">Customers</th>
+        </tr></thead>
+        <tbody>
+          {% for s in pf.bad_debt.by_salesperson %}
+          <tr>
+            <td>{% if s.salesperson == 'Unassigned' %}<span class="cust-sub">Unassigned</span>{% else %}🧑 {{ s.salesperson }}{% endif %}</td>
+            <td class="num" style="color:var(--red);font-weight:600">{{ s.amount_fmt }}</td>
+            <td class="num cust-sub">{{ s.pct }}%</td>
+            <td class="num">{{ s.count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {% endif %}
+
     {% if pf.bad_debt.rows %}
+    <div style="font-size:12px;font-weight:700;color:var(--ink2);margin:4px 2px 8px">All write-offs</div>
     <div class="wrap"><div class="scroll">
       <table>
         <thead><tr>
