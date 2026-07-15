@@ -192,6 +192,36 @@ def _get_internal_phones(db: Session) -> dict[str, str]:
     return result
 
 
+def _record_status_event(db: Session, status_ev: dict) -> None:
+    """Persist one Meta `statuses` callback; never let journaling break the webhook."""
+    from datetime import datetime, timezone
+    from orderr_core.models.wa_status_event import WaStatusEvent
+    try:
+        errors = status_ev.get("errors") or []
+        first  = errors[0] if errors else {}
+        ts     = status_ev.get("timestamp")
+        row = WaStatusEvent(
+            meta_message_id = status_ev.get("id"),
+            recipient_phone = status_ev.get("recipient_id"),
+            status          = status_ev.get("status", "unknown"),
+            error_code      = first.get("code"),
+            error_title     = first.get("title"),
+            error_detail    = (first.get("error_data") or {}).get("details") or first.get("message"),
+            errors_json     = json.dumps(errors) if errors else None,
+            occurred_at     = datetime.fromtimestamp(int(ts), tz=timezone.utc) if ts else None,
+        )
+        db.add(row)
+        db.commit()
+        if row.status == "failed":
+            logger.error(
+                "WA DELIVERY FAILED to %s: code=%s %s — %s",
+                row.recipient_phone, row.error_code, row.error_title, row.error_detail,
+            )
+    except Exception as e:
+        db.rollback()
+        logger.error("Could not journal WA status event: %s", e)
+
+
 @router.post("/meta")
 async def meta_webhook(request: Request, db: Session = Depends(get_db)):
     body      = await request.body()
@@ -212,6 +242,13 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
         for change in entry.get("changes", []):
             value    = change.get("value", {})
             messages = value.get("messages", [])
+
+            # ── Outbound delivery statuses (sent/delivered/read/failed) ───────
+            # Meta reports send failures ONLY here — the send API itself answers
+            # "accepted" even for messages it later drops. Journal every event
+            # so failures are visible (wa_status_events table).
+            for status_ev in value.get("statuses", []):
+                _record_status_event(db, status_ev)
 
             for message in messages:
                 customer_phone  = message.get("from", "")

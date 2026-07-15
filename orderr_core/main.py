@@ -85,6 +85,9 @@ from orderr_core.models.bank_transaction import BankTransaction          # noqa:
 # 📣 Broadcast — owner-curated order-reminder list (manual send)
 from orderr_core.models.broadcast_recipient import BroadcastRecipient    # noqa: F401
 
+# Outbound WhatsApp delivery-status journal (send failures are only visible here)
+from orderr_core.models.wa_status_event import WaStatusEvent             # noqa: F401
+
 
 Base.metadata.create_all(bind=engine)
 
