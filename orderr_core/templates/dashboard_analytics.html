@@ -99,8 +99,13 @@ tr.detail td{background:var(--bg);padding:14px 18px}
 
   <!-- ── P1-1 Business Pulse ─────────────────────────────────────────── -->
   <div class="section-head">
-    <div class="section-title">Business Pulse</div>
-    <div class="section-sub">as of {{ today_display }}</div>
+    <div class="section-title">Business Pulse <span class="section-sub" style="font-weight:500">· as of {{ today_display }}</span></div>
+    <div class="seg" title="Applies to the first card of both boxes">
+      <a href="/dashboard/analytics?day=today&c360_days={{ c360_days }}"
+         class="{{ 'active' if day != 'yesterday' else '' }}">Today</a>
+      <a href="/dashboard/analytics?day=yesterday&c360_days={{ c360_days }}"
+         class="{{ 'active' if day == 'yesterday' else '' }}">Yesterday</a>
+    </div>
   </div>
   <div class="note">
     Sales figures are from <b>Vasy sales invoices</b> — the source of truth for
@@ -182,7 +187,7 @@ tr.detail td{background:var(--bg);padding:14px 18px}
     <div class="section-title">Customer 360 <span style="font-weight:500;color:var(--ink3)">· sales</span></div>
     <div class="seg">
       {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
-      <a href="/dashboard/analytics?c360_days={{ opt }}"
+      <a href="/dashboard/analytics?c360_days={{ opt }}&day={{ day }}"
          class="{{ 'active' if c360_days == opt else '' }}">{{ lbl }}</a>
       {% endfor %}
     </div>

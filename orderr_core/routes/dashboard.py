@@ -136,6 +136,7 @@ def dashboard(
 def analytics(
     request: Request,
     c360_days: str = Query(default="30", description="Customer-360 window: 7|30|90|all"),
+    day: str = Query(default="today", description="First pulse card: today|yesterday"),
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
@@ -147,8 +148,10 @@ def analytics(
     from orderr_core.services import analytics_service
 
     today = get_current_business_date()
-    pulse = analytics_service.business_pulse(db, today)
-    money = analytics_service.money_pulse(db, today)
+    if day not in ("today", "yesterday"):
+        day = "today"
+    pulse = analytics_service.business_pulse(db, today, day=day)
+    money = analytics_service.money_pulse(db, today, day=day)
 
     days = analytics_service.C360_WINDOWS.get(c360_days, 30)
     c360 = analytics_service.customer_360(db, today, days=days)
@@ -162,6 +165,7 @@ def analytics(
             "today_display": today.strftime("%d %b %Y"),
             "pulse"      : pulse,
             "money"      : money,
+            "day"        : day,
             "c360"       : c360,
             "c360_days"  : c360_days,
             "analytics_view": "overview",

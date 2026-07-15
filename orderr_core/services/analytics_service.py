@@ -85,17 +85,24 @@ def fmt_kg(qty) -> str:
 
 # ── period helpers ─────────────────────────────────────────────────────────
 
-def _period_bounds(today: date):
+def _period_bounds(today: date, day: str = "today"):
     """Return (key, label, sublabel, start_date, end_date) for the pulse
     periods, all inclusive of `today`.
 
-      today  — just the current business date
-      week   — rolling last 7 days (today-6 .. today)
-      month  — calendar month-to-date (1st of month .. today)
+      today/yesterday — a single business day (toggled via `day`)
+      week            — rolling last 7 days (today-6 .. today)
+      month           — calendar month-to-date (1st of month .. today)
+
+    The first card flips between today and yesterday; its key stays "today"
+    so downstream consumers (e.g. the manager digest) keep working.
     """
+    if day == "yesterday":
+        d = today - timedelta(days=1)
+        first = ("today", "Yesterday", d.strftime("%d %b"), d, d)
+    else:
+        first = ("today", "Today", today.strftime("%d %b"), today, today)
     return [
-        ("today", "Today", today.strftime("%d %b"),
-         today, today),
+        first,
         ("week", "Last 7 Days", f"{(today - timedelta(days=6)).strftime('%d %b')} – {today.strftime('%d %b')}",
          today - timedelta(days=6), today),
         ("month", "Month to Date", today.strftime("%b %Y"),
@@ -191,16 +198,16 @@ def _vasy_invoice_dates_by_customer(db: Session, upto: date):
     return out
 
 
-def business_pulse(db: Session, today: date) -> dict:
+def business_pulse(db: Session, today: date, day: str = "today") -> dict:
     """P1-1 — Business Pulse KPI strip.
 
     Sales come from **Vasy** sales invoices (the source of truth for revenue);
     OrdeRR is only the operational order-consolidation layer. Per period
-    (Today / Last 7 Days / Month-to-Date): revenue ₹, invoice count, billed
-    customers.
+    (Today|Yesterday / Last 7 Days / Month-to-Date): revenue ₹, invoice count,
+    billed customers. `day` toggles the first card between today and yesterday.
     """
     periods = []
-    for key, label, sublabel, start, end in _period_bounds(today):
+    for key, label, sublabel, start, end in _period_bounds(today, day):
         rupees, invoices, customers = _vasy_sales_for_range(db, start, end)
         periods.append({
             "key": key,
@@ -284,16 +291,17 @@ def _collections_for_range(db: Session, start: date, end: date):
     return total, cash, bank
 
 
-def money_pulse(db: Session, today: date) -> dict:
+def money_pulse(db: Session, today: date, day: str = "today") -> dict:
     """P2-6 — money KPIs: collections per period (from receipts), billed vs
     collected (this month), and total outstanding + trend vs the previous
     snapshot. Returns has_data=False when no receipts/snapshots imported yet.
+    `day` toggles the first card between today and yesterday.
     """
     has_receipts = db.query(CustomerReceipt.id).first() is not None
     latest_snap, prev_snap = _latest_two_snapshot_dates(db)
 
     periods = []
-    for key, label, sublabel, start, end in _period_bounds(today):
+    for key, label, sublabel, start, end in _period_bounds(today, day):
         total, cash, bank = _collections_for_range(db, start, end)
         billed, _, _ = _vasy_sales_for_range(db, start, end)   # Vasy invoices = billed truth
         periods.append({
