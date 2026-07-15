@@ -45,6 +45,18 @@ tr:last-child td{border-bottom:none}
 .rev-bar > i{display:block;height:100%;background:var(--green);border-radius:3px}
 .sub{font-size:11px;color:var(--ink3)}
 .empty{color:var(--ink3);text-align:center;padding:26px}
+tr.drill{cursor:pointer}
+tr.drill:hover{background:var(--green-bg)}
+tr.drill .name-cell::after{content:"›";float:right;color:var(--ink3);font-weight:700;font-size:15px;line-height:1}
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 14px;overflow-y:auto}
+.modal-back.open{display:flex}
+.modal{background:var(--surface);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.25);width:100%;max-width:520px;overflow:hidden}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border)}
+.modal-title{font-size:15px;font-weight:700;line-height:1.3}
+.modal-x{background:none;border:none;font-size:22px;line-height:1;color:var(--ink3);cursor:pointer;padding:0 4px}
+.modal-x:hover{color:var(--ink)}
+.modal-body{max-height:60vh;overflow-y:auto}
+.modal-foot{padding:10px 18px;font-size:11px;color:var(--ink3);border-top:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -83,7 +95,7 @@ tr:last-child td{border-bottom:none}
           <tbody>
             {% set maxkg = volume.areas[0].kg if volume.areas and volume.areas[0].kg > 0 else 1 %}
             {% for r in volume.areas %}
-            <tr>
+            <tr class="drill" data-dim="area" data-key="{{ r.name }}">
               <td class="name-cell">{{ r.name }}<div class="rev-bar"><i style="width:{{ (r.kg / maxkg * 100) }}%"></i></div></td>
               <td class="num" style="font-weight:600">{{ r.kg_fmt }}</td>
               <td class="num">{{ r.value_fmt }}</td>
@@ -103,7 +115,7 @@ tr:last-child td{border-bottom:none}
           <thead><tr><th>Product</th><th class="num">KG</th><th class="num">Value</th></tr></thead>
           <tbody>
             {% for r in volume.products %}
-            <tr>
+            <tr class="drill" data-dim="product" data-key="{{ r.name }}">
               <td class="name-cell">{{ r.name }}</td>
               <td class="num" style="font-weight:600">{{ r.kg_fmt }}</td>
               <td class="num">{{ r.value_fmt }}</td>
@@ -166,5 +178,76 @@ tr:last-child td{border-bottom:none}
     Revenue from OrdeRR invoices (operational). “Active” = customers who ordered in the window; “/n” = assigned portfolio size. Customers with no salesperson/area roll into <em>Unassigned</em>.
   </div>
 </main>
+
+<div class="modal-back" id="drillBack">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="drillTitle">
+    <div class="modal-head">
+      <div class="modal-title" id="drillTitle">Hotels</div>
+      <button class="modal-x" id="drillClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Hotel</th><th class="num">KG</th><th class="num">Value</th><th class="num">Invoices</th></tr></thead>
+          <tbody id="drillRows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-foot" id="drillFoot"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var VOL = {{ vol|tojson }};
+  var back = document.getElementById('drillBack');
+  var title = document.getElementById('drillTitle');
+  var rowsEl = document.getElementById('drillRows');
+  var footEl = document.getElementById('drillFoot');
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function close(){ back.classList.remove('open'); }
+
+  function open(dim, key){
+    title.textContent = key;
+    rowsEl.innerHTML = '<tr><td colspan="4" class="empty">Loading…</td></tr>';
+    footEl.textContent = '';
+    back.classList.add('open');
+    var url = '/dashboard/analytics/team/breakdown?dim=' + encodeURIComponent(dim)
+            + '&key=' + encodeURIComponent(key) + '&vol=' + encodeURIComponent(VOL);
+    fetch(url, {credentials:'same-origin'})
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        title.textContent = (dim==='product'?'🍗 ':'📍 ') + d.key;
+        if(!d.rows || !d.rows.length){
+          rowsEl.innerHTML = '<tr><td colspan="4" class="empty">No sales in this window.</td></tr>';
+          footEl.textContent = d.window_label || '';
+          return;
+        }
+        rowsEl.innerHTML = d.rows.map(function(r){
+          return '<tr><td class="name-cell">' + esc(r.name) + '</td>'
+               + '<td class="num" style="font-weight:600">' + esc(r.kg_fmt) + '</td>'
+               + '<td class="num">' + esc(r.value_fmt) + '</td>'
+               + '<td class="num">' + esc(r.invoices) + '</td></tr>';
+        }).join('');
+        footEl.textContent = d.hotel_count + ' hotel' + (d.hotel_count===1?'':'s')
+                           + ' · ' + d.total_kg_fmt + ' kg · ' + d.total_value_fmt
+                           + ' · ' + (d.window_label||'');
+      })
+      .catch(function(){
+        rowsEl.innerHTML = '<tr><td colspan="4" class="empty">Could not load. Please try again.</td></tr>';
+      });
+  }
+
+  document.querySelectorAll('tr.drill').forEach(function(tr){
+    tr.addEventListener('click', function(){
+      open(tr.getAttribute('data-dim'), tr.getAttribute('data-key'));
+    });
+  });
+  document.getElementById('drillClose').addEventListener('click', close);
+  back.addEventListener('click', function(e){ if(e.target===back) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+})();
+</script>
 </body>
 </html>

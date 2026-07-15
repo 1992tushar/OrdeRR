@@ -3100,6 +3100,22 @@ def team_performance(db: Session, today: date, days=30) -> dict:
 VOLUME_WINDOWS = ("today", "yesterday", "7", "30", "all")
 
 
+def _volume_window(today: date, window: str):
+    """Resolve a volume window key → (start, end, label, normalized_window).
+    Shared by volume_report and volume_breakdown so the day-level windows
+    (today / yesterday / 7d / 30d / all) always mean the same span."""
+    if window == "yesterday":
+        y = today - timedelta(days=1)
+        return y, y, f"Yesterday · {y.strftime('%d %b')}", "yesterday"
+    if window == "7":
+        return today - timedelta(days=6), today, "Last 7 days", "7"
+    if window == "30":
+        return today - timedelta(days=29), today, "Last 30 days", "30"
+    if window == "all":
+        return None, today, "All time", "all"
+    return today, today, f"Today · {today.strftime('%d %b')}", "today"
+
+
 def volume_report(db: Session, today: date, window: str = "today") -> dict:
     """KG sold by route (customer area) and by SKU, for a day-level window
     (today / yesterday / 7d / 30d / all), from the Vasy Sales Item Register.
@@ -3113,18 +3129,7 @@ def volume_report(db: Session, today: date, window: str = "today") -> dict:
     from sqlalchemy import case
     from orderr_core.models.vasy_sales_item import VasySalesItem
 
-    if window == "yesterday":
-        y = today - timedelta(days=1)
-        start, end, label = y, y, f"Yesterday · {y.strftime('%d %b')}"
-    elif window == "7":
-        start, end, label = today - timedelta(days=6), today, "Last 7 days"
-    elif window == "30":
-        start, end, label = today - timedelta(days=29), today, "Last 30 days"
-    elif window == "all":
-        start, end, label = None, today, "All time"
-    else:  # "today"
-        window = "today"
-        start, end, label = today, today, f"Today · {today.strftime('%d %b')}"
+    start, end, label, window = _volume_window(today, window)
 
     signed_qty = case((VasySalesItem.sale_type == "Sales Return", -VasySalesItem.qty),
                       else_=VasySalesItem.qty)
@@ -3182,6 +3187,57 @@ def volume_report(db: Session, today: date, window: str = "today") -> dict:
         "invoices": sum(r["invoices"] for r in areas),
         "internal_kg": round(internal_kg, 1), "internal_kg_fmt": fmt_kg(internal_kg),
         "has_data": bool(areas),
+    }
+
+
+def volume_breakdown(db: Session, today: date, window: str, dim: str, key: str) -> dict:
+    """Hotels (customers) behind ONE product SKU or ONE route/area, for the
+    same day-level window as `volume_report`. Drill-down for the Team & area
+    volume tables: dim='product' → hotels that bought that SKU; dim='area' →
+    hotels in that route. Grouped by the billed party name (Vasy register
+    truth), ₹0 internal transfers excluded, Sales Returns netted."""
+    from sqlalchemy import case
+    from orderr_core.models.vasy_sales_item import VasySalesItem
+
+    start, end, label, window = _volume_window(today, window)
+
+    signed_qty = case((VasySalesItem.sale_type == "Sales Return", -VasySalesItem.qty),
+                      else_=VasySalesItem.qty)
+    sold = VasySalesItem.net_amount != 0
+    hotel = func.coalesce(VasySalesItem.party_name, Customer.restaurant_name, "Unknown")
+
+    q = (db.query(hotel,
+                  func.coalesce(func.sum(signed_qty), 0),
+                  func.coalesce(func.sum(VasySalesItem.net_amount), 0),
+                  func.count(func.distinct(VasySalesItem.voucher_no)))
+         .outerjoin(Customer, Customer.id == VasySalesItem.customer_id)
+         .filter(VasySalesItem.invoice_date != None,          # noqa: E711
+                 VasySalesItem.invoice_date <= end, sold))
+    if start:
+        q = q.filter(VasySalesItem.invoice_date >= start)
+
+    if dim == "product":
+        prod = func.coalesce(VasySalesItem.product_name, VasySalesItem.item_code, "Unknown")
+        q = q.filter(prod == key)
+    else:  # area / route
+        q = q.filter(func.coalesce(Customer.area, "Unassigned") == key)
+
+    rows = [{"name": h, "kg": round(float(kg), 1), "kg_fmt": fmt_kg(float(kg)),
+             "value": round(float(v), 2), "value_fmt": fmt_inr(float(v)),
+             "invoices": int(n)}
+            for h, kg, v, n in q.group_by(hotel).all()]
+    rows.sort(key=lambda r: r["kg"], reverse=True)
+
+    total_kg = sum(r["kg"] for r in rows)
+    total_value = sum(r["value"] for r in rows)
+    return {
+        "dim": dim, "key": key,
+        "window": window, "window_label": label,
+        "rows": rows,
+        "total_kg_fmt": fmt_kg(total_kg),
+        "total_value_fmt": fmt_inr(total_value),
+        "hotel_count": len(rows),
+        "has_data": bool(rows),
     }
 
 

@@ -1089,6 +1089,26 @@ def analytics_team(
     )
 
 
+@router.get("/analytics/team/breakdown")
+def analytics_team_breakdown(
+    dim: str = Query(..., description="product | area"),
+    key: str = Query(..., description="product SKU name or route/area name"),
+    vol: str = Query(default="today", description="Volume window: today|yesterday|7|30|all"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Hotel breakdown behind one product SKU or one route (Team & area drill-down)."""
+    from orderr_core.services import analytics_service
+
+    if dim not in ("product", "area"):
+        raise HTTPException(status_code=400, detail="dim must be 'product' or 'area'")
+    if vol not in analytics_service.VOLUME_WINDOWS:
+        vol = "today"
+    data = analytics_service.volume_breakdown(
+        db, get_current_business_date(), vol, dim, key)
+    return JSONResponse(data)
+
+
 @router.get("/analytics/quality", response_class=HTMLResponse)
 def analytics_quality(
     request: Request,
