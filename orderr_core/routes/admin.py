@@ -52,6 +52,7 @@ from orderr_core.services.pending_orders import get_pending_customers, get_deliv
 from orderr_core.services.template_parser import (
     PRODUCT_DEFINITIONS,
     normalize_alias_key,
+    alias_keys_match,
     strip_list_marker,
 )
 from orderr_core.services.customer_service import create_customer_manually
@@ -308,7 +309,7 @@ def _retroactive_patch_global(raw: str, canonical: str, db: Session) -> int:
                 remaining.append(line)
                 continue
             product_part = _extract_product_name_from_line(line)
-            if (normalize_alias_key(line) == raw
+            if (alias_keys_match(line, raw)
                     or product_part == raw or product_part.startswith(raw)
                     or raw in product_part):
                 matched_lines.append(line)
@@ -364,7 +365,7 @@ def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db: Sessio
                 remaining.append(line)
                 continue
             product_part = _extract_product_name_from_line(line)
-            if (normalize_alias_key(line) == raw
+            if (alias_keys_match(line, raw)
                     or product_part == raw or product_part.startswith(raw)
                     or raw in product_part):
                 matched_lines.append(line)
@@ -408,7 +409,7 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db: Session) ->
     matched_lines = []
     for line in unclear:
         product_part = _extract_product_name_from_line(line)
-        if (normalize_alias_key(line) == raw
+        if (alias_keys_match(line, raw)
                 or product_part == raw or product_part.startswith(raw)
                 or raw in product_part):
             matched_lines.append(line)

@@ -445,22 +445,39 @@ def strip_list_marker(text: str) -> str:
 
 
 def normalize_alias_key(raw: str) -> str:
-    """Canonical alias key: lowercased product phrase with any leading list
-    marker, trailing quantity/unit, and trailing dash/punctuation decoration
-    removed. Used on BOTH store and lookup so aliases match across the noise
-    that varies between sends.
+    """Canonical, human-readable alias key: lowercased product phrase with any
+    leading list marker, parenthetical size annotation ("(900 gm)"), trailing
+    quantity/unit, and trailing dash/punctuation decoration removed. Used for
+    STORAGE (and display) so the saved key stays readable.
 
-        "1)Chicken big ------- 30 kg" -> "chicken big"
-        "chicken big ------"          -> "chicken big"
-        "tandoori"                    -> "tandoori"
+        "1)Chicken big ------- 30 kg"        -> "chicken big"
+        "chicken big (900 gm) 30 kg"         -> "chicken big"
+        "chicken big ------"                 -> "chicken big"
+        "tandoori"                           -> "tandoori"
     """
     if not raw:
         return ""
     s = strip_list_marker(str(raw))                              # leading "1)" etc.
+    s = re.sub(r'\([^)]*\)', ' ', s)                            # "(900 gm)" size notes
     s = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', s)     # trailing "30 kg"
     s = re.sub(r'[\s\-–—:_.]+$', '', s)                # trailing "------"
     s = re.sub(r'\s+', ' ', s).strip().lower()                   # collapse + lower
     return s
+
+
+def alias_token_set(raw: str) -> frozenset:
+    """Word-set of an alias key — the matching unit. Order-independent so
+    "chicken big" and "big chicken" (the same product, typed either way) match."""
+    return frozenset(normalize_alias_key(raw).split())
+
+
+def alias_keys_match(a: str, b: str) -> bool:
+    """True when two raw alias texts refer to the same product, ignoring list
+    markers, dash decoration, trailing quantity, size annotations, AND word
+    order. This is THE alias-matching predicate — used on both lookup and the
+    retroactive patch so a single resolution covers every spelling variant."""
+    ta = alias_token_set(a)
+    return bool(ta) and ta == alias_token_set(b)
 
 
 # Token-sets of the skin-ambiguous terms, built once (lazily so it can rely on
@@ -564,14 +581,14 @@ def _lookup_alias(raw_name: str, db) -> tuple | None:
             unit = _get_unit_for_canonical(row.canonical_product_name)
             return (row.canonical_product_name, unit)
 
-    # Normalized fallback: compare canonical keys so aliases match across list
-    # markers / dash decoration / trailing qty that the exact queries above miss
-    # (e.g. stored "1)chicken big ------" vs lookup "chicken big"). Old rows are
-    # matched without any migration.
-    key = normalize_alias_key(raw_name)
+    # Fallback: word-set match so aliases match across list markers / dash
+    # decoration / trailing qty / size annotations / word order that the exact
+    # queries above miss (e.g. stored "1)chicken big ------" or "big chicken"
+    # vs lookup "chicken big"). Old rows are matched without any migration.
+    key = alias_token_set(raw_name)
     if key:
         for row in db.query(UnclearItemAlias).all():
-            if normalize_alias_key(row.raw_text) == key:
+            if alias_token_set(row.raw_text) == key:
                 unit = _get_unit_for_canonical(row.canonical_product_name)
                 return (row.canonical_product_name, unit)
 
@@ -598,17 +615,18 @@ def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -> tuple | No
         CustomerProductAlias.raw_text == normalized,
     ).first()
     if not row:
-        # Normalized fallback: match across list markers / dash decoration /
-        # trailing qty that exact match misses (stored "1)chicken big ------"
-        # vs lookup "chicken big"). A customer has few aliases, so scanning all
-        # of theirs is cheap and matches old rows without any migration.
-        key = normalize_alias_key(raw_name)
+        # Fallback: word-set match across list markers / dash decoration /
+        # trailing qty / size annotations / word order that exact match misses
+        # (stored "1)chicken big ------" or "big chicken" vs lookup "chicken
+        # big"). A customer has few aliases, so scanning all of theirs is cheap
+        # and matches old rows without any migration.
+        key = alias_token_set(raw_name)
         if key:
             rows = db.query(CustomerProductAlias).filter(
                 CustomerProductAlias.customer_phone == customer_phone,
             ).all()
             row = next(
-                (r for r in rows if normalize_alias_key(r.raw_text) == key),
+                (r for r in rows if alias_token_set(r.raw_text) == key),
                 None,
             )
     if not row:
@@ -916,6 +934,17 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
 
         # Strip placeholder tokens
         line_clean = re.sub(r'__+', '', line).strip()
+
+        # Strip an inline per-piece size annotation — "(900 gm)", "( 900 gm )",
+        # "(900 gm size)". It's the bird's target weight, never the ORDER
+        # quantity (that's the kg figure outside the parens), but glued onto the
+        # line it makes the tolerant qty regex read "900 gm" as the quantity and
+        # the item then fails to match. Only parentheticals naming a gram/size
+        # unit are removed, so a genuine "(30 kg)" style qty is left untouched.
+        line_clean = re.sub(
+            r'\([^)]*\b(?:gm|gms|gram|grams|g|size)\b[^)]*\)', ' ',
+            line_clean, flags=re.IGNORECASE,
+        ).strip()
 
         # Empty after stripping placeholders → skip
         if not line_clean:
