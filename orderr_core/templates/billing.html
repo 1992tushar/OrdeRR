@@ -212,7 +212,7 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
   </div>
   <div class="nav-right">
     <div class="date-chip" id="date-label">-</div>
-    <button id="print-all-btn" class="btn btn-primary btn-sm" onclick="printAllPDFs()" title="Open one A4 sheet, one bill per page. Feed pre-cut half-sheets and print — no printer settings to change.">🖨 Print all</button>
+    <button id="print-all-btn" class="btn btn-primary btn-sm" onclick="printAllPDFs()" title="Print one bill per half-sheet. No printer settings to change — just keep Two-sided OFF.">🖨 Print all</button>
     <button id="dl-all-btn" class="btn btn-sm" onclick="dlAllPDFs()" title="Download the individual bills as a ZIP">All PDFs</button>
   </div>
 </nav>
@@ -920,11 +920,23 @@ async function doPrintAll(scope){
     if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.statusText);
     const n = r.headers.get('X-Printed-Count') || '?';
     openAndPrint(await r.blob());
-    showToast('Printing '+n+' bill(s) — feed half-sheets and confirm print');
+    showToast('Printing '+n+' bill(s) — Two-sided OFF, feed half-sheets, confirm print');
   } catch(e){ showToast('Print failed: '+e.message); }
   finally{ btn.disabled=false; btn.textContent=orig; }
 }
-function printAllPDFs(){ return doPrintAll('new'); }
+function printAllPDFs(){
+  // Duplex guard: this printer (HP Laser 303d) can print two-sided, and a
+  // leftover "both sides" setting would print two bills on one half-sheet (and
+  // may jam). We can't force simplex from the browser, so remind before we mark
+  // anything printed — the user can still cancel here.
+  if(!confirm(
+    "Printing today's bills — one bill per half-sheet.\n\n"+
+    "⚠ Before you confirm in the print dialog, make sure\n"+
+    "   \"Two-sided / Print on both sides\" is OFF.\n\n"+
+    "Otherwise two bills print on one sheet (and can jam).\n\n"+
+    "Ready to print?")) return;
+  return doPrintAll('new');
+}
 
 // Print a single bill (repeatable). Opens inline and triggers print; also marks
 // the bill printed so "Print all" won't reprint it.
