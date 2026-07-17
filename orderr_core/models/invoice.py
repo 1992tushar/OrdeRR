@@ -31,6 +31,13 @@ class Invoice(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # When the bill was last sent to the printer (via "Print all" or an individual
+    # print). NULL = never printed. "Print all" prints only NULL rows so a second
+    # click after more invoicing prints just the newly-added bills; individual
+    # printing sets/refreshes this too and may be repeated freely.
+    printed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     items: Mapped[list["InvoiceItem"]] = relationship(
         "InvoiceItem", back_populates="invoice", cascade="all, delete-orphan"

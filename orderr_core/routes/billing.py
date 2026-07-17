@@ -50,7 +50,7 @@ from orderr_core.services.invoice_generator import (
     generate_invoice,
     reissue_invoice,
 )
-from orderr_core.services.invoice_pdf import generate_invoice_pdf
+from orderr_core.services.invoice_pdf import generate_invoice_pdf, render_invoices_combined
 from orderr_core.services.order_service import get_current_business_date_str
 from orderr_core.services.rate_lookup import get_rate
 from orderr_core.services.rate_parser import ACTIVE_PRODUCTS
@@ -827,6 +827,11 @@ async def api_correct_invoice(request: Request, db: Session = Depends(get_db)):
     except Exception:
         logger.warning("could not clear cached PDF for %s", invoice.invoice_number)
 
+    # 4) The printed copy is now stale — clear printed_at so "Print all" reprints
+    #    this corrected bill (its total/items changed).
+    invoice.printed_at = None
+    db.commit()
+
     return {
         "ok":             True,
         "invoice_number": invoice.invoice_number,
@@ -891,12 +896,13 @@ def api_invoice_pdf_by_number(invoice_number: str, db: Session = Depends(get_db)
     safe_name = (hotel_name or "").strip().replace(" ", "_").replace("/", "-")
     pdf_path  = Path("invoices") / f"{safe_name}_{invoice.invoice_number}.pdf"
 
-    if not pdf_path.exists():
-        try:
-            generate_invoice_pdf(invoice, hotel_name)
-        except Exception as e:
-            logger.exception("PDF regeneration failed for invoice %s", invoice_number)
-            return JSONResponse(status_code=500, content={"error": f"PDF generation failed: {e}"})
+    # Always regenerate: the page geometry changed to full-A4/top-half, so any
+    # legacy cached file would print at the old (config-hostile) size.
+    try:
+        generate_invoice_pdf(invoice, hotel_name)
+    except Exception as e:
+        logger.exception("PDF regeneration failed for invoice %s", invoice_number)
+        return JSONResponse(status_code=500, content={"error": f"PDF generation failed: {e}"})
 
     return FileResponse(
         path=pdf_path,
@@ -946,15 +952,15 @@ def api_invoices_pdf_bulk(
             safe_name = (hotel_name or "").strip().replace(" ", "_").replace("/", "-")
             pdf_path  = Path("invoices") / f"{safe_name}_{invoice.invoice_number}.pdf"
 
-            if not pdf_path.exists():
-                try:
-                    generate_invoice_pdf(invoice, hotel_name)
-                except Exception:
-                    logger.exception(
-                        "Skipping invoice %s in bulk zip -- PDF generation failed",
-                        invoice.invoice_number,
-                    )
-                    continue
+            # Always regenerate so the zip never ships a legacy half-A4 file.
+            try:
+                generate_invoice_pdf(invoice, hotel_name)
+            except Exception:
+                logger.exception(
+                    "Skipping invoice %s in bulk zip -- PDF generation failed",
+                    invoice.invoice_number,
+                )
+                continue
 
             if pdf_path.exists():
                 zf.write(pdf_path, arcname=f"{safe_name}_{invoice.invoice_number}.pdf")
@@ -965,4 +971,126 @@ def api_invoices_pdf_bulk(
         zip_buffer,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Combined print sheet — one multi-page A4 PDF, one bill per page.
+#
+# This is the print-ready daily run: feed pre-cut half-sheets, open this PDF,
+# print once → one bill per half-sheet. Because every page is a standard A4 with
+# the invoice in the top half, the printer needs NO configuration (paper stays on
+# plain A4 for this and every other job). Served inline so the browser's PDF
+# viewer opens straight to Print.
+#
+# Print tracking (invoices.printed_at): scope="new" (default) prints only bills
+# not yet printed for the date and marks them printed, so clicking "Print all"
+# again after more invoicing prints ONLY the newly-added bills. scope="all"
+# reprints every bill for the date and (re)marks them. The count printed / count
+# already-done is returned in the X-Printed-Count / X-Already-Printed headers.
+# ---------------------------------------------------------------------------
+
+def _hotel_name_for(db: Session, invoice: Invoice) -> str:
+    row = db.execute(
+        text("SELECT customer_name FROM orders WHERE id = :oid"),
+        {"oid": invoice.order_id},
+    ).first()
+    return row[0] if row else invoice.customer_phone
+
+
+@router.get("/billing/api/invoices/pdf/print")
+def api_invoices_pdf_print(
+    business_date: Optional[str] = None,
+    scope: str = "new",
+    db: Session = Depends(get_db),
+):
+    if business_date:
+        try:
+            target_date = date.fromisoformat(business_date)
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": f"Invalid date: {business_date!r}"})
+    else:
+        target_date = _today()
+
+    all_for_date = db.scalars(
+        select(Invoice)
+        .where(Invoice.business_date == target_date)
+        .order_by(Invoice.invoice_number)
+    ).all()
+
+    if not all_for_date:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No invoices found for {target_date.isoformat()}."},
+        )
+
+    already = sum(1 for inv in all_for_date if inv.printed_at is not None)
+    if scope == "all":
+        to_print = list(all_for_date)
+    else:
+        to_print = [inv for inv in all_for_date if inv.printed_at is None]
+
+    if not to_print:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": (f"All {already} bill(s) for {target_date.isoformat()} "
+                          "have already been printed."),
+                "already_printed": already,
+            },
+        )
+
+    items = [(inv, _hotel_name_for(db, inv)) for inv in to_print]
+
+    try:
+        pdf_bytes = render_invoices_combined(items)
+    except Exception as e:
+        logger.exception("Combined print PDF failed for %s", target_date)
+        return JSONResponse(status_code=500, content={"error": f"Print sheet failed: {e}"})
+
+    # Mark as printed only after the PDF built successfully.
+    now = datetime.now(timezone.utc)
+    for inv in to_print:
+        inv.printed_at = now
+    db.commit()
+
+    filename = f"invoices-print-{target_date.isoformat()}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "X-Printed-Count": str(len(to_print)),
+            "X-Already-Printed": str(already),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Single-invoice print — inline PDF, marks the bill printed, freely repeatable.
+# Used by the per-bill "Print" button next to "Download PDF".
+# ---------------------------------------------------------------------------
+
+@router.get("/billing/api/invoices/{invoice_number}/print")
+def api_invoice_print_one(invoice_number: str, db: Session = Depends(get_db)):
+    invoice = db.scalar(select(Invoice).where(Invoice.invoice_number == invoice_number))
+    if not invoice:
+        return JSONResponse(status_code=404, content={"error": f"Invoice {invoice_number!r} not found."})
+
+    hotel_name = _hotel_name_for(db, invoice)
+    try:
+        pdf_bytes = render_invoices_combined([(invoice, hotel_name)])
+    except Exception as e:
+        logger.exception("Single print PDF failed for %s", invoice_number)
+        return JSONResponse(status_code=500, content={"error": f"Print failed: {e}"})
+
+    invoice.printed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    safe_name = (hotel_name or "").strip().replace(" ", "_").replace("/", "-")
+    filename = f"{safe_name}_{invoice.invoice_number}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )

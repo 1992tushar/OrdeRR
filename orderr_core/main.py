@@ -242,6 +242,28 @@ def _ensure_customer_credit_limit_column():
 _ensure_customer_credit_limit_column()
 
 
+def _ensure_invoice_printed_at_column():
+    """Add invoices.printed_at (nullable) if missing — powers print tracking so
+    "Print all" only prints newly-invoiced bills. Nullable, so a plain ADD COLUMN
+    works on both SQLite and PostgreSQL. Idempotent."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "invoices" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the column
+    cols = {c["name"] for c in insp.get_columns("invoices")}
+    if "printed_at" in cols:
+        return
+    coltype = ("TIMESTAMP WITH TIME ZONE"
+               if engine.dialect.name == "postgresql" else "DATETIME")
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE invoices ADD COLUMN printed_at {coltype}"))
+    print("✅ Migration: added invoices.printed_at column")
+
+
+_ensure_invoice_printed_at_column()
+
+
 def _ensure_vasy_expense_mode_columns():
     """Add vasy_expenses.cash_paid / .noncash_paid (nullable) if missing —
     Cash Book cross-check needs the Expense Register's per-expense payment-mode

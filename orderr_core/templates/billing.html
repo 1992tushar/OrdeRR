@@ -212,7 +212,8 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
   </div>
   <div class="nav-right">
     <div class="date-chip" id="date-label">-</div>
-    <button class="btn btn-primary btn-sm" onclick="dlAllPDFs()">All PDFs</button>
+    <button id="print-all-btn" class="btn btn-primary btn-sm" onclick="printAllPDFs()" title="Open one A4 sheet, one bill per page. Feed pre-cut half-sheets and print — no printer settings to change.">🖨 Print all</button>
+    <button id="dl-all-btn" class="btn btn-sm" onclick="dlAllPDFs()" title="Download the individual bills as a ZIP">All PDFs</button>
   </div>
 </nav>
 
@@ -615,7 +616,8 @@ function buildInvArea(h){
     area.innerHTML =
       '<a class="inv-success" href="'+invLink+'" style="text-decoration:none" title="View invoice detail">' +
       'OK '+h.invoice_number+' - ₹'+h.invoice_total?.toFixed(2)+'</a>' +
-      '<a class="pdf-link" href="/billing/api/invoices/'+h.invoice_number+'/pdf" target="_blank">Download PDF</a>';
+      '<a class="pdf-link" href="/billing/api/invoices/'+h.invoice_number+'/pdf" target="_blank">Download PDF</a>' +
+      '<a class="pdf-link" href="#" onclick="printOne(\''+h.invoice_number+'\');return false;" title="Print this bill (can reprint any time)">🖨 Print</a>';
   } else if(h.status === 'clear'){
     area.innerHTML =
       '<input class="phone-inp" type="text" id="ph-'+h.order_id+'" value="'+(h.customer_phone||'')+'" placeholder="Customer phone">' +
@@ -887,8 +889,55 @@ async function generateInvoice(orderId){
   }
 }
 
+// Open a PDF blob in a new tab and trigger the print dialog. Every page is a
+// standard A4 with the bill in the top half, so feeding pre-cut half-sheets
+// needs no printer configuration — just confirm the print.
+function openAndPrint(blob){
+  const obj = URL.createObjectURL(blob);
+  const w = window.open(obj, '_blank');
+  if(w){ w.addEventListener('load', ()=>{ try{ w.focus(); w.print(); }catch(e){} }); }
+  else { showToast('Allow pop-ups for this site to print.'); }
+  setTimeout(()=>URL.revokeObjectURL(obj), 60000);
+}
+
+// Print all bills for the day. scope='new' (default) prints ONLY bills not yet
+// printed and marks them, so a later click after more invoicing prints just the
+// new ones. scope='all' reprints every bill for the day.
+async function doPrintAll(scope){
+  const btn = document.getElementById('print-all-btn');
+  const orig = btn.textContent;
+  btn.disabled=true; btn.textContent='Preparing...';
+  try{
+    const r = await fetch('/billing/api/invoices/pdf/print?business_date='+today+'&scope='+scope);
+    if(r.status===409){
+      const d = await r.json().catch(()=>({}));
+      btn.disabled=false; btn.textContent=orig;
+      if(confirm((d.error||'All bills already printed.')+'\n\nReprint ALL of them anyway?')){
+        return doPrintAll('all');
+      }
+      return;
+    }
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.statusText);
+    const n = r.headers.get('X-Printed-Count') || '?';
+    openAndPrint(await r.blob());
+    showToast('Printing '+n+' bill(s) — feed half-sheets and confirm print');
+  } catch(e){ showToast('Print failed: '+e.message); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+function printAllPDFs(){ return doPrintAll('new'); }
+
+// Print a single bill (repeatable). Opens inline and triggers print; also marks
+// the bill printed so "Print all" won't reprint it.
+async function printOne(invoiceNumber){
+  try{
+    const r = await fetch('/billing/api/invoices/'+encodeURIComponent(invoiceNumber)+'/print');
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.statusText);
+    openAndPrint(await r.blob());
+  } catch(e){ showToast('Print failed: '+e.message); }
+}
+
 async function dlAllPDFs(){
-  const btn = document.querySelector('.nav-right .btn-primary');
+  const btn = document.getElementById('dl-all-btn');
   const orig = btn.textContent;
   btn.disabled=true; btn.textContent='Preparing...';
   try{
@@ -1087,7 +1136,8 @@ function filterHist(){
     '<td style="color:var(--ink2)">'+fmts(i.business_date)+'</td>' +
     '<td style="color:var(--ink3);font-size:12px">'+(i.customer_phone||'-')+'</td>' +
     '<td style="text-align:right"><span class="inv-amount">₹'+parseFloat(i.total).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></td>' +
-    '<td style="text-align:center"><a class="pdf-link btn-sm" href="/billing/api/invoices/'+i.invoice_number+'/pdf" target="_blank">Download</a></td></tr>'
+    '<td style="text-align:center"><a class="pdf-link btn-sm" href="/billing/api/invoices/'+i.invoice_number+'/pdf" target="_blank">Download</a>' +
+    ' <a class="pdf-link btn-sm" href="#" onclick="printOne(\''+i.invoice_number+'\');return false;" title="Print this bill">🖨 Print</a></td></tr>'
   ).join('');
 }
 
