@@ -43,6 +43,14 @@ def report_product_name(product: str) -> str:
     return erp_display_name(product)
 
 
+def report_short_product_name(product: str) -> str:
+    """Compact display name for the per-hotel rows on the printed sheet, where
+    width is tight. Full Vasy names stay in the top Product Summary; each hotel's
+    line items use the short canonical form (e.g. 'Curry Cut') so nothing wraps."""
+    from orderr_core.services.template_parser import short_product_name
+    return short_product_name(product)
+
+
 def _product_totals_for(orders: list) -> dict:
     """Sum parsed items across a set of orders into
     {key: {product, unit, total_quantity}} keyed by product+unit."""
@@ -173,7 +181,7 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
             qty_str = fmt_qty(item.get("quantity", 0))
             item_rows += f"""
                     <tr>
-                        <td class="product-name" style="padding-left:24px;">{report_product_name(item.get('product','—'))}</td>
+                        <td class="product-name" style="padding-left:20px;">{report_short_product_name(item.get('product','—'))}</td>
                         <td class="qty-ordered">{qty_str} {item.get('unit','kg')}</td>
                         <td class="qty-delivered"><div class="write-box"></div></td>
                     </tr>"""
@@ -371,27 +379,27 @@ def _build_print_html(data: dict, notes: list[dict]) -> str:
     width: 90%;
   }}
 
-  /* ── Hotel blocks — 2-column grid for print density (≈18-22 hotels/page) ── */
-  /* Each block is self-contained (name + its items) and never splits across a  */
-  /* column or page break, so the photograph→OCR→billing flow is unaffected.    */
-  .hotel-grid {{
-    column-count: 2;
-    column-gap: 18px;
-  }}
+  /* ── Hotel blocks — single full-width column, roomy for pen entry ── */
+  /* One hotel per row: the full width lets short product names sit on one line  */
+  /* (no wrapping) with a generous delivered-qty box. Each block is self-        */
+  /* contained (name + its items) and never splits across a page break.          */
+  .hotel-grid {{ }}
   .hotel-block {{
-    margin: 0 0 8px;
+    margin: 0 0 14px;
     break-inside: avoid;
-    -webkit-column-break-inside: avoid;
     page-break-inside: avoid;
   }}
   .hotel-name {{
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     background: #f5f5f5;
-    padding: 3px 7px;
+    padding: 5px 9px;
     border-left: 4px solid #1a1a1a;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
   }}
+  /* Roomier line-item rows inside each hotel (doesn't touch the summary table) */
+  .hotel-block .data-table td {{ padding: 6px 8px; }}
+  .hotel-block .write-box {{ width: 70%; }}
 
   /* ── Area sections ── */
   .area-section {{

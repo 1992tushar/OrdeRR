@@ -382,6 +382,23 @@ def erp_display_name(product: str) -> str:
     return erp["erp_name"] if erp else (product or "")
 
 
+# Reverse lookup: exact Vasy ERP name → friendly canonical (short) name.
+_ERP_NAME_TO_SHORT = {v["erp_name"]: k for k, v in ERP_ITEMS.items()}
+
+
+def short_product_name(product: str) -> str:
+    """Compact product label for width-constrained surfaces (the per-hotel rows
+    on the printed production sheet). Returns the friendly canonical name — e.g.
+    'Curry Cut', 'W/O Skin Tandoor Chicken' — for anything in the ERP catalog,
+    whether the product is given as the canonical name OR the long ERP name.
+    Falls back to the name unchanged. Display only — storage/lookup keys stay on
+    the canonical name (see erp_display_name)."""
+    name = (product or "").strip()
+    if name in ERP_ITEMS:
+        return name
+    return _ERP_NAME_TO_SHORT.get(name, name)
+
+
 # ── Normalizers ───────────────────────────────────────────────────────────────
 
 def _normalize(text: str) -> str:
