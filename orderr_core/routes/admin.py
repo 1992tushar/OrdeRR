@@ -49,7 +49,11 @@ from orderr_core.models.customer_product_alias import CustomerProductAlias
 from orderr_core.services.customer_service import normalize_phone, validate_phone
 from orderr_core.services.notifier import send_whatsapp_message
 from orderr_core.services.pending_orders import get_pending_customers, get_delivery_date_for_now
-from orderr_core.services.template_parser import PRODUCT_DEFINITIONS
+from orderr_core.services.template_parser import (
+    PRODUCT_DEFINITIONS,
+    normalize_alias_key,
+    strip_list_marker,
+)
 from orderr_core.services.customer_service import create_customer_manually
 from orderr_core.services.customer_service import import_customers_from_xlsx
 from orderr_core.services.order_service import process_incoming_order
@@ -191,6 +195,9 @@ def _extract_product_name(raw_line: str) -> tuple[str, float]:
     returns (product_name_lower, quantity).
     """
     line_clean = re.sub(r'__+', '', raw_line).strip()
+    # Drop a leading list marker ("1)", "2.") so it isn't mistaken for the name
+    # or the quantity — mirrors the parser, which strips it before matching.
+    line_clean = strip_list_marker(line_clean)
     line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
     m = LINE_RE.match(line_clean)
     if m:
@@ -210,7 +217,10 @@ def _extract_product_name_from_line(line: str) -> str:
 
 
 def _extract_qty_from_line(line: str) -> float:
-    m = re.search(r"([\d]+(?:[./][\d]+)?)", line)
+    # Strip a leading list marker first — otherwise "1)Chicken big --- 30 kg"
+    # returns 1.0 (the "1" from "1)") instead of the real quantity 30.
+    cleaned = strip_list_marker(line)
+    m = re.search(r"([\d]+(?:[./][\d]+)?)", cleaned)
     if m:
         try:
             return float(m.group(1))
@@ -298,7 +308,9 @@ def _retroactive_patch_global(raw: str, canonical: str, db: Session) -> int:
                 remaining.append(line)
                 continue
             product_part = _extract_product_name_from_line(line)
-            if product_part == raw or product_part.startswith(raw) or raw in product_part:
+            if (normalize_alias_key(line) == raw
+                    or product_part == raw or product_part.startswith(raw)
+                    or raw in product_part):
                 matched_lines.append(line)
             else:
                 remaining.append(line)
@@ -352,7 +364,9 @@ def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db: Sessio
                 remaining.append(line)
                 continue
             product_part = _extract_product_name_from_line(line)
-            if product_part == raw or product_part.startswith(raw) or raw in product_part:
+            if (normalize_alias_key(line) == raw
+                    or product_part == raw or product_part.startswith(raw)
+                    or raw in product_part):
                 matched_lines.append(line)
             else:
                 remaining.append(line)
@@ -394,7 +408,9 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db: Session) ->
     matched_lines = []
     for line in unclear:
         product_part = _extract_product_name_from_line(line)
-        if product_part == raw or product_part.startswith(raw) or raw in product_part:
+        if (normalize_alias_key(line) == raw
+                or product_part == raw or product_part.startswith(raw)
+                or raw in product_part):
             matched_lines.append(line)
         else:
             remaining.append(line)
@@ -1328,7 +1344,11 @@ def resolve_unclear_item(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    raw       = payload.raw_text.strip().lower()
+    # Canonicalize the alias key the SAME way the parser will on lookup, so a
+    # resolved phrase matches the next order regardless of list markers, dash
+    # decoration, or a trailing quantity ("1)chicken big ------ 30 kg" → "chicken
+    # big"). Without this the alias silently never re-matches.
+    raw       = normalize_alias_key(payload.raw_text)
     canonical = payload.canonical_product_name.strip()
 
     if not raw or not canonical:

@@ -421,6 +421,48 @@ def _tokenize(text: str) -> set:
     return set(_normalize(text).split())
 
 
+# ── Alias-key normalization ───────────────────────────────────────────────────
+# A SINGLE canonical key for matching unclear-item aliases, applied IDENTICALLY
+# when an alias is STORED (admin resolve endpoint) and when it is LOOKED UP
+# (parser). Without this, a resolved phrase silently fails to match the very next
+# order, because the stored key kept surrounding noise that the parser strips:
+#   stored   "1)chicken big ------"    (list marker + dash tail retained)
+#   lookup   "chicken big ------"      (list marker stripped by the parser)
+# Normalizing BOTH sides down to "chicken big" makes the match survive list
+# numbers ("1)", "2."), dash decoration ("------"), and a trailing quantity/unit
+# ("30 kg"), which is exactly the noise that differs between two sends of the
+# same item.
+_LIST_MARKER_RE = re.compile(r'^\s*(?:\d+\s*[)\.\-:]|[•\*–—\-])\s*')
+
+
+def strip_list_marker(text: str) -> str:
+    """Remove a single leading list marker — "1)", "2.", "3-", "•", "-", "*" —
+    from the start of a line. Leaves a bare decimal quantity untouched is NOT a
+    concern here (callers pass product-name text, not qty-first lines)."""
+    if not text:
+        return text
+    return _LIST_MARKER_RE.sub('', text.strip(), count=1)
+
+
+def normalize_alias_key(raw: str) -> str:
+    """Canonical alias key: lowercased product phrase with any leading list
+    marker, trailing quantity/unit, and trailing dash/punctuation decoration
+    removed. Used on BOTH store and lookup so aliases match across the noise
+    that varies between sends.
+
+        "1)Chicken big ------- 30 kg" -> "chicken big"
+        "chicken big ------"          -> "chicken big"
+        "tandoori"                    -> "tandoori"
+    """
+    if not raw:
+        return ""
+    s = strip_list_marker(str(raw))                              # leading "1)" etc.
+    s = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', s)     # trailing "30 kg"
+    s = re.sub(r'[\s\-–—:_.]+$', '', s)                # trailing "------"
+    s = re.sub(r'\s+', ' ', s).strip().lower()                   # collapse + lower
+    return s
+
+
 # Token-sets of the skin-ambiguous terms, built once (lazily so it can rely on
 # _tokenize being defined). Compared as frozensets so word order doesn't matter.
 _AMBIGUOUS_TOKEN_SETS = None
@@ -501,7 +543,7 @@ def _match_product(raw_name: str):
 def _lookup_alias(raw_name: str, db) -> tuple | None:
     if db is None:
         return None
-    
+
     # Try exact match first
     normalized = raw_name.strip().lower()
     row = db.query(UnclearItemAlias).filter(
@@ -521,6 +563,17 @@ def _lookup_alias(raw_name: str, db) -> tuple | None:
         if row:
             unit = _get_unit_for_canonical(row.canonical_product_name)
             return (row.canonical_product_name, unit)
+
+    # Normalized fallback: compare canonical keys so aliases match across list
+    # markers / dash decoration / trailing qty that the exact queries above miss
+    # (e.g. stored "1)chicken big ------" vs lookup "chicken big"). Old rows are
+    # matched without any migration.
+    key = normalize_alias_key(raw_name)
+    if key:
+        for row in db.query(UnclearItemAlias).all():
+            if normalize_alias_key(row.raw_text) == key:
+                unit = _get_unit_for_canonical(row.canonical_product_name)
+                return (row.canonical_product_name, unit)
 
     return None
 
@@ -544,6 +597,20 @@ def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -> tuple | No
         CustomerProductAlias.customer_phone == customer_phone,
         CustomerProductAlias.raw_text == normalized,
     ).first()
+    if not row:
+        # Normalized fallback: match across list markers / dash decoration /
+        # trailing qty that exact match misses (stored "1)chicken big ------"
+        # vs lookup "chicken big"). A customer has few aliases, so scanning all
+        # of theirs is cheap and matches old rows without any migration.
+        key = normalize_alias_key(raw_name)
+        if key:
+            rows = db.query(CustomerProductAlias).filter(
+                CustomerProductAlias.customer_phone == customer_phone,
+            ).all()
+            row = next(
+                (r for r in rows if normalize_alias_key(r.raw_text) == key),
+                None,
+            )
     if not row:
         return None
     # Find the unit for this canonical product (same logic as _lookup_alias)
@@ -730,8 +797,10 @@ def _is_noise_line(line: str, restaurant_name_norm: str | None) -> bool:
 
     norm = _normalize(text_only)
 
-    # 3. Date-only line
-    if _DATE_LINE_RE.match(norm.strip()):
+    # 3. Date-only line. Check the raw text too, not just `norm`: _normalize
+    #    strips "/" separators, which would hide slash dates ("16/07/2026") from
+    #    the regex and dump them into the Unclear tab as a bogus item.
+    if _DATE_LINE_RE.match(norm.strip()) or _DATE_LINE_RE.match(text_only.strip()):
         return True
 
     # 4. Filler header/footer phrase
