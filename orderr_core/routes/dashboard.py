@@ -608,6 +608,26 @@ def analytics_collections(
     )
 
 
+@router.get("/analytics/collections/breakdown")
+def analytics_collections_breakdown(
+    period: str = Query(default="today", description="pulse period: today|week|month"),
+    day: str = Query(default="today", description="first-card toggle: today|yesterday"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Who a period's collected total was received from — drill-down behind the
+    Collected KPI on the money pulse card (Collections & receivables)."""
+    from orderr_core.services import analytics_service
+
+    if period not in ("today", "week", "month"):
+        period = "today"
+    if day not in ("today", "yesterday"):
+        day = "today"
+    data = analytics_service.collections_breakdown(
+        db, get_current_business_date(), period=period, day=day)
+    return JSONResponse(data)
+
+
 @router.get("/analytics/receivables", response_class=HTMLResponse)
 def analytics_receivables(
     request: Request,

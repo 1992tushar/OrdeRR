@@ -48,6 +48,33 @@ main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
 
 .empty{color:var(--ink3);font-size:13px;text-align:center;padding:28px}
 
+/* Clickable Collected KPI → customer breakdown */
+.pulse-hero-click{cursor:pointer;border-radius:8px;margin:4px 6px 0;padding-left:10px;padding-right:10px;transition:background .12s}
+.pulse-hero-click:hover,.pulse-hero-click:focus{background:var(--green-bg);outline:none}
+.pulse-hero-click .drill-caret{font-weight:800;color:var(--green)}
+
+/* ── Center modal (customer breakdown) ── */
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 14px;overflow-y:auto}
+.modal-back.open{display:flex}
+.modal{background:var(--surface);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.25);width:100%;max-width:540px;overflow:hidden}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border)}
+.modal-title{font-size:15px;font-weight:700;line-height:1.3}
+.modal-title .sub{display:block;font-size:12px;font-weight:500;color:var(--ink3);margin-top:2px}
+.modal-x{background:none;border:none;font-size:22px;line-height:1;color:var(--ink3);cursor:pointer;padding:0 4px}
+.modal-x:hover{color:var(--ink)}
+.modal-body{max-height:62vh;overflow-y:auto}
+.modal-body table{width:100%;border-collapse:collapse;font-size:13px}
+.modal-body th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border);position:sticky;top:0}
+.modal-body th.num{text-align:right}
+.modal-body td{padding:9px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+.modal-body td.num{text-align:right;font-variant-numeric:tabular-nums}
+.modal-body tr:last-child td{border-bottom:none}
+.modal-body a.party{color:var(--green);font-weight:600;text-decoration:none}
+.modal-body a.party:hover{text-decoration:underline}
+.modal-body .party-tag{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink3);margin-left:6px;vertical-align:middle}
+.modal-body .mix{font-size:11px;color:var(--ink3);margin-top:2px}
+.modal-foot{padding:10px 18px;font-size:12px;color:var(--ink3);border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+
 /* ── Customer 360 ── */
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 .toolbar input,.toolbar select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
@@ -150,9 +177,10 @@ tr.detail td{background:var(--bg);padding:14px 18px}
         <span class="pulse-card-title" style="color:var(--blue)">{{ p.label }}</span>
         <span class="pulse-card-sub">{{ p.sublabel }}</span>
       </div>
-      <div class="pulse-hero">
+      <div class="pulse-hero pulse-hero-click" data-period="{{ p.key }}"
+           role="button" tabindex="0" title="See who paid — click to break this down by customer">
         <div class="n">{{ p.collections_fmt }}</div>
-        <div class="l">Collected</div>
+        <div class="l">Collected <span class="drill-caret">›</span></div>
       </div>
       <div class="pulse-metrics">
         <div class="pulse-metric"><div class="n">{{ p.cash_fmt }}</div><div class="l">cash</div></div>
@@ -360,6 +388,80 @@ document.querySelectorAll('table.c360 th[data-sort]').forEach(th => {
 ['c360-search','c360-area','c360-sp'].forEach(id =>
   document.getElementById(id).addEventListener('input', renderC360));
 renderC360();
+</script>
+
+<!-- ── Collections drill-down modal (who a period's collections came from) ── -->
+<div class="modal-back" id="colBack">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="colTitle">
+    <div class="modal-head">
+      <div class="modal-title" id="colTitle">Collected from<span class="sub" id="colSub"></span></div>
+      <button class="modal-x" id="colClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <table>
+        <thead><tr><th>Customer</th><th class="num">Cash</th><th class="num">Bank</th><th class="num">Collected</th></tr></thead>
+        <tbody id="colRows"></tbody>
+      </table>
+    </div>
+    <div class="modal-foot" id="colFoot"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var DAY  = {{ day | tojson }};
+  var back = document.getElementById('colBack');
+  var titleSub = document.getElementById('colSub');
+  var rowsEl = document.getElementById('colRows');
+  var footEl = document.getElementById('colFoot');
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function close(){ back.classList.remove('open'); }
+
+  function open(period){
+    titleSub.textContent = '';
+    rowsEl.innerHTML = '<tr><td colspan="4" class="empty">Loading…</td></tr>';
+    footEl.textContent = '';
+    back.classList.add('open');
+    var url = '/dashboard/analytics/collections/breakdown?period=' + encodeURIComponent(period)
+            + '&day=' + encodeURIComponent(DAY);
+    fetch(url, {credentials:'same-origin'})
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        titleSub.textContent = d.window_label || '';
+        if(!d.rows || !d.rows.length){
+          rowsEl.innerHTML = '<tr><td colspan="4" class="empty">No receipts in this period.</td></tr>';
+          footEl.textContent = d.window_label || '';
+          return;
+        }
+        rowsEl.innerHTML = d.rows.map(function(r){
+          var name = r.customer_id
+            ? '<a class="party" href="/dashboard/analytics/customer/' + encodeURIComponent(r.customer_id) + '">' + esc(r.party_name) + '</a>'
+            : esc(r.party_name) + '<span class="party-tag">unattributed</span>';
+          var count = r.count > 1 ? '<div class="mix">' + r.count + ' receipts</div>' : '';
+          return '<tr><td>' + name + count + '</td>'
+               + '<td class="num">' + (r.cash > 0 ? esc(r.cash_fmt) : '<span style="color:var(--ink3)">—</span>') + '</td>'
+               + '<td class="num">' + (r.bank > 0 ? esc(r.bank_fmt) : '<span style="color:var(--ink3)">—</span>') + '</td>'
+               + '<td class="num" style="font-weight:700">' + esc(r.total_fmt) + '</td></tr>';
+        }).join('');
+        footEl.innerHTML = '<span>' + d.party_count + (d.party_count===1?' customer':' customers') + '</span>'
+                         + '<span style="font-weight:700;color:var(--ink)">' + esc(d.total_fmt) + ' collected</span>';
+      })
+      .catch(function(){
+        rowsEl.innerHTML = '<tr><td colspan="4" class="empty">Could not load. Please try again.</td></tr>';
+      });
+  }
+
+  document.querySelectorAll('.pulse-hero-click').forEach(function(el){
+    el.addEventListener('click', function(){ open(el.getAttribute('data-period')); });
+    el.addEventListener('keydown', function(e){
+      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); open(el.getAttribute('data-period')); }
+    });
+  });
+  document.getElementById('colClose').addEventListener('click', close);
+  back.addEventListener('click', function(e){ if(e.target===back) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+})();
 </script>
 
 </body>

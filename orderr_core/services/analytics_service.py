@@ -329,6 +329,68 @@ def money_pulse(db: Session, today: date, day: str = "today") -> dict:
     }
 
 
+def collections_breakdown(db: Session, today: date, period: str = "today",
+                          day: str = "today") -> dict:
+    """Drill-down behind a Collected KPI on the money pulse card: the receipts
+    that make up the collected total for one period, grouped by party (i.e.
+    'collected against whom'), each with its cash/bank split and receipt count.
+
+    `period` is a pulse key ("today" | "week" | "month"); `day` mirrors the card
+    toggle so the first ("today") card resolves to today vs yesterday exactly as
+    money_pulse() does. Rows sort by amount collected, largest first.
+    """
+    bounds = {b[0]: b for b in _period_bounds(today, day)}
+    key, label, sublabel, start, end = bounds.get(period, bounds["today"])
+
+    rows_q = (
+        db.query(CustomerReceipt.party_name, CustomerReceipt.customer_id,
+                 CustomerReceipt.mode, func.count(CustomerReceipt.id),
+                 func.coalesce(func.sum(CustomerReceipt.amount), 0))
+        .filter(CustomerReceipt.receipt_date >= start,
+                CustomerReceipt.receipt_date <= end)
+        .group_by(CustomerReceipt.party_name, CustomerReceipt.customer_id,
+                  CustomerReceipt.mode)
+        .all()
+    )
+
+    agg: dict = {}
+    for party, cust_id, mode, cnt, amt in rows_q:
+        amt = float(amt or 0)
+        name = party or "—"
+        p = agg.setdefault(name, {"party_name": name, "customer_id": cust_id,
+                                  "count": 0, "cash": 0.0, "bank": 0.0, "total": 0.0})
+        p["count"] += int(cnt or 0)
+        p["total"] += amt
+        m = (mode or "").lower()
+        if m == "cash":
+            p["cash"] += amt
+        elif m == "bank":
+            p["bank"] += amt
+        if p["customer_id"] is None and cust_id is not None:
+            p["customer_id"] = cust_id
+
+    ordered = sorted(agg.values(), key=lambda r: r["total"], reverse=True)
+    rows = [{
+        "party_name":   r["party_name"],
+        "customer_id":  r["customer_id"],
+        "unattributed": r["customer_id"] is None,
+        "count":        r["count"],
+        "cash":         round(r["cash"], 2), "cash_fmt": fmt_inr(r["cash"]),
+        "bank":         round(r["bank"], 2), "bank_fmt": fmt_inr(r["bank"]),
+        "total":        round(r["total"], 2), "total_fmt": fmt_inr(r["total"]),
+    } for r in ordered]
+
+    grand = sum(r["total"] for r in ordered)
+    return {
+        "period":       key,
+        "label":        label,
+        "window_label": f"{label} · {sublabel}",
+        "rows":         rows,
+        "party_count":  len(rows),
+        "total_fmt":    fmt_inr(grand),
+    }
+
+
 # ── P2-10 Collection velocity + P2-4 Unattributed receipts ─────────────────
 
 def collections(db: Session, today: date, weeks: int = 12) -> dict:
