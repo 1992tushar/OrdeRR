@@ -151,11 +151,26 @@ def create_customer_manually(
 # ── Bulk import from the "Customer Outstanding" spreadsheet ──────────────────
 
 def _to_amount(value) -> Decimal:
-    """Coerce a spreadsheet cell into a Decimal amount; blanks/junk → 0."""
+    """Coerce a spreadsheet cell into a Decimal amount; blanks/junk → 0.
+
+    Handles the Vasy quirk where credit/negative balances export as STRINGS with
+    a non-breaking space after the sign and comma grouping, e.g.
+    '-\\xa08,29,681.00'. All whitespace (incl. \\xa0) and commas are stripped
+    before parsing so those don't silently become 0.
+    """
     if value is None:
         return Decimal("0")
+    if isinstance(value, (int, float)):
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return Decimal("0")
+    import re
+    s = re.sub(r"[\s ]", "", str(value)).replace(",", "")
+    if not s:
+        return Decimal("0")
     try:
-        return Decimal(str(value).replace(",", "").strip() or "0")
+        return Decimal(s)
     except (InvalidOperation, ValueError):
         return Decimal("0")
 
@@ -219,6 +234,29 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
     issues: list[str] = []
     seen_keys: set = set()   # guard against duplicate rows within one file
 
+    # Manual aliases outrank phone/name matching — an alias is an explicit
+    # human decision about which customer a party name IS. Needed because two
+    # real outlets can share one contact number in Vasy (SANTOSH MAGGIE:
+    # KHANDALA + Lonvla outlets, same owner phone) — phone-first matching
+    # would rename/merge them into one customer. Local imports: vasy_import
+    # imports this module at load time, so importing it at module level here
+    # would be circular.
+    from orderr_core.models.customer_alias import CustomerAlias
+    from orderr_core.services.vasy_import import normalize_name, deglue_name
+    alias_map = {a.alias_key: a.customer_id for a in db.query(CustomerAlias).all()}
+
+    def _record_alias(key: str, cust_id: int):
+        """Get-or-create a CustomerAlias so glued party names keep joining."""
+        if not key or alias_map.get(key) == cust_id:
+            return
+        row = db.query(CustomerAlias).filter_by(alias_key=key).first()
+        if row is None:
+            db.add(CustomerAlias(alias_key=key, customer_id=cust_id,
+                                 source="import-deglue"))
+        else:
+            row.customer_id = cust_id
+        alias_map[key] = cust_id
+
     rows = ws.iter_rows(min_row=header_idx + 2, values_only=True)
     for row in rows:
         if not row:
@@ -227,6 +265,11 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
         name = (str(name).strip() if name is not None else "")
         if not name:
             continue  # skip blank / separator rows silently
+
+        # collapse Vasy glued Name+Company doubles ("TEJAS DHABA  TEJAS DHABA",
+        # "SUNDERBAN HOTEL SUNDERBUN HOTEL") — store the clean single name
+        raw_name = name
+        name = deglue_name(name)
 
         raw_phone = None
         if phone_col is not None and phone_col < len(row):
@@ -253,34 +296,64 @@ def import_customers_from_xlsx(db: Session, file_bytes: bytes) -> dict:
         seen_keys.add(key)
 
         # ── Find an existing customer to update ────────────────────────────
+        # alias first (explicit human decision), then phone, then name
         existing = None
-        if normalized:
+        alias_cid = (alias_map.get(normalize_name(raw_name))
+                     or alias_map.get(normalize_name(name)))
+        if alias_cid:
+            existing = db.query(Customer).filter(Customer.id == alias_cid).first()
+        if existing is None and normalized:
             existing = db.query(Customer).filter(
                 Customer.phone_number == normalized
             ).first()
         if existing is None:
-            # match by name (covers phone-less rows and pre-existing name-only records)
+            # match by name (covers phone-less rows and pre-existing name-only
+            # records; try both the de-glued and the raw file spelling)
             existing = db.query(Customer).filter(
-                func.lower(Customer.restaurant_name) == name.lower()
+                func.lower(Customer.restaurant_name).in_(
+                    [name.lower(), raw_name.lower()])
             ).first()
 
         if existing:
             existing.outstanding = outstanding
             if normalized and not existing.phone_number:
-                existing.phone_number = normalized
-            if not existing.restaurant_name:
+                # backfill only if no OTHER customer owns this number — two
+                # outlets can share a contact in Vasy, and stealing the phone
+                # here would make phone-matching nondeterministic everywhere
+                phone_taken = db.query(Customer.id).filter(
+                    Customer.phone_number == normalized,
+                    Customer.id != existing.id,
+                ).first() is not None
+                if not phone_taken:
+                    existing.phone_number = normalized
+            # Refresh the name from Vasy (source of truth). Previously only set
+            # when empty, which meant corrected Vasy names never overwrote an
+            # existing (possibly glued Name+Company) customer name. Vasy is
+            # authoritative for the party name, so keep OrdeRR in sync — EXCEPT
+            # when we matched via an alias: the alias name is the known-wrong
+            # variant, and renaming the canonical customer to it would undo the
+            # data-health merge that created the alias.
+            if name and not alias_cid:
                 existing.restaurant_name = name
             updated += 1
         else:
-            db.add(Customer(
+            existing = Customer(
                 restaurant_name=name,
                 phone_number=normalized,
                 outstanding=outstanding,
                 onboarding_status="active",
                 is_active=True,
                 is_daily_order_customer=False,
-            ))
+            )
+            db.add(existing)
             created += 1
+
+        # if the file name was glued, alias the glued key → this customer so
+        # party-name joins (outstanding/receipts/invoices) keep resolving
+        if name != raw_name:
+            if existing.id is None:
+                db.flush()
+            _record_alias(normalize_name(raw_name), existing.id)
 
         if not normalized:
             no_phone += 1

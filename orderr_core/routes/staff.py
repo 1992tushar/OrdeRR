@@ -19,10 +19,12 @@ from orderr_core.models.employee import Employee
 from orderr_core.models.advance import Advance
 from orderr_core.models.advance_repayment import AdvanceRepayment
 from orderr_core.models.leave import Leave
+from orderr_core.models.late_mark import LateMark
 from orderr_core.services import staff_ledger
 
 router = APIRouter()
-templates = Jinja2Templates(directory="orderr_core/templates")
+from orderr_core.templating import make_templates
+templates = make_templates()
 
 
 def _emp(e: Employee) -> dict:
@@ -47,6 +49,14 @@ def _adv(a: Advance, employee_name: Optional[str] = None, repayments: Optional[l
 def _lv(l: Leave, employee_name: Optional[str] = None) -> dict:
     d = {"id": l.id, "employee_id": l.employee_id, "date": l.date,
          "type": l.type, "paid": bool(l.paid), "reason": l.reason}
+    if employee_name is not None:
+        d["employee_name"] = employee_name
+    return d
+
+
+def _lm(l: LateMark, employee_name: Optional[str] = None) -> dict:
+    d = {"id": l.id, "employee_id": l.employee_id, "date": l.date,
+         "time": l.time, "note": l.note}
     if employee_name is not None:
         d["employee_name"] = employee_name
     return d
@@ -81,6 +91,13 @@ class LeaveIn(BaseModel):
     type: Optional[str] = None
     paid: Optional[bool] = False   # complementary leave — no salary deduction
     reason: Optional[str] = None
+
+
+class LateMarkIn(BaseModel):
+    employee_id: Optional[int] = None
+    date: Optional[str] = None
+    time: Optional[str] = None   # 'HH:MM' arrival time
+    note: Optional[str] = None
 
 
 @router.get("/staff", response_class=HTMLResponse)
@@ -287,6 +304,35 @@ def create_leave(body: LeaveIn, db: Session = Depends(get_db), username: str = D
 @router.delete("/staff/api/leaves/{leave_id}")
 def delete_leave(leave_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
     l = db.get(Leave, leave_id)
+    if l:
+        db.delete(l)
+        db.commit()
+    return {"ok": True}
+
+
+@router.get("/staff/api/late-marks")
+def list_late_marks(employee_id: Optional[int] = None, db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    q = db.query(LateMark, Employee.name).join(Employee, Employee.id == LateMark.employee_id)
+    if employee_id:
+        q = q.filter(LateMark.employee_id == employee_id)
+    return [_lm(l, name) for l, name in q.order_by(LateMark.date.desc(), LateMark.id.desc()).all()]
+
+
+@router.post("/staff/api/late-marks", status_code=201)
+def create_late_mark(body: LateMarkIn, db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    if not body.employee_id or not body.date:
+        raise HTTPException(status_code=400, detail="employee_id and date are required")
+    l = LateMark(employee_id=body.employee_id, date=body.date,
+                 time=(body.time or None), note=(body.note or None))
+    db.add(l)
+    db.commit()
+    db.refresh(l)
+    return _lm(l)
+
+
+@router.delete("/staff/api/late-marks/{late_id}")
+def delete_late_mark(late_id: int, db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    l = db.get(LateMark, late_id)
     if l:
         db.delete(l)
         db.commit()

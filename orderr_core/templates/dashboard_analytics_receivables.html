@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Receivables</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 12px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:700}
+.section-sub{font-size:12px;color:var(--ink3)}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px}
+@media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .n{font-size:22px;font-weight:800;line-height:1;letter-spacing:-.4px}
+.kpi.ar .n{color:var(--amber)}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+.note{font-size:11px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin:14px 0}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px;margin-bottom:8px}
+.agerow{display:grid;grid-template-columns:150px 1fr 150px;align-items:center;gap:10px;padding:5px 0}
+@media(max-width:640px){.agerow{grid-template-columns:110px 1fr 110px}}
+.agerow .lab{font-size:12.5px;color:var(--ink)}
+.agerow .track{background:var(--bg);border-radius:5px;height:16px;overflow:hidden}
+.agerow .fill{height:100%;border-radius:5px;min-width:2px}
+.agerow .val{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar input,.toolbar select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.toolbar input{flex:1;min-width:160px}
+.count{font-size:12px;color:var(--ink3);margin-left:auto}
+.xlsx{font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--border)}
+th.num{text-align:right} th .arrow{color:var(--green);font-size:10px}
+td{padding:10px 12px;border-bottom:1px solid var(--border)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
+.chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.dir{font-weight:700}.dir.up{color:var(--red)}.dir.down{color:var(--green)}.dir.flat{color:var(--ink3)}
+.stale{color:var(--red);font-weight:600}.warm{color:var(--amber);font-weight:600}
+.empty{color:var(--ink3);text-align:center;padding:28px}
+.cust-sub{font-size:11px;color:var(--ink3)}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  {% if not rec.has_data %}
+  <div class="section-title">Receivables</div>
+  <div class="note">No outstanding snapshot imported yet. Upload a Customer Outstanding export on the <a href="/dashboard/analytics/imports">Imports</a> page.</div>
+  {% else %}
+
+  <div class="section-head">
+    <div class="section-title">Receivables exposure</div>
+    <div class="section-sub">as of {{ rec.as_of }}</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi ar"><div class="n">{{ rec.total_ar_fmt }}</div><div class="l">Total outstanding (AR)</div></div>
+    <div class="kpi"><div class="n">{{ rec.debtor_count }}</div><div class="l">Debtors</div></div>
+    <div class="kpi"><div class="n">{{ rec.top10_pct }}%</div><div class="l">Top-10 concentration ({{ rec.top10_fmt }})</div></div>
+    <div class="kpi"><div class="n">{{ rec.credit_total_fmt }}</div><div class="l">Customers in credit</div></div>
+  </div>
+
+  {% if rec.bad_debt_count %}
+  <div class="note">
+    Excludes <b>{{ rec.bad_debt_total_fmt }}</b> written off as bad debt
+    ({{ rec.bad_debt_count }} customer{{ 's' if rec.bad_debt_count != 1 }}) —
+    managed on the <a href="/dashboard/analytics/portfolio">Portfolio</a> page.
+  </div>
+  {% endif %}
+
+  <div class="section-head"><div class="section-title" style="font-size:13px">Exposure by payment recency</div></div>
+  <div class="card">
+    {% set maxa = rec.aging|map(attribute='amount')|max %}
+    {% set colors = {'0–30 days':'var(--green)','31–60 days':'var(--amber)','61–90 days':'var(--red)','90+ days':'var(--red)','No payment on record':'var(--ink3)'} %}
+    {% for a in rec.aging %}
+    <div class="agerow">
+      <div class="lab">{{ a.bucket }}</div>
+      <div class="track"><div class="fill" style="width:{{ (a.amount / maxa * 100) if maxa else 0 }}%;background:{{ colors[a.bucket] }}"></div></div>
+      <div class="val">{{ a.amount_fmt }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="note">
+    <b>Aging by last payment.</b> We run a <em>running account</em> — deliveries add to the
+    customer's balance and lump-sum payments reduce it, with no invoice-by-invoice settlement.
+    So buckets are by <b>days since the customer's last payment</b>, which is the right aging for
+    this model — how long since money last came in against the balance.
+    “No payment on record” means <b>no receipt in the imported receipt history</b> — either a
+    genuine non-payer, or someone whose last payment predates the imported window. These balances
+    can't be aged by recency, so they're broken out separately below.
+  </div>
+
+  {% if rec.no_payment_count %}
+  <div class="section-head"><div class="section-title" style="font-size:13px">⚠️ No payment on record · collection blind spot</div></div>
+  <div class="card" style="border-left:3px solid var(--red-border)">
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <span style="font-size:20px;font-weight:800;color:var(--red)">{{ rec.no_payment_total_fmt }}</span>
+      <span class="section-sub">{{ rec.no_payment_pct }}% of AR across {{ rec.no_payment_count }} debtor{{ 's' if rec.no_payment_count != 1 else '' }} with no receipt in the imported history — chase or verify first.</span>
+    </div>
+    <div class="scroll">
+      <table style="min-width:520px">
+        <thead><tr><th>Customer</th><th>Area</th><th class="num">Outstanding</th></tr></thead>
+        <tbody>
+          {% for r in rec.no_payment_top %}
+          <tr class="row"{% if r.customer_id is not none %} onclick="location.href='/dashboard/analytics/customer/{{ r.customer_id }}'"{% endif %}>
+            <td><div style="font-weight:600">{{ r.name }}</div>{% if r.salesperson %}<div class="cust-sub">🧑 {{ r.salesperson }}</div>{% endif %}</td>
+            <td>{% if r.area %}<span class="chip">{{ r.area }}</span>{% else %}<span class="cust-sub">—</span>{% endif %}</td>
+            <td class="num" style="font-weight:700">{{ r.outstanding_fmt }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if rec.no_payment_count > rec.no_payment_top|length %}
+    <div class="cust-sub" style="margin-top:8px">Showing top {{ rec.no_payment_top|length }} by balance · {{ rec.no_payment_count - rec.no_payment_top|length }} more in the table below.</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="toolbar">
+    <input id="q" type="text" placeholder="Search customer…" autocomplete="off">
+    <select id="fa"><option value="">All areas</option>{% for a in rec.areas %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select>
+    <select id="fs"><option value="">All salespersons</option>{% for s in rec.salespeople %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
+    <span class="count" id="count"></span>
+    <a class="xlsx" href="/dashboard/analytics/export/receivables">⬇ Excel</a>
+  </div>
+
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th data-sort="name">Customer</th>
+        <th data-sort="area">Area</th>
+        <th data-sort="outstanding" class="num">Outstanding</th>
+        <th data-sort="dir">Trend</th>
+        <th data-sort="days_since_payment" class="num">Days since payment</th>
+        <th data-sort="last_payment">Last payment</th>
+        <th data-sort="avg">Avg receipt</th>
+      </tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div></div>
+  {% endif %}
+</main>
+
+{% if rec.has_data %}
+<script>
+const ROWS = {{ rec.rows | tojson }};
+const HAS_TREND = {{ 'true' if rec.has_trend else 'false' }};
+let sortKey="outstanding", sortDir=-1;
+
+function dirCell(r){
+  if (!r.direction) return '<span class="cust-sub">—</span>';
+  const sym = r.direction==='up'?'▲':r.direction==='down'?'▼':'■';
+  const lab = r.direction==='up'?'rising':r.direction==='down'?'falling':'flat';
+  return '<span class="dir '+r.direction+'">'+sym+' '+lab+'</span>';
+}
+function daysCell(r){
+  if (r.days_since_payment===''||r.days_since_payment===null) return '<span class="stale">never</span>';
+  const d=r.days_since_payment; let cls=d>=60?'stale':d>=30?'warm':'';
+  return '<span class="'+cls+'">'+d+'d</span>';
+}
+function render(){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  const fa=document.getElementById('fa').value, fs=document.getElementById('fs').value;
+  let rows=ROWS.filter(r=>(!q||r.name.toLowerCase().includes(q))&&(!fa||r.area===fa)&&(!fs||r.salesperson===fs));
+  const numeric=['outstanding','days_since_payment'].includes(sortKey);
+  rows.sort((a,b)=>{let x=a[sortKey],y=b[sortKey];
+    if(numeric){x=(x===''||x===null)?-Infinity:+x;y=(y===''||y===null)?-Infinity:+y;return (x-y)*sortDir;}
+    return String(x).localeCompare(String(y))*sortDir;});
+  const body=document.getElementById('body');
+  body.innerHTML = rows.length ? rows.map(r=>
+    '<tr class="row"'+(r.customer_id!=null?' onclick="location.href=\'/dashboard/analytics/customer/'+r.customer_id+'\'"':'')+'>'+
+      '<td><div style="font-weight:600">'+esc(r.name)+'</div>'+(r.salesperson?'<div class="cust-sub">🧑 '+esc(r.salesperson)+'</div>':'')+'</td>'+
+      '<td>'+(r.area?'<span class="chip">'+esc(r.area)+'</span>':'<span class="cust-sub">—</span>')+'</td>'+
+      '<td class="num" style="font-weight:700">'+r.outstanding_fmt+'</td>'+
+      '<td>'+dirCell(r)+'</td>'+
+      '<td class="num">'+daysCell(r)+'</td>'+
+      '<td>'+esc(r.last_payment_display)+'</td>'+
+      '<td>'+r.avg_receipt_fmt+'</td>'+
+    '</tr>').join('') : '<tr><td colspan="7" class="empty">No debtors match.</td></tr>';
+  document.getElementById('count').textContent = rows.length+' of '+ROWS.length+' debtors';
+  document.querySelectorAll('th[data-sort]').forEach(th=>{
+    th.querySelector('.arrow')?.remove();
+    if(th.getAttribute('data-sort')===sortKey){const s=document.createElement('span');s.className='arrow';s.textContent=sortDir===1?' ▲':' ▼';th.appendChild(s);}
+  });
+}
+function esc(s){return String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+document.querySelectorAll('th[data-sort]').forEach(th=>th.addEventListener('click',()=>{
+  const k=th.getAttribute('data-sort');
+  if(k===sortKey) sortDir=-sortDir; else {sortKey=k; sortDir=(k==='name'||k==='area'||k==='dir'||k==='last_payment')?1:-1;}
+  render();
+}));
+['q','fa','fs'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+render();
+</script>
+{% endif %}
+</body>
+</html>

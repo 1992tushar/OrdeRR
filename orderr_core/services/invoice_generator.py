@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from orderr_core.models.invoice import Invoice, InvoiceItem
 from orderr_core.models.actuals import OrderItemActual
+from orderr_core.services.template_parser import erp_display_name
 from orderr_core.models.rate_unclear import RateUnclearItem
 from orderr_core.models.order import Order
 from orderr_core.services.rate_lookup import get_rate
@@ -101,7 +102,7 @@ def generate_invoice(
         if a.confidence == "needs_review" and not a.confirmed_by
     ]
     if unverified:
-        products = ", ".join(a.product for a in unverified)
+        products = ", ".join(erp_display_name(a.product) for a in unverified)
         raise InvoiceHoldError(
             f"Cannot generate invoice: actuals not confirmed for [{products}]. "
             "Resolve in the Unclear Actuals queue before billing."
@@ -116,7 +117,7 @@ def generate_invoice(
     # over/under-bills whenever delivery differs from the order.
     missing_actual = [a for a in actuals if a.actual_quantity is None]
     if missing_actual:
-        products = ", ".join(a.product for a in missing_actual)
+        products = ", ".join(erp_display_name(a.product) for a in missing_actual)
         raise InvoiceHoldError(
             f"Cannot generate invoice: delivered quantity not confirmed for [{products}]. "
             "Enter the delivered quantity for every item before billing."
@@ -165,7 +166,7 @@ def generate_invoice(
         # Hold: no rate exists at all
         if rr.source == "none" or not rr.found:
             raise InvoiceHoldError(
-                f"Cannot generate invoice: no rate found for [{actual.product}]. "
+                f"Cannot generate invoice: no rate found for [{erp_display_name(actual.product)}]. "
                 "Add a daily rate or customer override before billing."
             )
 
@@ -212,6 +213,119 @@ def generate_invoice(
             invoice_id=invoice.id,
             **item,
         ))
+
+    db.commit()
+    db.refresh(invoice)
+    return invoice
+
+
+# ---------------------------------------------------------------------------
+# Reissue / correction
+# ---------------------------------------------------------------------------
+
+def reissue_invoice(db: Session, order_id: int) -> Invoice:
+    """
+    Rebuild an EXISTING invoice in place from the order's current (corrected)
+    actuals — same invoice_number, same order_id — so a data-entry error (e.g. a
+    delivered-quantity typo like 405 kg instead of 4.05 kg) can be fixed without
+    minting a new invoice number or a duplicate in downstream systems (Vasy).
+
+    Only quantities/amounts/total change. rate_used stays the ORIGINAL snapshot
+    per product (per §rate rules, rates are never recalculated retroactively) —
+    we reuse the rate from the existing invoice line for that product. A product
+    newly present on the order (not on the original invoice) resolves its rate
+    fresh via get_rate.
+
+    The caller is responsible for deleting any cached PDF for this invoice so it
+    regenerates on next view (see api_correct_invoice).
+
+    Raises:
+        ValueError         — no invoice exists for order_id (use generate_invoice)
+        InvoiceHoldError   — unverified actuals / missing delivered qty / no rate
+    """
+    invoice = db.scalar(select(Invoice).where(Invoice.order_id == order_id))
+    if not invoice:
+        raise ValueError(
+            f"No invoice exists for order {order_id}; nothing to reissue."
+        )
+
+    actuals: list[OrderItemActual] = db.scalars(
+        select(OrderItemActual).where(OrderItemActual.order_id == order_id)
+    ).all()
+    if not actuals:
+        raise ValueError(f"No actuals found for order_id={order_id}. Cannot reissue.")
+
+    # Same per-order holds as generation (unconfirmed / missing delivered qty).
+    unverified = [
+        a for a in actuals
+        if a.confidence == "needs_review" and not a.confirmed_by
+    ]
+    if unverified:
+        products = ", ".join(erp_display_name(a.product) for a in unverified)
+        raise InvoiceHoldError(
+            f"Cannot reissue invoice: actuals not confirmed for [{products}]."
+        )
+    missing_actual = [a for a in actuals if a.actual_quantity is None]
+    if missing_actual:
+        products = ", ".join(erp_display_name(a.product) for a in missing_actual)
+        raise InvoiceHoldError(
+            f"Cannot reissue invoice: delivered quantity not confirmed for [{products}]."
+        )
+
+    # Preserve the original snapshotted rate per product (never recalculated).
+    prior = {
+        it.product: (Decimal(str(it.rate_used)), it.rate_source)
+        for it in invoice.items
+    }
+
+    items_data: list[dict] = []
+    subtotal = Decimal("0")
+    for actual in actuals:
+        qty = Decimal(str(actual.actual_quantity))
+        unit = actual.actual_unit or actual.ordered_unit
+
+        if actual.product in prior:
+            rate, rate_source = prior[actual.product]
+        else:
+            # Item added after the original invoice — resolve its rate fresh.
+            rr = get_rate(
+                db=db,
+                product=actual.product,
+                business_date=invoice.business_date,
+                customer_phone=invoice.customer_phone,
+            )
+            if rr.source == "none" or not rr.found:
+                raise InvoiceHoldError(
+                    f"Cannot reissue invoice: no rate found for "
+                    f"[{erp_display_name(actual.product)}]."
+                )
+            if rr.source == "override":
+                rate_source = "customer_override"
+            elif rr.source == "stale_daily_rate":
+                rate_source = "carried_forward_rate"
+            else:
+                rate_source = "daily_rate"
+            rate = Decimal(str(rr.rate_per_unit))
+
+        amount = qty * rate
+        subtotal += amount
+        items_data.append({
+            "product": actual.product,
+            "quantity": qty,
+            "unit": unit,
+            "rate_used": rate,
+            "amount": amount,
+            "rate_source": rate_source,
+        })
+
+    # Replace the line items in place (cascade delete-orphan clears the old rows)
+    # and update the totals — the invoice_number and order_id are untouched.
+    invoice.items.clear()
+    db.flush()
+    for item in items_data:
+        db.add(InvoiceItem(invoice_id=invoice.id, **item))
+    invoice.subtotal = subtotal
+    invoice.total = subtotal          # Phase 1: no GST / adjustments
 
     db.commit()
     db.refresh(invoice)

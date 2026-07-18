@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Portfolio</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:0 2px 12px}
+.section-title{font-size:15px;font-weight:700}
+.note{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--blue-border);border-radius:8px;padding:10px 14px;margin-bottom:16px}
+
+/* 2x2 map */
+.map{display:grid;grid-template-columns:22px 1fr 1fr;grid-template-rows:22px 1fr 1fr;gap:8px;margin-bottom:20px}
+.ax{display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px}
+.ax.y{writing-mode:vertical-rl;transform:rotate(180deg)}
+.axhead{grid-column:2/4;display:flex}
+.axhead span{flex:1;text-align:center;font-size:10px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px}
+.q{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow);cursor:pointer;border-top:3px solid var(--border)}
+.q.good{border-top-color:var(--green)} .q.red{border-top-color:var(--red)}
+.q.amber{border-top-color:var(--amber)} .q.blue{border-top-color:var(--blue)}
+.q.active{outline:2px solid var(--green);outline-offset:-1px}
+.q .lbl{font-size:13px;font-weight:800} .q .sub{font-size:11px;color:var(--ink3);margin-top:1px}
+.q .n{font-size:24px;font-weight:800;line-height:1;margin-top:8px}
+.q .m{font-size:12px;color:var(--ink2);margin-top:4px;font-variant-numeric:tabular-nums}
+
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar input,.toolbar select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.toolbar input{flex:1;min-width:160px}
+.count{font-size:12px;color:var(--ink3);margin-left:auto}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--border)}
+th.num{text-align:right} th .arrow{color:var(--green);font-size:10px}
+td{padding:10px 12px;border-bottom:1px solid var(--border)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
+.cust-name{font-weight:600} .cust-sub{font-size:11px;color:var(--ink3)}
+.chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.grade{font-weight:800;letter-spacing:.5px}
+.gA,.gB{color:var(--green)} .gC{color:var(--amber)} .gD,.gE{color:var(--red)}
+.qtag{display:inline-block;font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px}
+.qtag.good{background:var(--green-bg);color:var(--green)} .qtag.red{background:var(--red-bg);color:var(--red)}
+.qtag.amber{background:var(--amber-bg);color:var(--amber)} .qtag.blue{background:var(--blue-bg);color:var(--blue)}
+.empty{color:var(--ink3);text-align:center;padding:28px}
+
+/* bad debt */
+.bd-section{margin-top:28px}
+.bd-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:12px}
+.bd-form select,.bd-form input{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.bd-form input{flex:1;min-width:150px}
+.btn{font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn.danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn.danger:hover{filter:brightness(1.1)}
+.btn-undo{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink2);cursor:pointer}
+.btn-undo:hover{color:var(--red);border-color:var(--red)}
+.bd-err{font-size:12px;color:var(--red);margin:0 2px 10px;display:none}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-head"><div class="section-title">Portfolio · value × risk</div>
+    <div style="font-size:12px;color:var(--ink3)">{{ pf.total }} customers{% if pf.as_of %} · outstanding as of {{ pf.as_of }}{% endif %}</div></div>
+  <div class="note">
+    Every customer placed by <b>value</b> (all-time revenue, split at the median {{ pf.median_rev_fmt }})
+    and <b>risk</b> (payment-reliability score; risky = below {{ pf.risk_cut }}). Click a quadrant to filter.
+    <b>Watch closely</b> is where your money is most exposed — chase those first.
+  </div>
+
+  {% set qmap = {} %}
+  {% for q in pf.quadrants %}{% set _ = qmap.update({q.key: q}) %}{% endfor %}
+
+  <div class="map">
+    <div></div>
+    <div class="axhead"><span>Low risk</span><span>High risk</span></div>
+    <div class="ax y">High value</div>
+    <div class="q {{ qmap.protect.accent }}" data-q="protect" onclick="toggleQ(this)">
+      <div class="lbl">{{ qmap.protect.label }}</div><div class="sub">{{ qmap.protect.sub }}</div>
+      <div class="n">{{ qmap.protect.count }}</div>
+      <div class="m">₹ out {{ qmap.protect.outstanding_fmt }} · rev {{ qmap.protect.revenue_fmt }}</div>
+    </div>
+    <div class="q {{ qmap.watch.accent }}" data-q="watch" onclick="toggleQ(this)">
+      <div class="lbl">{{ qmap.watch.label }}</div><div class="sub">{{ qmap.watch.sub }}</div>
+      <div class="n">{{ qmap.watch.count }}</div>
+      <div class="m">₹ out {{ qmap.watch.outstanding_fmt }} · rev {{ qmap.watch.revenue_fmt }}</div>
+    </div>
+    <div class="ax y">Low value</div>
+    <div class="q {{ qmap.maintain.accent }}" data-q="maintain" onclick="toggleQ(this)">
+      <div class="lbl">{{ qmap.maintain.label }}</div><div class="sub">{{ qmap.maintain.sub }}</div>
+      <div class="n">{{ qmap.maintain.count }}</div>
+      <div class="m">₹ out {{ qmap.maintain.outstanding_fmt }} · rev {{ qmap.maintain.revenue_fmt }}</div>
+    </div>
+    <div class="q {{ qmap.tighten.accent }}" data-q="tighten" onclick="toggleQ(this)">
+      <div class="lbl">{{ qmap.tighten.label }}</div><div class="sub">{{ qmap.tighten.sub }}</div>
+      <div class="n">{{ qmap.tighten.count }}</div>
+      <div class="m">₹ out {{ qmap.tighten.outstanding_fmt }} · rev {{ qmap.tighten.revenue_fmt }}</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input id="q" type="text" placeholder="Search customer…" autocomplete="off">
+    <select id="fa"><option value="">All areas</option>{% for a in pf.areas %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select>
+    <select id="fs"><option value="">All salespersons</option>{% for s in pf.salespeople %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th data-sort="name">Customer</th>
+        <th data-sort="area">Area</th>
+        <th data-sort="revenue" class="num">Revenue</th>
+        <th data-sort="outstanding" class="num">Outstanding</th>
+        <th data-sort="score" class="num">Score</th>
+        <th data-sort="days_since_payment" class="num">Since pay</th>
+        <th data-sort="quadrant">Quadrant</th>
+      </tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div></div>
+
+  <!-- ── Bad debt (written off) ─────────────────────────────────────────── -->
+  <div class="bd-section">
+    <div class="section-head">
+      <div class="section-title">Bad debt · written off</div>
+      <div style="font-size:12px;color:var(--ink3)">
+        {% if pf.bad_debt.count %}{{ pf.bad_debt.total_fmt }} across {{ pf.bad_debt.count }} customer{{ 's' if pf.bad_debt.count != 1 }}{% else %}nothing written off{% endif %}
+      </div>
+    </div>
+    <div class="note">
+      Money a customer will never pay back — hotel closed, owner left town, a dead dispute.
+      Writing it off removes the balance from AR, receivables and the risk map above, so those show
+      what's actually collectible. Recorded in OrdeRR only — the Vasy ledger is untouched — and
+      <b>Undo</b> puts the balance straight back.
+    </div>
+
+    <div class="bd-form">
+      <select id="bd-cust"><option value="">Select customer to write off…</option></select>
+      <select id="bd-reason">
+        <option>Hotel closed</option>
+        <option>Owner left / absconded</option>
+        <option>Dispute</option>
+        <option>Other</option>
+      </select>
+      <input id="bd-note" type="text" placeholder="Note (optional)" maxlength="200" autocomplete="off">
+      <button class="btn danger" id="bd-save" onclick="writeOff()">Write off</button>
+    </div>
+    <div class="bd-err" id="bd-err"></div>
+
+    {% if pf.bad_debt.by_salesperson %}
+    <div style="font-size:12px;font-weight:700;color:var(--ink2);margin:4px 2px 8px">By salesperson</div>
+    <div class="wrap" style="margin-bottom:16px"><div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Salesperson</th>
+          <th class="num">Written off</th>
+          <th class="num">Share</th>
+          <th class="num">Customers</th>
+        </tr></thead>
+        <tbody>
+          {% for s in pf.bad_debt.by_salesperson %}
+          <tr>
+            <td>{% if s.salesperson == 'Unassigned' %}<span class="cust-sub">Unassigned</span>{% else %}🧑 {{ s.salesperson }}{% endif %}</td>
+            <td class="num" style="color:var(--red);font-weight:600">{{ s.amount_fmt }}</td>
+            <td class="num cust-sub">{{ s.pct }}%</td>
+            <td class="num">{{ s.count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {% endif %}
+
+    {% if pf.bad_debt.rows %}
+    <div style="font-size:12px;font-weight:700;color:var(--ink2);margin:4px 2px 8px">All write-offs</div>
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Customer</th>
+          <th class="num">Written off</th>
+          <th class="num">Balance now</th>
+          <th>Reason</th>
+          <th>Date</th>
+          <th>Note</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          {% for b in pf.bad_debt.rows %}
+          <tr>
+            <td><div class="cust-name"><a href="/dashboard/analytics/customer/{{ b.customer_id }}" style="color:inherit;text-decoration:none">{{ b.name }}</a></div>
+              {% if b.salesperson %}<div class="cust-sub">🧑 {{ b.salesperson }}</div>{% endif %}</td>
+            <td class="num" style="color:var(--red);font-weight:600">{{ b.amount_fmt }}</td>
+            <td class="num">{{ b.current_outstanding_fmt }}</td>
+            <td><span class="chip">{{ b.reason }}</span></td>
+            <td>{{ b.written_off_on }}</td>
+            <td class="cust-sub">{{ b.note or '—' }}</td>
+            <td><button class="btn-undo" onclick="undoWriteOff({{ b.customer_id }}, this)">Undo</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {% endif %}
+  </div>
+</main>
+
+<script>
+const ROWS = {{ pf.rows | tojson }};
+const QLABEL = {{ pf.quadrants | tojson }}.reduce((a,q)=>(a[q.key]={label:q.label,accent:q.accent},a),{});
+let sortKey="outstanding", sortDir=-1, qFilter="";
+
+function toggleQ(el){
+  const k = el.getAttribute('data-q');
+  qFilter = (qFilter === k) ? "" : k;
+  document.querySelectorAll('.q').forEach(c=>c.classList.toggle('active', c.getAttribute('data-q')===qFilter));
+  render();
+}
+function render(){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  const fa=document.getElementById('fa').value, fs=document.getElementById('fs').value;
+  let rows=ROWS.filter(r=>
+    (!q||r.name.toLowerCase().includes(q)) && (!fa||r.area===fa) && (!fs||r.salesperson===fs) && (!qFilter||r.quadrant===qFilter));
+  const numeric=['revenue','outstanding','score','days_since_payment'].includes(sortKey);
+  rows.sort((a,b)=>{ let x=a[sortKey],y=b[sortKey];
+    if(sortKey==='days_since_payment'){ x=x===''?-1:x; y=y===''?-1:y; }
+    if(numeric) return (x-y)*sortDir;
+    return String(x).localeCompare(String(y))*sortDir; });
+  const body=document.getElementById('body');
+  body.innerHTML = rows.length ? rows.map(r=>{
+    const ql=QLABEL[r.quadrant]||{label:r.quadrant,accent:''};
+    return '<tr class="row" onclick="location.href=\'/dashboard/analytics/customer/'+r.customer_id+'\'">'+
+      '<td><div class="cust-name">'+esc(r.name)+'</div>'+(r.salesperson?'<div class="cust-sub">🧑 '+esc(r.salesperson)+'</div>':'')+'</td>'+
+      '<td>'+(r.area?'<span class="chip">'+esc(r.area)+'</span>':'<span class="cust-sub">—</span>')+'</td>'+
+      '<td class="num">'+r.revenue_fmt+'</td>'+
+      '<td class="num">'+r.outstanding_fmt+'</td>'+
+      '<td class="num">'+r.score+' <span class="grade g'+r.grade+'">'+r.grade+'</span></td>'+
+      '<td class="num">'+(r.days_since_payment===''?'never':r.days_since_payment+'d')+'</td>'+
+      '<td><span class="qtag '+ql.accent+'">'+esc(ql.label)+'</span></td>'+
+    '</tr>';}).join('') : '<tr><td colspan="7" class="empty">No customers match.</td></tr>';
+  document.getElementById('count').textContent = rows.length+' of '+ROWS.length+' customers';
+  document.querySelectorAll('th[data-sort]').forEach(th=>{
+    th.querySelector('.arrow')?.remove();
+    if(th.getAttribute('data-sort')===sortKey){const s=document.createElement('span');s.className='arrow';s.textContent=sortDir===1?' ▲':' ▼';th.appendChild(s);}
+  });
+}
+function esc(s){return String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+document.querySelectorAll('th[data-sort]').forEach(th=>th.addEventListener('click',()=>{
+  const k=th.getAttribute('data-sort');
+  if(k===sortKey) sortDir=-sortDir; else {sortKey=k; sortDir=(k==='name'||k==='area'||k==='quadrant')?1:-1;}
+  render();
+}));
+['q','fa','fs'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+render();
+
+// ── bad debt ──
+const bdSel=document.getElementById('bd-cust');
+ROWS.filter(r=>r.outstanding>0).sort((a,b)=>b.outstanding-a.outstanding).forEach(r=>{
+  const o=document.createElement('option');
+  o.value=r.customer_id; o.textContent=r.name+' — '+r.outstanding_fmt;
+  bdSel.appendChild(o);
+});
+function bdError(msg){
+  const el=document.getElementById('bd-err');
+  el.textContent=msg||''; el.style.display=msg?'block':'none';
+}
+async function writeOff(){
+  bdError('');
+  const cid=bdSel.value;
+  if(!cid){ bdError('Pick a customer first.'); return; }
+  const name=bdSel.options[bdSel.selectedIndex].textContent;
+  if(!confirm('Write off '+name+' as bad debt?\n\nTheir balance leaves AR and the risk map. You can undo this any time.')) return;
+  const btn=document.getElementById('bd-save'); btn.disabled=true;
+  try{
+    const res=await fetch('/dashboard/analytics/bad-debt',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({customer_id:parseInt(cid,10),
+                           reason:document.getElementById('bd-reason').value,
+                           note:document.getElementById('bd-note').value.trim()})});
+    if(!res.ok){ const j=await res.json().catch(()=>({})); bdError(j.detail||'Could not write off.'); btn.disabled=false; return; }
+    location.reload();
+  }catch(e){ bdError('Network error — try again.'); btn.disabled=false; }
+}
+async function undoWriteOff(cid, btn){
+  if(!confirm('Undo this write-off? The balance rejoins AR immediately.')) return;
+  btn.disabled=true;
+  try{
+    const res=await fetch('/dashboard/analytics/bad-debt/'+cid+'/delete',{method:'POST'});
+    if(!res.ok){ const j=await res.json().catch(()=>({})); bdError(j.detail||'Could not undo.'); btn.disabled=false; return; }
+    location.reload();
+  }catch(e){ bdError('Network error — try again.'); btn.disabled=false; }
+}
+</script>
+</body>
+</html>

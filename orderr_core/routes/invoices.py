@@ -20,9 +20,12 @@ DEPRECATED SECTION (as of the orderr-core direct-integration refactor):
   /`unclear_items` already structured). The new home for all of this is
   `app/routes/billing.py` + `/billing` (the SPA dashboard):
     - today's orders + delivered-quantity confirmation -> GET /billing
-    - photo upload to confirm delivery                -> POST /billing/api/upload
+    - confirming delivered quantities (manual entry)    -> POST /billing/api/confirm-items
     - resolving unclear/unmatched lines                -> POST /billing/api/resolve-unmatched
-    - confirming a needs-review quantity                -> POST /billing/api/fix-item
+    - correcting a single quantity                      -> POST /billing/api/fix-item
+
+  (Photo/OCR capture was removed — handwritten quantities were being misread
+  and auto-accepted; delivered quantities are now typed in manually.)
 
   The routes below are kept registered (so old bookmarks/links don't 404)
   but now just redirect to /billing, or block the old POST upload path
@@ -63,7 +66,8 @@ from orderr_core.services.invoice_pdf import generate_invoice_pdf
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-templates = Jinja2Templates(directory="orderr_core/templates")
+from orderr_core.templating import make_templates
+templates = make_templates()
 
 _DEPRECATION_NOTICE = (
     "This page has moved. Orders now appear automatically on the Billing "
@@ -94,7 +98,7 @@ async def actuals_photo_upload(request: Request):
     """
     logger.warning(
         "Deprecated route hit: POST /dashboard/actuals/upload (blocked — "
-        "use POST /billing/api/upload instead)"
+        "delivered quantities are now entered manually on the Billing dashboard)"
     )
     return templates.TemplateResponse(request, "dashboard_actuals_upload.html", {
         "error": _DEPRECATION_NOTICE,

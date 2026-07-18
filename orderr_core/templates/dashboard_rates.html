@@ -49,7 +49,7 @@
         {% for row in rows %}
         <tr>
           <td>
-            {{ row.product }}
+            {{ erp_name(row.product) }}
             {% if row.rate is none %}
               <span class="missing">No rate ever set</span>
             {% elif row.not_confirmed_today %}

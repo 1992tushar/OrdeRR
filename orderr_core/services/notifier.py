@@ -1,24 +1,27 @@
 import logging
+from orderr_core.utils import fmt_qty
 import os
 import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from orderr_core.services.customer_service import normalize_phone
+from orderr_core.services.template_parser import erp_display_name
 
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN")
 META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
-MANAGER_PHONE        = os.getenv("MANAGER_PHONE")
-PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME, report_url as _report_url, sp_report_url as _sp_report_url
 
 logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
 
 # ── Approved template names ───────────────────────────────────────────────────
+# Only 3 templates remain (owner decision 2026-07-14): manager_new_order here,
+# salesperson_pending_orders (pending_notifier) and customer_order_reminder_v2
+# (broadcast_service). Registration welcomes and manager report/summary
+# templates were deleted — reports live on the fixed status page instead.
 TEMPLATE_MANAGER_NEW_ORDER         = "manager_new_order"
-TEMPLATE_CUSTOMER_REGISTRATION     = "customer_registration_welcome_v2"
-TEMPLATE_SALESPERSON_REGISTRATION  = "salesperson_registration_welcome"
 
 
 # ── Send helper ───────────────────────────────────────────────────────────────
@@ -124,35 +127,6 @@ def send_whatsapp_template(phone: str, template_name: str, parameters: list) -> 
         return {"status": "simulated"}
 
 
-# ── Registration welcome templates ────────────────────────────────────────────
-
-def send_customer_registration_welcome(phone: str, plant_name: str) -> dict:
-    """
-    Send customer registration welcome via approved template.
-    Template: customer_registration_welcome_v2
-    {{1}} = plant_name
-    """
-    return send_whatsapp_template(
-        phone,
-        TEMPLATE_CUSTOMER_REGISTRATION,
-        [plant_name],
-    )
-
-
-def send_salesperson_registration_welcome(phone: str, name: str, area: str) -> dict:
-    """
-    Send salesperson registration welcome via approved template.
-    Template: salesperson_registration_welcome
-    {{1}} = salesperson name
-    {{2}} = area
-    """
-    return send_whatsapp_template(
-        phone,
-        TEMPLATE_SALESPERSON_REGISTRATION,
-        [name, area],
-    )
-
-
 # ── Order notifications ───────────────────────────────────────────────────────
 
 def _format_items_freeform(items: list) -> str:
@@ -160,8 +134,8 @@ def _format_items_freeform(items: list) -> str:
     lines = ""
     for i, item in enumerate(items, 1):
         qty     = item["quantity"]
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        lines  += f"{i}. {item['product']} — {qty_str} {item['unit']}\n"
+        qty_str = fmt_qty(qty)
+        lines  += f"{i}. {erp_display_name(item['product'])} — {qty_str} {item['unit']}\n"
     return lines
 
 
@@ -170,9 +144,18 @@ def _format_items_template(items: list) -> str:
     parts = []
     for item in items:
         qty     = item["quantity"]
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        parts.append(f"{item['product']} {qty_str} {item['unit']}")
+        qty_str = fmt_qty(qty)
+        parts.append(f"{erp_display_name(item['product'])} {qty_str} {item['unit']}")
     return " | ".join(parts)
+
+
+def _format_bullet_lines(items: list) -> str:
+    """Bulleted item list — '• <ERP name> — <qty> <unit>' per line (trailing
+    newline each). Shared by the confirmation / replace / repeat messages."""
+    lines = ""
+    for item in items:
+        lines += f"• {erp_display_name(item['product'])} — {fmt_qty(item['quantity'])} {item['unit']}\n"
+    return lines
 
 
 def send_order_confirmation(
@@ -187,11 +170,7 @@ def send_order_confirmation(
     items         = parsed.get("items", [])
     delivery_time = parsed.get("delivery_time", "")
 
-    items_text = ""
-    for item in items:
-        qty     = item["quantity"]
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        items_text += f"• {item['product']} — {qty_str} {item['unit']}\n"
+    items_text = _format_bullet_lines(items)
 
     delivery_text = (
         f"🕒 Delivery: {delivery_time}"
@@ -294,18 +273,10 @@ def send_replace_confirmation_request(
     existing_items: list,
     new_items: list,
 ) -> bool:
-    def fmt(items):
-        lines = ""
-        for item in items:
-            qty     = item["quantity"]
-            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-            lines  += f"• {item['product']} — {qty_str} {item['unit']}\n"
-        return lines
-
     message = (
         f"⚠️ *You already placed an order today — {PLANT_NAME}*\n\n"
-        f"*Current order:*\n{fmt(existing_items)}\n"
-        f"*New order:*\n{fmt(new_items)}\n"
+        f"*Current order:*\n{_format_bullet_lines(existing_items)}\n"
+        f"*New order:*\n{_format_bullet_lines(new_items)}\n"
         f"Reply *yes* to replace your order, or *no* to keep the current one."
     )
     return send_whatsapp_message(customer_phone, message) is not None
@@ -315,18 +286,10 @@ def send_repeat_order_confirmation_request(
     customer_phone: str,
     items: list,
 ) -> bool:
-    def fmt(items):
-        lines = ""
-        for item in items:
-            qty     = item["quantity"]
-            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-            lines  += f"• {item['product']} — {qty_str} {item['unit']}\n"
-        return lines
-
     message = (
         f"🔁 *Repeat Last Order — {PLANT_NAME}*\n\n"
         f"Your last order was:\n\n"
-        f"{fmt(items)}\n"
+        f"{_format_bullet_lines(items)}\n"
         f"Reply *yes* to confirm, or type *order* to place a new one."
     )
     return send_whatsapp_message(customer_phone, message) is not None
@@ -352,7 +315,9 @@ def send_manager_menu(phone: str) -> dict:
                 "interactive": {
                     "type": "button",
                     "body": {
-                        "text": f"👔 *{PLANT_NAME} Manager Menu*\n\nWhat would you like to do?"
+                        "text": (f"👔 *{PLANT_NAME} Manager Menu*\n\n"
+                                 f"📱 Live order status:\n{_report_url()}\n\n"
+                                 f"What would you like to do?")
                     },
                     "action": {
                         "buttons": [
@@ -414,7 +379,9 @@ def send_salesperson_menu(phone: str, name: str = "there") -> dict:
                 "interactive": {
                     "type": "button",
                     "body": {
-                        "text": f"🧑 *{PLANT_NAME} — Hi {name}!*\n\nWhat would you like to do?"
+                        "text": (f"🧑 *{PLANT_NAME} — Hi {name}!*\n\n"
+                                 f"📱 Your live order status:\n{_sp_report_url(name)}\n\n"
+                                 f"What would you like to do?")
                     },
                     "action": {
                         "buttons": [

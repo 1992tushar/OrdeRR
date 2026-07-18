@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Ops quality</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 12px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:700}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.seg a{padding:7px 12px;font-size:12px;color:var(--ink2);text-decoration:none;border-right:1px solid var(--border)}
+.seg a:last-child{border-right:none}
+.seg a.active{background:var(--green);color:#fff;font-weight:600}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.note{font-size:11px;color:var(--ink3);margin-top:10px}
+.hero{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px}
+.hero .big{font-size:30px;font-weight:800;letter-spacing:-.6px;line-height:1}
+.hero .lab{font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px;margin-top:5px}
+.good{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;margin-top:14px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border)}
+th.num{text-align:right}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.empty{color:var(--ink3);text-align:center;padding:26px}
+.bar-cell{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.bar-mini{width:70px;height:8px;border-radius:4px;background:var(--bg);overflow:hidden}
+.bar-mini > i{display:block;height:100%;border-radius:4px;background:var(--green)}
+.pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px}
+
+.chart-wrap{position:relative}
+svg.spark{display:block;width:100%;height:180px}
+svg.spark .bar{fill:var(--amber)} svg.spark .bar:hover{opacity:.75}
+svg.spark .axis{stroke:var(--border-strong);stroke-width:1}
+svg.spark .xlab,svg.spark .ylab{fill:var(--ink3);font-size:10px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;opacity:0;transform:translate(-50%,-100%);white-space:nowrap;z-index:5}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <!-- P1-9 Fill rate -->
+  <div class="section-head">
+    <div class="section-title">Fill rate · ordered vs delivered</div>
+    <div class="seg">
+      {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
+      <a href="/dashboard/analytics/quality?fill_days={{ opt }}" class="{{ 'active' if fill_days == opt else '' }}">{{ lbl }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    {% if fill.has_data %}
+    <div class="hero">
+      <div>
+        <div class="big {{ 'good' if fill.overall_fill_pct and fill.overall_fill_pct >= 98 else 'warn' if fill.overall_fill_pct and fill.overall_fill_pct >= 90 else 'bad' }}">
+          {{ fill.overall_fill_pct if fill.overall_fill_pct is not none else '—' }}%
+        </div>
+        <div class="lab">Overall fill · {{ fill.window_label }}</div>
+      </div>
+      <div><div class="big" style="font-size:20px">{{ fill.actual_fmt }} / {{ fill.ordered_fmt }}</div><div class="lab">Delivered / ordered</div></div>
+      {% if fill.pending %}<div><div class="big" style="font-size:20px;color:var(--ink3)">{{ fill.pending }}</div><div class="lab">Lines awaiting weigh-in</div></div>{% endif %}
+    </div>
+    {% else %}
+    <div class="empty">No delivered-quantity (actuals) captured in this window yet.</div>
+    {% endif %}
+    <div class="note">Fill % = delivered ÷ ordered, from captured actuals (OrderItemActual). Only same-unit lines are summed; lines without a captured actual are counted as pending, not shortfall.</div>
+  </div>
+
+  {% if fill.has_data %}
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>SKU</th><th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Fill %</th><th class="num">Pending</th></tr></thead>
+      <tbody>
+        {% for r in fill.rows %}
+        <tr>
+          <td>{{ r.product }} <span style="color:var(--ink3);font-size:11px">({{ r.unit }})</span></td>
+          <td class="num">{{ r.ordered_fmt }}</td>
+          <td class="num">{{ r.actual_fmt }}</td>
+          <td class="num">
+            {% if r.fill_pct is none %}<span style="color:var(--ink3)">—</span>
+            {% else %}
+            <div class="bar-cell">
+              <span>{{ r.fill_pct }}%</span>
+              <span class="bar-mini"><i style="width:{{ [r.fill_pct, 100]|min }}%; background:{{ 'var(--green)' if r.fill_pct >= 98 else 'var(--amber)' if r.fill_pct >= 90 else 'var(--red)' }}"></i></span>
+            </div>
+            {% endif %}
+          </td>
+          <td class="num">{{ r.pending or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% endif %}
+
+  <!-- P1-10 Parse quality -->
+  <div class="section-head" style="margin-top:30px">
+    <div class="section-title">Parse quality · unclear-order rate (last {{ parse.days }} days)</div>
+  </div>
+  <div class="card">
+    <div class="hero">
+      <div>
+        <div class="big {{ 'good' if parse.overall_pct is not none and parse.overall_pct <= 5 else 'warn' if parse.overall_pct is not none and parse.overall_pct <= 15 else 'bad' if parse.overall_pct is not none else '' }}">
+          {{ parse.overall_pct if parse.overall_pct is not none else '—' }}%
+        </div>
+        <div class="lab">Unclear rate</div>
+      </div>
+      <div><div class="big" style="font-size:20px">{{ parse.total_unclear }} / {{ parse.total_orders }}</div><div class="lab">Unclear / total orders</div></div>
+    </div>
+    <div class="chart-wrap" style="margin-top:10px">
+      <svg class="spark" id="spark" role="img" aria-label="Daily unclear-order rate"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="note">Share of orders flagged unclear (needs manual clarification) per business-date. Lower is better — a rising line means parse hygiene is slipping. Cancelled orders excluded.</div>
+  </div>
+</main>
+
+<script>
+const SPARK = {{ parse.series | tojson }};
+function drawSpark(){
+  const svg = document.getElementById('spark'), tip = document.getElementById('tip');
+  const W = svg.clientWidth || 900, H = 180, padL=34, padR=12, padT=12, padB=24;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const max = Math.max(5, ...SPARK.map(d=>d.pct||0));
+  const n=SPARK.length, gap=Math.max(1,Math.min(4,(plotW/n)*0.2)), bw=(plotW-gap*(n-1))/n;
+  let els='';
+  els+=`<line class="axis" x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}"/>`;
+  [0,max].forEach(v=>{const y=padT+plotH-(v/max)*plotH; els+=`<text class="ylab" x="${padL-6}" y="${y+3}" text-anchor="end">${v}%</text>`;});
+  SPARK.forEach((d,i)=>{
+    const x=padL+i*(bw+gap), pct=d.pct||0, h=(pct/max)*plotH, y=padT+plotH-h, rr=h>2?2:0;
+    const fill = d.total===0 ? 'var(--border-strong)' : 'var(--amber)';
+    els+=`<path class="bar" style="fill:${fill}" d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" data-l="${d.label}" data-p="${d.pct===null?'no orders':d.pct+'%'}" data-c="${d.unclear}/${d.total}" data-x="${x+bw/2}" data-y="${y}"></path>`;
+    if (i%5===0) els+=`<text class="xlab" x="${x+bw/2}" y="${H-7}" text-anchor="middle">${d.label}</text>`;
+  });
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=els;
+  svg.querySelectorAll('.bar').forEach(b=>{
+    b.addEventListener('mouseenter',()=>{tip.style.opacity=1;tip.style.left=b.getAttribute('data-x')+'px';tip.style.top=(parseFloat(b.getAttribute('data-y'))-6)+'px';tip.innerHTML='<strong>'+b.getAttribute('data-p')+'</strong> · '+b.getAttribute('data-c')+' · '+b.getAttribute('data-l');});
+    b.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+drawSpark(); window.addEventListener('resize', drawSpark);
+</script>
+</body>
+</html>

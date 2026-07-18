@@ -22,30 +22,14 @@ from orderr_core.models.order import Order
 import json
 
 router = APIRouter()
-IST = timezone(timedelta(hours=5, minutes=30))
-PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
-templates = Jinja2Templates(directory="orderr_core/templates")
+from orderr_core.constants import IST
+from orderr_core.config import PLANT_NAME
+from orderr_core.templating import make_templates
+templates = make_templates()
 LEDGER_DAYS = 7
 
 
-def _safe_list(value) -> list:
-    if not value:
-        return []
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str):
-        if value in ("null", "[]", ""):
-            return []
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, list):
-                return parsed
-            if isinstance(parsed, str):
-                inner = json.loads(parsed)
-                return inner if isinstance(inner, list) else []
-        except Exception:
-            pass
-    return []
+from orderr_core.utils import safe_list as _safe_list
 
 
 @router.get("/{token}", response_class=HTMLResponse)

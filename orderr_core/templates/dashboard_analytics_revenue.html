@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Revenue</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.section-title{font-size:15px;font-weight:700;margin:22px 2px 10px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.note{font-size:11px;color:var(--ink3);margin-top:8px}
+
+.hero{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px}
+.hero .big{font-size:30px;font-weight:800;letter-spacing:-.6px;line-height:1}
+.hero .lab{font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px;margin-top:5px}
+.mom{font-size:14px;font-weight:700;padding:3px 10px;border-radius:20px}
+.mom.up{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.mom.down{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+.mom.flat{background:var(--bg);color:var(--ink2);border:1px solid var(--border)}
+
+.chart-wrap{position:relative}
+svg.trend{display:block;width:100%;height:240px}
+svg.trend .bar{fill:var(--green);transition:opacity .12s}
+svg.trend .bar:hover{opacity:.78;cursor:default}
+svg.trend .axis{stroke:var(--border-strong);stroke-width:1}
+svg.trend .xlab,svg.trend .ylab{fill:var(--ink3);font-size:10px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;opacity:0;transform:translate(-50%,-100%);white-space:nowrap;z-index:5}
+
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 12px}
+.toolbar input,.toolbar select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.toolbar input{flex:1;min-width:160px}
+.count{font-size:12px;color:var(--ink3);margin-left:auto}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border)}
+th.srt{cursor:pointer;user-select:none} th.num{text-align:right}
+th .arrow{color:var(--green);font-size:10px}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+tr.row{cursor:pointer} tr.row:hover{background:var(--green-bg)}
+.pct{font-weight:700}.pct.up{color:var(--green)}.pct.down{color:var(--red)}.pct.mut{color:var(--ink3)}
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;text-transform:uppercase}
+.tag.new{background:var(--blue-bg);color:var(--blue)} .tag.lost{background:var(--red-bg);color:var(--red)}
+.chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.empty{color:var(--ink3);text-align:center;padding:26px}
+.cust-sub{font-size:11px;color:var(--ink3)}
+td.clik{cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
+td.clik:hover{background:var(--bg)}
+svg.trend .gb{cursor:pointer}
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 16px}
+.modal-ov.show{display:flex}
+.modal{background:var(--surface);border-radius:var(--r);box-shadow:0 10px 40px rgba(0,0,0,.25);width:100%;max-width:440px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px}
+.modal-h button{border:none;background:none;font-size:17px;cursor:pointer;color:var(--ink3);line-height:1}
+.modal input{margin:12px 16px 4px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;background:var(--surface);color:var(--ink)}
+.modal-body{overflow-y:auto;padding:6px 8px 12px}
+.p-row{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;text-decoration:none;color:var(--ink)}
+.p-row:hover{background:var(--green-bg)}
+.p-row .sub{font-size:11px;color:var(--ink3);margin-top:1px}
+.p-date{font-size:11px;color:var(--ink3);white-space:nowrap;margin-left:12px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-title">Revenue · last 12 months</div>
+  <div class="card">
+    <div class="hero">
+      <div>
+        <div class="big">{{ rev.current_revenue_fmt }}</div>
+        <div class="lab">{{ rev.current_label }}{% if rev.current_partial %} · first {{ rev.day_of_month }} day{{ 's' if rev.day_of_month != 1 else '' }}{% endif %}</div>
+      </div>
+      {% if rev.current_mom_pct is not none %}
+        <span class="mom {{ 'up' if rev.current_mom_pct > 0 else 'down' if rev.current_mom_pct < 0 else 'flat' }}"
+              title="{% if rev.current_partial %}Same period last month ({{ rev.prev_mtd_fmt }}){% else %}vs {{ rev.prev_label }}{% endif %}">
+          {{ '▲' if rev.current_mom_pct > 0 else '▼' if rev.current_mom_pct < 0 else '■' }}
+          {{ rev.current_mom_pct }}% {{ 'vs same period' if rev.current_partial else 'MoM' }}
+        </span>
+      {% else %}
+        <span class="mom flat">— MoM</span>
+      {% endif %}
+      <div style="margin-left:auto;text-align:right">
+        <div style="font-size:16px;font-weight:700">{{ rev.prev_revenue_fmt }}</div>
+        <div class="lab">{{ rev.prev_label }} (full month)</div>
+      </div>
+    </div>
+    {% if rev.current_partial %}
+    <div class="note" style="margin-top:2px">
+      📈 On track for ~<b>{{ rev.projection_fmt }}</b> this month at the current pace ·
+      same period last month was <b>{{ rev.prev_mtd_fmt }}</b>.
+    </div>
+    {% endif %}
+    <div class="chart-wrap">
+      <svg class="trend" id="trend" role="img" aria-label="Monthly revenue trend"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="note">Revenue from <b>Vasy sales invoices</b> (source of truth), by invoice month.
+      {% if rev.current_partial %}The current month is still in progress; its MoM % compares like-for-like against the same days last month.{% else %}MoM % is vs the previous calendar month.{% endif %}</div>
+  </div>
+
+  <div class="section-title">Monthly breakdown</div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Month</th><th class="num">Revenue</th><th class="num">MoM %</th></tr></thead>
+      <tbody>
+        {% for m in rev.trend %}
+        <tr>
+          <td>{{ m.label }}{% if m.partial %} <span class="chip">so far</span>{% endif %}</td>
+          <td class="num">{{ m.revenue_fmt }}</td>
+          <td class="num">
+            {% if m.mom_pct is none %}<span class="pct mut">—</span>
+            {% else %}<span class="pct {{ 'up' if m.mom_pct > 0 else 'down' if m.mom_pct < 0 else 'mut' }}">{{ '+' if m.mom_pct > 0 else '' }}{{ m.mom_pct }}%</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+
+  <div class="section-title">Per-customer · {{ rev.current_label }} vs {{ rev.prev_label }}{% if rev.current_partial %} <span style="font-weight:500;color:var(--ink3)">(same {{ rev.day_of_month }}-day period)</span>{% endif %}</div>
+  <div class="toolbar">
+    <input id="q" type="text" placeholder="Search customer…" autocomplete="off">
+    <select id="fa"><option value="">All areas</option>{% for a in rev.areas %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select>
+    <select id="fs"><option value="">All salespersons</option>{% for s in rev.salespeople %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
+    <select id="fd"><option value="">All movement</option><option value="up">Growing</option><option value="down">Declining</option><option value="new">New</option><option value="lost">Lost</option></select>
+    <span class="count" id="count"></span>
+    <a href="/dashboard/analytics/export/revenue"
+       style="font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px">⬇ Excel</a>
+  </div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th class="srt" data-sort="name">Customer</th>
+        <th class="srt" data-sort="area">Area</th>
+        <th class="srt num" data-sort="prev">{{ rev.prev_label }}{% if rev.current_partial %} (1–{{ rev.day_of_month }}){% endif %}</th>
+        <th class="srt num" data-sort="curr">{{ rev.current_label }}{% if rev.current_partial %} (so far){% endif %}</th>
+        <th class="srt num" data-sort="delta">Δ</th>
+        <th class="srt num" data-sort="pct">MoM %</th>
+      </tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div></div>
+
+  <!-- P1-6 New vs lost customers -->
+  <div class="section-title">New vs lost customers · last 12 months</div>
+  <div class="card">
+    <div class="hero" style="margin-bottom:12px">
+      <div><div class="big" style="color:var(--green)">+{{ growth.total_new }}</div><div class="lab">Acquired</div></div>
+      <div><div class="big" style="color:var(--red)">−{{ growth.total_lost }}</div><div class="lab">Lost</div></div>
+      <div><div class="big">{{ '+' if growth.net > 0 else '' }}{{ growth.net }}</div><div class="lab">Net</div></div>
+      <div style="margin-left:auto;display:flex;gap:14px;align-items:center;font-size:12px;color:var(--ink2)">
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:var(--green);vertical-align:middle;margin-right:5px"></span>New</span>
+        <span><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:var(--red);vertical-align:middle;margin-right:5px"></span>Lost</span>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <svg class="trend" id="growth" role="img" aria-label="New vs lost customers per month" style="height:220px"></svg>
+      <div class="tip" id="gtip"></div>
+    </div>
+    <div class="note">Acquisition = customer's first Vasy invoice in that month; attrition = customer's last invoice in that month (current month excluded — still in progress). Based on invoice history, which begins when Vasy data was first imported, so the earliest month over-counts "new".</div>
+  </div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Month</th><th class="num">New</th><th class="num">Lost</th><th class="num">Net</th></tr></thead>
+      <tbody>
+        {% for m in growth.series %}
+        <tr>
+          <td>{{ m.label }}</td>
+          <td class="num{{ ' clik' if m.new }}" style="color:var(--green)"{% if m.new %} onclick="showPeople('{{ m.key }}','new')"{% endif %}>{{ '+' ~ m.new if m.new else '0' }}</td>
+          <td class="num{{ ' clik' if m.lost }}" style="color:var(--red)"{% if m.lost %} onclick="showPeople('{{ m.key }}','lost')"{% endif %}>{{ '−' ~ m.lost if m.lost else '0' }}</td>
+          <td class="num">{{ '+' if m.net > 0 else '' }}{{ m.net }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  <div class="note" style="margin:6px 2px">Tip: click a <b>New</b> or <b>Lost</b> number (or a chart bar) to see which customers.</div>
+</main>
+
+<div class="modal-ov" id="ov">
+  <div class="modal">
+    <div class="modal-h"><span id="mtitle"></span><button type="button" onclick="closeModal()" aria-label="Close">✕</button></div>
+    <input id="mq" type="text" placeholder="Search name, area, salesperson…" autocomplete="off">
+    <div class="modal-body" id="mbody"></div>
+  </div>
+</div>
+
+<script>
+const TREND = {{ rev.trend | tojson }};
+const ROWS = {{ rev.customers | tojson }};
+const GROWTH = {{ growth.series | tojson }};
+let sortKey = "delta", sortDir = -1;
+
+function drawGrowth(){
+  const svg = document.getElementById('growth'), tip = document.getElementById('gtip');
+  const W = svg.clientWidth || 900, H = 220, padL=32, padR=12, padT=14, padB=26;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const max = Math.max(1, ...GROWTH.map(d=>Math.max(d.new, d.lost)));
+  const n=GROWTH.length, grp=(plotW-6*(n-1))/n, bw=(grp-3)/2;
+  let els='';
+  els+=`<line class="axis" x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}"/>`;
+  [0,max].forEach(v=>{const y=padT+plotH-(v/max)*plotH; els+=`<text class="ylab" x="${padL-6}" y="${y+3}" text-anchor="end">${v}</text>`;});
+  GROWTH.forEach((d,i)=>{
+    const gx=padL+i*(grp+6);
+    [['new',d.new,'#1a6b41'],['lost',d.lost,'#b91c1c']].forEach((s,j)=>{
+      const h=(s[1]/max)*plotH, x=gx+j*(bw+3), y=padT+plotH-h, rr=h>3?3:0;
+      els+=`<path d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" fill="${s[2]}" data-t="${s[0]}" data-v="${s[1]}" data-l="${d.label}" data-k="${d.key}" data-x="${x+bw/2}" data-y="${y}" class="gb"></path>`;
+    });
+    if (i%(n>8?2:1)===0) els+=`<text class="xlab" x="${gx+grp/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+  });
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=els;
+  svg.querySelectorAll('.gb').forEach(b=>{
+    b.addEventListener('mouseenter',()=>{tip.style.opacity=1;tip.style.left=b.getAttribute('data-x')+'px';tip.style.top=(parseFloat(b.getAttribute('data-y'))-6)+'px';tip.innerHTML='<strong>'+b.getAttribute('data-v')+'</strong> '+b.getAttribute('data-t')+' · '+b.getAttribute('data-l');});
+    b.addEventListener('mouseleave',()=>tip.style.opacity=0);
+    b.addEventListener('click',()=>{ if(+b.getAttribute('data-v')>0) showPeople(b.getAttribute('data-k'), b.getAttribute('data-t')); });
+  });
+}
+
+let modalPeople=[], modalType='new';
+function showPeople(key,type){
+  const m=GROWTH.find(x=>x.key===key); if(!m) return;
+  modalType=type;
+  modalPeople = type==='new' ? m.new_customers : m.lost_customers;
+  document.getElementById('mtitle').textContent=(type==='new'?'Acquired':'Lost')+' · '+m.label+' ('+modalPeople.length+')';
+  document.getElementById('mq').value='';
+  document.getElementById('ov').classList.add('show');
+  renderPeople();
+  document.getElementById('mq').focus();
+}
+function renderPeople(){
+  const q=document.getElementById('mq').value.trim().toLowerCase();
+  const list=modalPeople.filter(p=>!q||p.name.toLowerCase().includes(q)||(p.area||'').toLowerCase().includes(q)||(p.salesperson||'').toLowerCase().includes(q));
+  document.getElementById('mbody').innerHTML = list.length ? list.map(p=>
+    '<a class="p-row" href="/dashboard/analytics/customer/'+p.id+'">'+
+      '<div><div>'+esc(p.name)+'</div>'+((p.area||p.salesperson)?'<div class="sub">'+[p.area,p.salesperson].filter(Boolean).map(esc).join(' · ')+'</div>':'')+'</div>'+
+      '<div class="p-date">'+(modalType==='new'?'first ':'last ')+esc(p.date)+'</div></a>'
+  ).join('') : '<div class="empty">No match.</div>';
+}
+function closeModal(){document.getElementById('ov').classList.remove('show');}
+document.getElementById('ov').addEventListener('click',e=>{if(e.target.id==='ov')closeModal();});
+document.getElementById('mq').addEventListener('input',renderPeople);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+
+function drawTrend(){
+  const svg = document.getElementById('trend'), tip = document.getElementById('tip');
+  const W = svg.clientWidth || 900, H = 240, padL=48, padR=12, padT=14, padB=26;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const max = Math.max(1, ...TREND.map(d=>d.revenue));
+  const pow = Math.pow(10, Math.floor(Math.log10(max)));
+  const niceMax = (max/pow<=1?1:max/pow<=2?2:max/pow<=5?5:10)*pow;
+  const n=TREND.length, gap=8, bw=(plotW-gap*(n-1))/n;
+  const inr = v => '₹'+Math.round(v).toLocaleString('en-IN');
+  let els='';
+  [0,niceMax/2,niceMax].forEach(v=>{
+    const y=padT+plotH-(v/niceMax)*plotH;
+    els+=`<line class="axis" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" ${v===0?'':'stroke-opacity="0.35"'}/>`;
+    els+=`<text class="ylab" x="${padL-6}" y="${y+3}" text-anchor="end">${inr(v)}</text>`;
+  });
+  TREND.forEach((d,i)=>{
+    const x=padL+i*(bw+gap), h=(d.revenue/niceMax)*plotH, y=padT+plotH-h, r=Math.min(4,bw/2), rr=h>r?r:0;
+    const partial = d.partial ? ' fill-opacity="0.5"' : '';
+    const vlab = d.partial ? inr(d.revenue)+' (so far)' : inr(d.revenue);
+    els+=`<path class="bar"${partial} d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" data-l="${d.label}" data-v="${vlab}" data-x="${x+bw/2}" data-y="${y}"></path>`;
+    if (i%(n>8?2:1)===0) els+=`<text class="xlab" x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+  });
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=els;
+  svg.querySelectorAll('.bar').forEach(b=>{
+    b.addEventListener('mouseenter',()=>{tip.style.opacity=1;tip.style.left=b.getAttribute('data-x')+'px';tip.style.top=(parseFloat(b.getAttribute('data-y'))-6)+'px';tip.innerHTML='<strong>'+b.getAttribute('data-v')+'</strong> · '+b.getAttribute('data-l');});
+    b.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+
+function pctCell(r){
+  if (r.direction === 'new') return '<span class="tag new">new</span>';
+  if (r.direction === 'lost') return '<span class="tag lost">lost</span>';
+  if (r.pct === null) return '<span class="pct mut">—</span>';
+  const cls = r.pct>0?'up':r.pct<0?'down':'mut';
+  return '<span class="pct '+cls+'">'+(r.pct>0?'+':'')+r.pct+'%</span>';
+}
+function render(){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  const fa=document.getElementById('fa').value, fs=document.getElementById('fs').value, fd=document.getElementById('fd').value;
+  let rows=ROWS.filter(r=>
+    (!q||r.name.toLowerCase().includes(q)) && (!fa||r.area===fa) && (!fs||r.salesperson===fs) && (!fd||r.direction===fd));
+  const numeric=['prev','curr','delta','pct'].includes(sortKey);
+  rows.sort((a,b)=>{
+    let x=a[sortKey], y=b[sortKey];
+    if(numeric){ x=(x===null?-Infinity:x); y=(y===null?-Infinity:y); return (x-y)*sortDir; }
+    return String(x).localeCompare(String(y))*sortDir;
+  });
+  const body=document.getElementById('body');
+  body.innerHTML = rows.length ? rows.map(r=>{
+    const click = r.customer_id!=null ? ' onclick="location.href=\'/dashboard/analytics/customer/'+r.customer_id+'\'"' : '';
+    return '<tr class="row"'+click+'>'+
+      '<td>'+esc(r.name)+(r.salesperson?'<div class="cust-sub">🧑 '+esc(r.salesperson)+'</div>':'')+'</td>'+
+      '<td>'+(r.area?'<span class="chip">'+esc(r.area)+'</span>':'<span class="cust-sub">—</span>')+'</td>'+
+      '<td class="num">'+r.prev_fmt+'</td>'+
+      '<td class="num">'+r.curr_fmt+'</td>'+
+      '<td class="num">'+(r.delta>0?'+':'')+r.delta_fmt+'</td>'+
+      '<td class="num">'+pctCell(r)+'</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="empty">No customer activity this month or last.</td></tr>';
+  document.getElementById('count').textContent = rows.length+' of '+ROWS.length+' customers';
+  document.querySelectorAll('th.srt').forEach(th=>{
+    th.querySelector('.arrow')?.remove();
+    if(th.getAttribute('data-sort')===sortKey){const s=document.createElement('span');s.className='arrow';s.textContent=sortDir===1?' ▲':' ▼';th.appendChild(s);}
+  });
+}
+function esc(s){return String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+document.querySelectorAll('th.srt').forEach(th=>th.addEventListener('click',()=>{
+  const k=th.getAttribute('data-sort');
+  if(k===sortKey) sortDir=-sortDir; else {sortKey=k; sortDir=(k==='name'||k==='area')?1:-1;}
+  render();
+}));
+['q','fa','fs','fd'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+drawTrend(); drawGrowth(); render();
+window.addEventListener('resize',()=>{drawTrend();drawGrowth();});
+</script>
+</body>
+</html>

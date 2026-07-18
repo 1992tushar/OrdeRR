@@ -65,7 +65,7 @@
   <tbody>
   {% for a in actuals %}
   <tr>
-    <td>{{ a.product }}</td>
+    <td>{{ erp_name(a.product) }}</td>
     <td style="color:#6b7280;">{{ a.ordered_quantity }} {{ a.ordered_unit }}</td>
     <td><strong>{{ a.actual_quantity }}</strong></td>
     <td>{{ a.actual_unit }}</td>

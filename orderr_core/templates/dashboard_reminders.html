@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Reminders</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:20px 14px 80px}
+
+.tabs{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tab{font-size:13px;font-weight:600;padding:8px 16px;border-radius:20px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink2);cursor:pointer;white-space:nowrap}
+.tab.active{background:var(--green);border-color:var(--green);color:#fff}
+.tab .badge{display:inline-block;min-width:18px;text-align:center;font-size:11px;font-weight:800;border-radius:10px;padding:1px 5px;margin-left:5px;background:var(--red);color:#fff}
+.tab.active .badge{background:rgba(255,255,255,.25)}
+.pane{display:none}.pane.active{display:block}
+
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:18px 2px 10px}
+.section-title{font-size:14px;font-weight:700}
+.section-sub{font-size:12px;color:var(--ink3)}
+.note-box{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--blue-border);border-radius:8px;padding:10px 14px;margin-bottom:14px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:12px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.form .full{grid-column:1/-1}
+.form label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);margin-bottom:3px}
+.form input,.form select,.form textarea{width:100%;font-size:14px;padding:8px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.form textarea{resize:vertical;min-height:56px}
+.btn{font-size:13px;font-weight:600;padding:8px 16px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn.primary{background:var(--green);border-color:var(--green);color:#fff}
+.btn.small{font-size:11px;padding:4px 10px;border-radius:20px}
+.btn.small.red{color:var(--red);border-color:var(--red-border)}
+.btn:disabled{opacity:.5}
+.err{font-size:12px;color:var(--red);margin-top:8px;display:none}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;margin-bottom:14px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border)}
+th.num{text-align:right}
+td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+.muted{color:var(--ink3);font-size:12px}
+.empty{color:var(--ink3);text-align:center;padding:26px}
+.chip{display:inline-block;font-size:10px;padding:1px 8px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2);white-space:nowrap}
+.chip.red{background:var(--red-bg);border-color:var(--red-border);color:var(--red);font-weight:700}
+.chip.amber{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber);font-weight:700}
+.chip.green{background:var(--green-bg);border-color:var(--green-border);color:var(--green)}
+
+/* attention feed */
+.feed-item{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:8px;text-decoration:none;color:var(--ink)}
+.feed-item.overdue{border-left-color:var(--red)}
+.feed-item.due{border-left-color:var(--amber)}
+.feed-item.nudge{border-left-color:var(--border-strong)}
+.feed-item .t{font-weight:600;font-size:13px}
+.feed-item .d{font-size:12px;color:var(--ink3);margin-top:2px}
+.feed-item:hover{background:var(--green-bg)}
+
+/* note cards */
+.ncard{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--green-border);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:10px}
+.ncard.overdue{border-left-color:var(--red)}
+.ncard.high{border-left-color:var(--amber)}
+.ncard.high.overdue{border-left-color:var(--red)}
+.ncard .txt{font-size:14px;font-weight:600}
+.ncard .meta{font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
+.ncard .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📌 {{ plant_name }} Reminders</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  <div class="tabs">
+    <button class="tab" data-pane="attention" onclick="showTab('attention')">📣 Attention{% if feed.count %}<span class="badge">{{ feed.count }}</span>{% endif %}</button>
+    <button class="tab" data-pane="sundries" onclick="showTab('sundries')">🧺 Sundries</button>
+    <button class="tab" data-pane="notes" onclick="showTab('notes')">📝 Notes{% if notes.overdue_count %}<span class="badge">{{ notes.overdue_count }}</span>{% endif %}</button>
+    <button class="tab" data-pane="dates" onclick="showTab('dates')">📅 Dates{% if dates.overdue_count %}<span class="badge">{{ dates.overdue_count }}</span>{% endif %}</button>
+  </div>
+
+  <!-- ═══ ATTENTION ═══ -->
+  <div class="pane" id="pane-attention">
+    <div class="note-box">Everything that needs a human, in urgency order — overdue first, then coming
+      up, then buying nudges. Items stay here until someone closes them.</div>
+    {% if feed['items'] %}
+      {% for it in feed['items'] %}
+      <a class="feed-item {{ it.urgency }}" href="{{ it.link }}" onclick="return goTab(event,'{{ it.link }}')">
+        <div style="font-size:18px">{{ it.icon }}</div>
+        <div><div class="t">{{ it.title }}</div><div class="d">{{ it.detail }}</div></div>
+      </a>
+      {% endfor %}
+    {% else %}
+      <div class="card empty">Nothing needs attention right now 🎉</div>
+    {% endif %}
+  </div>
+
+  <!-- ═══ SUNDRIES ═══ -->
+  <div class="pane" id="pane-sundries">
+    <div class="note-box">Small non-trade buying — cleaning material, carry bags, stationery… Records
+      <b>what you paid last time and from whom</b>, and nudges when something is probably due again.
+      Kept in OrdeRR only (nothing goes to Vasy). Not stock tracking.</div>
+
+    <div class="card">
+      <div class="section-title" style="margin-bottom:10px">Add a purchase</div>
+      <div class="form">
+        <div class="full"><label>Item *</label>
+          <input id="s-item" list="s-items" placeholder="e.g. Carry bags 12×16" autocomplete="off">
+          <datalist id="s-items">{% for r in sundries.rows %}<option value="{{ r.name }}">{% endfor %}</datalist>
+        </div>
+        <div><label>Amount ₹ *</label><input id="s-amount" inputmode="decimal" placeholder="0"></div>
+        <div><label>Date</label><input id="s-date" type="date" value="{{ today }}"></div>
+        <div><label>Category</label>
+          <select id="s-category">{% for c in sundries.categories %}<option value="{{ c }}">{{ c|capitalize }}</option>{% endfor %}</select></div>
+        <div><label>Qty</label><input id="s-qty" inputmode="decimal" placeholder="—"></div>
+        <div><label>Unit</label><input id="s-unit" placeholder="pkt / kg / pcs"></div>
+        <div><label>Rate ₹</label><input id="s-rate" inputmode="decimal" placeholder="—"></div>
+        <div><label>Vendor</label><input id="s-vendor" placeholder="—"></div>
+        <div><label>Paid via</label>
+          <select id="s-paid"><option value="">—</option><option value="cash">Cash</option><option value="bank">Bank</option><option value="other">Other</option></select></div>
+        <div class="full"><label>Note</label><input id="s-note" placeholder="optional"></div>
+      </div>
+      <div style="margin-top:10px"><button class="btn primary" onclick="addSundry(this)">Save purchase</button></div>
+      <div class="err" id="s-err"></div>
+    </div>
+
+    <div class="section-head"><div class="section-title">Register</div>
+      <div class="section-sub">{{ sundries.month_label }}: {{ sundries.month_total_fmt }}{% for c in sundries.month_by_cat %} · {{ c.category }} {{ c.amount_fmt }}{% endfor %}</div></div>
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr><th>Item</th><th>Category</th><th class="num">Buys</th><th>Last bought</th><th class="num">Last paid</th><th>Last vendor</th><th class="num">~Every</th></tr></thead>
+        <tbody>
+          {% for r in sundries.rows %}
+          <tr>
+            <td><b>{{ r.name }}</b>{% if r.probably_due %} <span class="chip amber">probably due</span>{% endif %}</td>
+            <td><span class="chip">{{ r.category }}</span></td>
+            <td class="num">{{ r.buys }}</td>
+            <td>{{ r.last_date or '—' }}</td>
+            <td class="num">{{ r.last_amount_fmt }}{% if r.last_rate_fmt %} <span class="muted">@{{ r.last_rate_fmt }}</span>{% endif %}</td>
+            <td>{{ r.last_vendor or '—' }}</td>
+            <td class="num">{% if r.gap_days %}{{ r.gap_days }}d{% else %}—{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="empty">No items yet — add the first purchase above.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+
+    {% if sundries.recent %}
+    <div class="section-head"><div class="section-title">Recent purchases</div></div>
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Item</th><th class="num">Qty</th><th class="num">Amount</th><th>Vendor</th><th>Via</th><th>Note</th></tr></thead>
+        <tbody>
+          {% for p in sundries.recent %}
+          <tr><td>{{ p.date }}</td><td>{{ p.item }}</td><td class="num">{{ p.qty or '—' }}</td>
+            <td class="num">{{ p.amount_fmt }}{% if p.rate_fmt %} <span class="muted">@{{ p.rate_fmt }}</span>{% endif %}</td>
+            <td>{{ p.vendor or '—' }}</td><td>{{ p.paid_via or '—' }}</td><td class="muted">{{ p.note or '' }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {% endif %}
+  </div>
+
+  <!-- ═══ NOTES ═══ -->
+  <div class="pane" id="pane-notes">
+    <div class="note-box">The don't-forget ledger — facts with money or consequences attached
+      ("salesperson took ₹20,000 from a customer, promised to return it"). Open notes <b>nag until
+      closed</b>, and closing requires writing what actually happened. A note never changes any
+      balance — money corrections still happen in Vasy.</div>
+
+    <div class="card">
+      <div class="section-title" style="margin-bottom:10px">Add a note</div>
+      <div class="form">
+        <div class="full"><label>What happened? *</label><textarea id="n-text" placeholder="e.g. 01 Apr — Ramesh took ₹20,000 from Hotel XYZ against collections, said he'll return it"></textarea></div>
+        <div><label>Amount ₹</label><input id="n-amount" inputmode="decimal" placeholder="optional"></div>
+        <div><label>Customer</label>
+          <select id="n-customer"><option value="">— none —</option>{% for c in notes.customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+        <div><label>Person (staff)</label><input id="n-person" placeholder="optional"></div>
+        <div><label>Event date</label><input id="n-event" type="date" value="{{ today }}"></div>
+        <div><label>Follow up on</label><input id="n-follow" type="date"></div>
+        <div><label>Priority</label>
+          <select id="n-priority"><option value="normal">Normal</option><option value="high">High</option></select></div>
+      </div>
+      <div style="margin-top:10px"><button class="btn primary" onclick="addNote(this)">Save note</button></div>
+      <div class="err" id="n-err"></div>
+    </div>
+
+    <div class="section-head"><div class="section-title">Open ({{ notes.open_count }})</div>
+      {% if notes.overdue_count %}<div class="section-sub" style="color:var(--red);font-weight:700">{{ notes.overdue_count }} overdue</div>{% endif %}</div>
+    {% for n in notes.open %}
+    <div class="ncard {{ 'overdue' if n.overdue_days is not none }} {{ 'high' if n.priority == 'high' }}">
+      <div class="txt">{{ n.note }}</div>
+      <div class="meta">
+        {% if n.amount_fmt %}<span><b>{{ n.amount_fmt }}</b></span>{% endif %}
+        {% if n.customer %}<span>🏨 <a href="/dashboard/analytics/customer/{{ n.customer_id }}">{{ n.customer }}</a></span>{% endif %}
+        {% if n.person %}<span>🧑 {{ n.person }}</span>{% endif %}
+        {% if n.event_date %}<span>happened {{ n.event_date }}</span>{% endif %}
+        {% if n.overdue_days is not none %}<span class="chip red">{% if n.overdue_days == 0 %}follow up today{% else %}{{ n.overdue_days }}d overdue{% endif %}</span>
+        {% elif n.follow_up %}<span class="chip">follow up {{ n.follow_up }}</span>
+        {% else %}<span class="chip">no follow-up date</span>{% endif %}
+        {% if n.priority == 'high' %}<span class="chip amber">high</span>{% endif %}
+      </div>
+      <div class="actions">
+        <button class="btn small" onclick="closeNote({{ n.id }},'resolved',this)">✓ Resolve</button>
+        <button class="btn small red" onclick="closeNote({{ n.id }},'dropped',this)">✕ Drop</button>
+        <button class="btn small" onclick="snoozeNote({{ n.id }},7,this)">＋7d</button>
+        <button class="btn small" onclick="snoozeNote({{ n.id }},30,this)">＋30d</button>
+        <button class="btn small" onclick="snoozeNote({{ n.id }},0,this)">Snooze to…</button>
+      </div>
+    </div>
+    {% else %}
+    <div class="card empty">No open notes.</div>
+    {% endfor %}
+
+    {% if notes.closed %}
+    <div class="section-head"><div class="section-title">Recently closed</div></div>
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr><th>Note</th><th>Outcome</th><th>What happened</th><th>Closed</th></tr></thead>
+        <tbody>
+          {% for n in notes.closed %}
+          <tr><td>{{ n.note }}{% if n.amount_fmt %} <b>{{ n.amount_fmt }}</b>{% endif %}</td>
+            <td><span class="chip {{ 'green' if n.status == 'resolved' else '' }}">{{ n.status }}</span></td>
+            <td class="muted">{{ n.resolution_note }}</td><td class="muted">{{ n.resolved_at }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {% endif %}
+  </div>
+
+  <!-- ═══ DATES ═══ -->
+  <div class="pane" id="pane-dates">
+    <div class="note-box">Renewals & recurring maintenance — insurance, servicing, licenses, AMCs.
+      Each item starts nagging <b>its lead days before</b> the due date and goes red after it.
+      Marking done moves recurring items to their next date automatically.</div>
+
+    <div class="card">
+      <div class="section-title" style="margin-bottom:10px">Add an important date</div>
+      <div class="form">
+        <div class="full"><label>Title *</label><input id="d-title" placeholder="e.g. Tempo MH12 AB 1234 insurance renewal"></div>
+        <div><label>Category</label>
+          <select id="d-category">{% for c in dates.categories %}<option value="{{ c.key }}">{{ c.label }}</option>{% endfor %}</select></div>
+        <div><label>Due date *</label><input id="d-due" type="date"></div>
+        <div><label>Repeats</label>
+          <select id="d-recur" onchange="document.getElementById('d-days-wrap').style.display=this.value==='days'?'':'none'">
+            <option value="none">Never (one-off)</option><option value="days">Every N days</option>
+            <option value="monthly">Monthly</option><option value="quarterly">Quarterly</option>
+            <option value="yearly">Yearly</option></select></div>
+        <div id="d-days-wrap" style="display:none"><label>Every how many days</label><input id="d-days" inputmode="numeric" placeholder="e.g. 90"></div>
+        <div><label>Next due counts from</label>
+          <select id="d-rule"><option value="anniversary">Fixed schedule (insurance, license)</option>
+            <option value="from_done">Day it was done (servicing)</option></select></div>
+        <div><label>Remind days before</label><input id="d-lead" inputmode="numeric" value="15"></div>
+        <div><label>Linked to</label><input id="d-linked" placeholder="vehicle / policy / asset"></div>
+        <div><label>Approx amount ₹</label><input id="d-amount" inputmode="decimal" placeholder="optional"></div>
+        <div class="full"><label>Note</label><input id="d-note" placeholder="optional"></div>
+      </div>
+      <div style="margin-top:10px"><button class="btn primary" onclick="addDate(this)">Save date</button></div>
+      <div class="err" id="d-err"></div>
+    </div>
+
+    <div class="section-head"><div class="section-title">Active ({{ dates.active|length }})</div>
+      <div class="section-sub">{% if dates.overdue_count %}<span style="color:var(--red);font-weight:700">{{ dates.overdue_count }} overdue</span> · {% endif %}{{ dates.due_soon_count }} due soon</div></div>
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr><th>What</th><th>Category</th><th>Due</th><th>Repeats</th><th class="num">≈₹</th><th></th></tr></thead>
+        <tbody>
+          {% for r in dates.active %}
+          <tr>
+            <td><b>{{ r.title }}</b>{% if r.linked_to %} <span class="muted">· {{ r.linked_to }}</span>{% endif %}
+              {% if r.note %}<div class="muted">{{ r.note }}</div>{% endif %}
+              {% if r.last_done %}<div class="muted">last done {{ r.last_done }}</div>{% endif %}</td>
+            <td><span class="chip">{{ r.category_label }}</span></td>
+            <td style="white-space:nowrap">{{ r.due_date }}<br>
+              {% if r.overdue %}<span class="chip red">{{ -r.days_left }}d overdue</span>
+              {% elif r.due_soon %}<span class="chip amber">{% if r.days_left == 0 %}today{% else %}in {{ r.days_left }}d{% endif %}</span>
+              {% else %}<span class="muted">in {{ r.days_left }}d</span>{% endif %}</td>
+            <td class="muted">{% if r.recurrence == 'none' %}one-off{% elif r.recurrence == 'days' %}every {{ r.recur_days }}d{% else %}{{ r.recurrence }}{% endif %}</td>
+            <td class="num">{{ r.amount_fmt or '—' }}</td>
+            <td style="white-space:nowrap">
+              <button class="btn small" onclick="dateDone({{ r.id }},this)">✓ Done</button>
+              <button class="btn small" onclick="datePause({{ r.id }},this)">⏸</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty">Nothing here yet — add insurance / servicing / license dates above.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+
+    {% if dates.other %}
+    <div class="section-head"><div class="section-title">Paused / completed</div></div>
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr><th>What</th><th>Status</th><th>Was due</th><th></th></tr></thead>
+        <tbody>
+          {% for r in dates.other %}
+          <tr><td>{{ r.title }}{% if r.linked_to %} <span class="muted">· {{ r.linked_to }}</span>{% endif %}</td>
+            <td><span class="chip">{{ r.status }}</span></td><td class="muted">{{ r.due_date }}</td>
+            <td>{% if r.status == 'paused' %}<button class="btn small" onclick="datePause({{ r.id }},this)">▶ Resume</button>{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {% endif %}
+  </div>
+</main>
+
+<script>
+function showTab(name){
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active', p.id==='pane-'+name));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.getAttribute('data-pane')===name));
+  if(history.replaceState) history.replaceState(null,'','?tab='+name);
+}
+function goTab(e, link){
+  const m = link.match(/tab=(\w+)/);
+  if(m){ e.preventDefault(); showTab(m[1]); return false; }
+  return true;
+}
+showTab(new URLSearchParams(location.search).get('tab') || 'attention');
+
+function err(id,msg){ const el=document.getElementById(id); el.textContent=msg||''; el.style.display=msg?'block':'none'; }
+async function post(url, body, btn, errId){
+  err(errId,'');
+  if(btn) btn.disabled=true;
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+    if(!res.ok){ const j=await res.json().catch(()=>({})); err(errId, j.detail||'Something went wrong.'); if(btn) btn.disabled=false; return false; }
+    return true;
+  }catch(e){ err(errId,'Network error — try again.'); if(btn) btn.disabled=false; return false; }
+}
+const v=id=>document.getElementById(id).value;
+
+async function addSundry(btn){
+  if(await post('/dashboard/reminders/sundry',{
+    item_name:v('s-item'), amount:v('s-amount'), purchase_date:v('s-date'),
+    category:v('s-category'), qty:v('s-qty'), unit:v('s-unit'), rate:v('s-rate'),
+    vendor:v('s-vendor'), paid_via:v('s-paid'), note:v('s-note')
+  },btn,'s-err')) location.href='?tab=sundries';
+}
+async function addNote(btn){
+  if(await post('/dashboard/reminders/note',{
+    note:v('n-text'), amount:v('n-amount'), customer_id:v('n-customer'),
+    person:v('n-person'), event_date:v('n-event'), follow_up_date:v('n-follow'),
+    priority:v('n-priority')
+  },btn,'n-err')) location.href='?tab=notes';
+}
+async function closeNote(id,status,btn){
+  const what = prompt(status==='resolved' ? 'What happened? (e.g. "recovered ₹20,000 in cash on 12 Jul")'
+                                          : 'Why drop this note?');
+  if(what===null) return;
+  if(await post('/dashboard/reminders/note/'+id+'/close',{status:status,resolution_note:what},btn,'n-err'))
+    location.href='?tab=notes';
+}
+async function snoozeNote(id,days,btn){
+  let until;
+  if(days>0){ const d=new Date(); d.setDate(d.getDate()+days); until=d.toISOString().slice(0,10); }
+  else{ until=prompt('Snooze until (YYYY-MM-DD):'); if(until===null) return; }
+  if(await post('/dashboard/reminders/note/'+id+'/snooze',{until:until},btn,'n-err'))
+    location.href='?tab=notes';
+}
+async function addDate(btn){
+  if(await post('/dashboard/reminders/date',{
+    title:v('d-title'), category:v('d-category'), due_date:v('d-due'),
+    recurrence:v('d-recur'), recur_days:v('d-days'), advance_rule:v('d-rule'),
+    lead_days:v('d-lead'), linked_to:v('d-linked'), amount_estimate:v('d-amount'),
+    note:v('d-note')
+  },btn,'d-err')) location.href='?tab=dates';
+}
+async function dateDone(id,btn){
+  if(!confirm('Mark as done? Recurring items move to their next date.')) return;
+  if(await post('/dashboard/reminders/date/'+id+'/done',{},btn,'d-err')) location.href='?tab=dates';
+}
+async function datePause(id,btn){
+  if(await post('/dashboard/reminders/date/'+id+'/toggle-pause',{},btn,'d-err')) location.href='?tab=dates';
+}
+</script>
+</body>
+</html>

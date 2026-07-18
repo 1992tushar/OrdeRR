@@ -60,16 +60,29 @@ SIGNATURE_PATH   = Path("orderr_core/assets/signature.png")
 # (see _lookup_outstanding + the totals section in generate_invoice_pdf)
 
 # ── Page geometry ─────────────────────────────────────────────────────────────
-# The invoice prints on HALF an A4 sheet (A4 torn across the middle) to save
-# paper: 210 mm wide × 148.5 mm tall (landscape half). Width matches A4, so the
-# 18 mm side margins still give a 174 mm content width.
+# The PAGE is a FULL, STANDARD A4 (210 × 297 mm) but the invoice is drawn only in
+# the TOP HALF (top 148.5 mm). This is deliberate and is what lets billing print
+# with ZERO printer configuration:
 #
-# KNOWN LIMITATION: a half-A4 sheet fits ~4-5 line items comfortably; ~6+ items
-# overflow the page and the signature/footer get clipped. There is no multi-page
-# pagination yet (the ERP spills large invoices to a second half-sheet — "Next
-# >>"). Add page-break handling here if invoices with many items become common.
+#   * The printer's paper size stays on plain A4 — forever, for every job.
+#   * Feed a pre-cut half-sheet (top half of an A4) and the top-half content lands
+#     on it at 100 %; the (blank) bottom half simply never prints. No custom paper
+#     size, no "fit/scale" fiddling.
+#   * Feed a normal full A4 for any other task and it still works unchanged —
+#     nothing to reconfigure between jobs.
+#
+# Do NOT change PAGE_H back to A4/2: a 148.5 mm custom page does not match the
+# printer's A4 default and forces the per-print configuration that used to stop
+# billing. All drawing below is anchored from the TOP (PAGE_H - x*mm), so the
+# content sits in the top half automatically and the bottom half is left blank.
+#
+# KNOWN LIMITATION: the top half fits ~4-5 line items comfortably; ~6+ items
+# overflow into the bottom (cut-off) half. There is no multi-page pagination yet
+# (the ERP spills large invoices to a second half-sheet — "Next >>"). Add
+# page-break handling here if invoices with many items become common.
 PAGE_W = A4[0]        # 210 mm
-PAGE_H = A4[1] / 2    # 148.5 mm — half of A4
+PAGE_H = A4[1]        # 297 mm — full A4; invoice drawn in the top 148.5 mm
+CONTENT_TOP = A4[1]   # drawing origin: top edge of the A4 page
 ML = 18 * mm
 MR = PAGE_W - 18 * mm
 CW = MR - ML   # exactly 174 mm
@@ -173,33 +186,22 @@ def _uom(unit: str) -> str:
 
 
 # ── ERP product master → (item code, full ERP description) ────────────────────
-# Source: "Fluffy Fresh Foods Private Limited" product-list export. Keys are
-# OrdeRR's canonical product names (lower-cased). Unmapped products fall back to
-# the placeholder code + OrdeRR's own name, so nothing breaks.
-PRODUCT_MAP = {
-    "w/o skin tandoor chicken": ("CH1024558", "Without Skin whole chicken Tandoor"),
-    "w/o skin regular chicken": ("CH1024559", "Without Skin whole chicken Regular"),
-    "ws regular chicken":       ("CH1024561", "With Skin whole chicken Regular"),
-    "curry cut":                ("CH1024563", "Chicken Curry Cut Without Skin"),
-    "biryani cut":              ("CH1024576", "Chicken Biryani Cut"),
-    "drumstick":                ("CH1024573", "Chicken Drumstick"),
-    "whole leg":                ("CH1024572", "Chicken Whole Leg"),
-    "liver":                    ("CH1024570", "Chicken Liver"),
-    "gizzard":                  ("CH1024569", "Chicken Gizzard"),
-    "kheema":                   ("CH1024571", "Chicken Kheema"),
-    "breast boneless":          ("CH1024574", "Chicken Breast boneless"),
-    "chicken breast":           ("CH1024574", "Chicken Breast boneless"),
-    "leg boneless":             ("CH1024557", "Chicken Leg Boneless"),
-    "wings":                    ("CH1024575", "Chicken Wings with Skin"),
-    "carcass":                  ("CH1024567", "Chicken Carcass"),
-}
-
-
 def _product_info(product: str) -> tuple[str, str]:
-    """Return (item_code, description) for a product — ERP values when mapped,
-    otherwise the placeholder code and OrdeRR's own name."""
-    info = PRODUCT_MAP.get((product or "").strip().lower())
-    return info if info else (ITEM_CODE, product)
+    """Return (item_code, description) for a product — exact Vasy ERP values when
+    the product maps to the ERP catalog, otherwise the placeholder code and
+    OrdeRR's own name so nothing breaks.
+
+    Single source of truth: ERP_ITEMS in template_parser. Matches on the exact
+    canonical name first, then case-insensitively, so legacy/lower-cased stored
+    names still resolve."""
+    from orderr_core.services.template_parser import get_erp_item, ERP_ITEMS
+    name = (product or "").strip()
+    erp = get_erp_item(name)
+    if not erp:
+        # Case-insensitive fallback for any legacy stored casing.
+        low = name.lower()
+        erp = next((v for k, v in ERP_ITEMS.items() if k.lower() == low), None)
+    return (erp["erp_code"], erp["erp_name"]) if erp else (ITEM_CODE, product)
 
 
 def _barcode_bytes(text: str) -> io.BytesIO:
@@ -258,23 +260,20 @@ def _lookup_outstanding(customer_phone: str) -> Decimal:
     return Decimal("0")
 
 
-def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | None = None) -> str:
-    """
-    Render a branded A4 invoice PDF.
+def _draw_invoice(c: "canvas.Canvas", invoice: "Invoice", hotel_name: str,
+                  address: str | None = None) -> None:
+    """Draw ONE invoice into the top half of the current A4 page of canvas `c`.
+
+    Does NOT create the canvas and does NOT call save()/showPage() — the caller
+    owns page lifecycle. This lets a single invoice go to its own file AND lets
+    many invoices be stacked one-per-page into a single combined print PDF, both
+    sharing this exact layout.
 
     Args:
         invoice:    Invoice ORM instance (with .items relationship loaded).
         hotel_name: Display name of the buyer / hotel.
-
-    Returns:
-        Absolute path to the saved PDF file (str).
+        address:    Optional pre-resolved address; looked up if None.
     """
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = hotel_name.strip().replace(" ", "_").replace("/", "-")
-    out_path = OUTPUT_DIR / f"{safe_name}_{invoice.invoice_number}.pdf"
-
-    c = canvas.Canvas(str(out_path), pagesize=(PAGE_W, PAGE_H))
-
     # ── drawing helpers ───────────────────────────────────────────────────────
     def hline(y: float, lw: float = 0.6) -> None:
         c.setLineWidth(lw)
@@ -533,5 +532,44 @@ def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | Non
     c.drawCentredString(PAGE_W / 2, footer_y, "Page 1 of 1")
     c.drawRightString(MR, footer_y, "Next >>")
 
+
+def _safe_name(hotel_name: str) -> str:
+    return (hotel_name or "").strip().replace(" ", "_").replace("/", "-")
+
+
+def generate_invoice_pdf(invoice: "Invoice", hotel_name: str, address: str | None = None) -> str:
+    """Render a single branded invoice to its own A4 PDF file (top-half layout).
+
+    Returns the absolute path to the saved PDF. Always overwrites so the file
+    reflects the current layout (older cached files may be the legacy half-A4
+    size).
+    """
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / f"{_safe_name(hotel_name)}_{invoice.invoice_number}.pdf"
+
+    c = canvas.Canvas(str(out_path), pagesize=(PAGE_W, PAGE_H))
+    _draw_invoice(c, invoice, hotel_name, address)
     c.save()
     return str(out_path.resolve())
+
+
+def render_invoices_combined(items: "list[tuple[Invoice, str]]") -> bytes:
+    """Render many invoices into ONE multi-page A4 PDF — one invoice per page,
+    each drawn in the top half. This is the print-ready sheet for the daily run:
+    feed pre-cut half-sheets, open it, print once → one bill per half-sheet, no
+    printer configuration needed.
+
+    Args:
+        items: list of (invoice, hotel_name) tuples, in the order to print.
+
+    Returns:
+        The combined PDF as raw bytes.
+    """
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
+    for invoice, hotel_name in items:
+        _draw_invoice(c, invoice, hotel_name)
+        c.showPage()   # finalise this invoice's page, start the next
+    c.save()
+    buf.seek(0)
+    return buf.read()

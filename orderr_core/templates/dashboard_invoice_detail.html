@@ -71,7 +71,7 @@
   <tbody>
   {% for item in items %}
   <tr>
-    <td>{{ item.product }}</td>
+    <td>{{ erp_name(item.product) }}</td>
     <td>{{ item.quantity }}</td>
     <td>{{ item.unit }}</td>
     <td class="amount">{{ "%.4f"|format(item.rate_used|float) }}</td>

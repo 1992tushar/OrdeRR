@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Products</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 12px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:700}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.seg a{padding:7px 12px;font-size:12px;color:var(--ink2);text-decoration:none;border-right:1px solid var(--border)}
+.seg a:last-child{border-right:none}
+.seg a.active{background:var(--green);color:#fff;font-weight:600}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.note{font-size:11px;color:var(--ink3);margin-top:10px}
+.hero-line{font-size:13px;color:var(--ink2);margin-bottom:14px}
+.hero-line strong{font-size:20px;color:var(--ink);font-weight:800}
+
+/* ranked value bars */
+.mixbar{display:grid;grid-template-columns:190px 1fr 150px;align-items:center;gap:10px;padding:5px 0}
+@media(max-width:640px){.mixbar{grid-template-columns:120px 1fr 110px}}
+.mixbar-label{font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mixbar-track{background:var(--bg);border-radius:5px;height:16px;overflow:hidden}
+.mixbar-fill{background:var(--green);height:100%;border-radius:5px;min-width:2px}
+.mixbar-val{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink2)}
+.mixbar-val b{color:var(--ink)}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;margin-top:14px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border)}
+th.num{text-align:right}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+tfoot td{font-weight:700;background:var(--bg)}
+.empty{color:var(--ink3);text-align:center;padding:26px}
+
+/* demand line chart */
+.picker{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.picker select{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+.chart-wrap{position:relative}
+svg.line{display:block;width:100%;height:240px}
+svg.line .axis{stroke:var(--border-strong);stroke-width:1}
+svg.line .grid{stroke:var(--border-strong);stroke-width:1;stroke-opacity:.35}
+svg.line .xlab,svg.line .ylab{fill:var(--ink3);font-size:10px}
+svg.line .area{fill:var(--green);fill-opacity:.10}
+svg.line .ln{fill:none;stroke:var(--green);stroke-width:2}
+svg.line .dot{fill:var(--surface);stroke:var(--green);stroke-width:2}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;opacity:0;transform:translate(-50%,-100%);white-space:nowrap;z-index:5}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <!-- P1-7 Product mix -->
+  <div class="section-head">
+    <div class="section-title">Product mix · value & volume</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="seg">
+        {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
+        <a href="/dashboard/analytics/products?mix_days={{ opt }}" class="{{ 'active' if mix_days == opt else '' }}">{{ lbl }}</a>
+        {% endfor %}
+      </div>
+      <a href="/dashboard/analytics/export/products?days={{ mix_days }}"
+         style="font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px">⬇ Excel</a>
+    </div>
+  </div>
+  <div class="card">
+    <div class="hero-line"><strong>{{ mix.total_value_fmt }}</strong> billed across {{ mix.rows|length }} SKUs · {{ mix.window_label }}</div>
+    {% if mix.rows %}
+      {% set top = mix.rows[0].value if mix.rows[0].value > 0 else 1 %}
+      {% for r in mix.rows %}
+      <div class="mixbar">
+        <div class="mixbar-label" title="{{ r.product }}">{{ r.product }}</div>
+        <div class="mixbar-track"><div class="mixbar-fill" style="width:{{ (r.value / top * 100) }}%"></div></div>
+        <div class="mixbar-val"><b>{{ r.value_fmt }}</b> · {{ r.pct }}%</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">No billed items in this window.</div>
+    {% endif %}
+    <div class="note">Billed value & volume from <b>Vasy sales item register</b> (source of truth). Qty is per-SKU (units differ across SKUs — kg for cuts, nos for whole birds — so no cross-SKU volume total).</div>
+  </div>
+
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>SKU</th><th class="num">Qty</th><th class="num">Lines</th><th class="num">Value</th><th class="num">% value</th></tr></thead>
+      <tbody>
+        {% for r in mix.rows %}
+        <tr>
+          <td>{{ r.product }}</td>
+          <td class="num">{{ r.qty_fmt if r.qty else '—' }}</td>
+          <td class="num">{{ r.lines }}</td>
+          <td class="num">{{ r.value_fmt }}</td>
+          <td class="num">{{ r.pct }}%</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No data.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if mix.rows %}<tfoot><tr><td>Total</td><td class="num"></td><td class="num"></td><td class="num">{{ mix.total_value_fmt }}</td><td class="num">100%</td></tr></tfoot>{% endif %}
+    </table>
+  </div></div>
+
+  <!-- P1-8 Demand trend -->
+  <div class="section-head" style="margin-top:30px">
+    <div class="section-title">Demand trend · ordered qty by SKU (last 12 months)</div>
+  </div>
+  <div class="card">
+    {% if demand.skus %}
+    <div class="picker">
+      <label for="sku" style="font-size:12px;color:var(--ink3)">SKU</label>
+      <select id="sku">
+        {% for s in demand.skus %}<option value="{{ loop.index0 }}">{{ s.product }} ({{ s.total_fmt }} {{ s.unit }} total)</option>{% endfor %}
+      </select>
+    </div>
+    <div class="chart-wrap">
+      <svg class="line" id="line" role="img" aria-label="Monthly ordered demand for the selected SKU"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="note">Ordered quantity from parsed WhatsApp orders (demand signal for production planning — not billed volume). Excludes cancelled orders.</div>
+    {% else %}
+    <div class="empty">No ordered items in the last 12 months.</div>
+    {% endif %}
+  </div>
+
+  <!-- P3-8 Demand forecast -->
+  <div class="section-head" style="margin-top:30px">
+    <div class="section-title">Production forecast · per SKU (next day / week)</div>
+  </div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th>SKU</th>
+        <th class="num">Avg/day ({{ forecast.lookback }}d)</th>
+        <th class="num">Last 7d/day</th>
+        <th class="num">Trend</th>
+        <th class="num">Forecast next day</th>
+        <th class="num">Forecast next week</th>
+      </tr></thead>
+      <tbody>
+        {% for r in forecast.rows %}
+        <tr>
+          <td>{{ r.product }} <span style="color:var(--ink3);font-size:11px">({{ r.unit }})</span></td>
+          <td class="num">{{ r.avg_daily_fmt }}</td>
+          <td class="num">{{ r.recent_daily_fmt }}</td>
+          <td class="num">
+            {% if r.trend_pct is none %}<span style="color:var(--ink3)">—</span>
+            {% else %}<span style="font-weight:700;color:{{ 'var(--green)' if r.trend_pct > 0 else 'var(--red)' if r.trend_pct < 0 else 'var(--ink3)' }}">{{ '+' if r.trend_pct > 0 else '' }}{{ r.trend_pct }}%</span>{% endif %}
+          </td>
+          <td class="num"><b>{{ r.forecast_next_day_fmt }}</b> {{ r.unit }}</td>
+          <td class="num"><b>{{ r.forecast_next_week_fmt }}</b> {{ r.unit }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No recent orders to forecast from.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  <div class="note">Forecast = recent daily order rate (last 7 days) projected forward; trend compares it to the {{ forecast.lookback }}-day baseline. A simple moving-average planning aid, from ordered (not billed) quantities.</div>
+</main>
+
+{% if demand.skus %}
+<script>
+const SKUS = {{ demand.skus | tojson }};
+
+function drawLine(idx){
+  const s = SKUS[idx]; if(!s) return;
+  const svg = document.getElementById('line'), tip = document.getElementById('tip');
+  const W = svg.clientWidth || 900, H = 240, padL=48, padR=14, padT=14, padB=26;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const data = s.series, n = data.length;
+  const max = Math.max(1, ...data.map(d=>d.qty));
+  const pow = Math.pow(10, Math.floor(Math.log10(max)));
+  const niceMax = (max/pow<=1?1:max/pow<=2?2:max/pow<=5?5:10)*pow;
+  const x = i => padL + (n===1?plotW/2:i*(plotW/(n-1)));
+  const y = v => padT + plotH - (v/niceMax)*plotH;
+  const fmt = v => (v===Math.round(v)?v:v.toFixed(1)).toLocaleString('en-IN');
+  let els='';
+  [0,niceMax/2,niceMax].forEach(v=>{
+    els+=`<line class="${v===0?'axis':'grid'}" x1="${padL}" y1="${y(v)}" x2="${W-padR}" y2="${y(v)}"/>`;
+    els+=`<text class="ylab" x="${padL-6}" y="${y(v)+3}" text-anchor="end">${fmt(v)}</text>`;
+  });
+  const pts = data.map((d,i)=>`${x(i)},${y(d.qty)}`).join(' ');
+  els+=`<polygon class="area" points="${padL},${padT+plotH} ${pts} ${padL+plotW},${padT+plotH}"/>`;
+  els+=`<polyline class="ln" points="${pts}"/>`;
+  data.forEach((d,i)=>{
+    if (i%(n>8?2:1)===0) els+=`<text class="xlab" x="${x(i)}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+    els+=`<circle class="dot" cx="${x(i)}" cy="${y(d.qty)}" r="4" data-l="${d.label}" data-v="${fmt(d.qty)}" data-x="${x(i)}" data-y="${y(d.qty)}"></circle>`;
+  });
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=els;
+  svg.querySelectorAll('.dot').forEach(c=>{
+    c.addEventListener('mouseenter',()=>{tip.style.opacity=1;tip.style.left=c.getAttribute('data-x')+'px';tip.style.top=(parseFloat(c.getAttribute('data-y'))-8)+'px';tip.innerHTML='<strong>'+c.getAttribute('data-v')+' '+s.unit+'</strong> · '+c.getAttribute('data-l');});
+    c.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+const sel = document.getElementById('sku');
+sel.addEventListener('change', ()=>drawLine(+sel.value));
+drawLine(0);
+window.addEventListener('resize', ()=>drawLine(+sel.value));
+</script>
+{% endif %}
+</body>
+</html>

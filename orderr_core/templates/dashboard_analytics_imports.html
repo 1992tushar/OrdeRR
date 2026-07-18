@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Imports</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+.section-title{font-size:15px;font-weight:700;margin:6px 2px 12px}
+.note{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--blue-border);border-radius:8px;padding:10px 14px;margin-bottom:16px}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:26px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.card h3{font-size:14px;font-weight:700;margin-bottom:4px}
+.card p{font-size:12px;color:var(--ink3);margin-bottom:14px}
+input[type=file]{font-size:12px;width:100%;margin-bottom:12px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--green);color:#fff}
+.btn:disabled{background:var(--ink3);cursor:not-allowed}
+.result{margin-top:12px;font-size:12px;border-radius:8px;padding:10px 12px;display:none}
+.result.ok{display:block;background:var(--green-bg);border:1px solid var(--green-border);color:var(--green)}
+.result.err{display:block;background:var(--red-bg);border:1px solid var(--red-border);color:var(--red)}
+.result b{font-weight:700}
+
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;text-transform:uppercase}
+.tag.receipts{background:var(--blue-bg);color:var(--blue)} .tag.outstanding{background:var(--amber-bg);color:var(--amber)}
+.tag.sales_invoices{background:var(--green-bg);color:var(--green)}
+.tag.purchases{background:var(--amber-bg);color:var(--amber)} .tag.expenses{background:var(--red-bg);color:var(--red)} .tag.payments{background:var(--red-bg);color:var(--red)}
+.tag.supplier_bills{background:var(--amber-bg);color:var(--amber)}
+.empty{color:var(--ink3);text-align:center;padding:22px}
+.warn{color:var(--amber);font-weight:600}
+
+/* coverage panel */
+.cov-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:8px}
+@media(max-width:760px){.cov-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:480px){.cov-grid{grid-template-columns:1fr}}
+.cov-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow);border-left:3px solid var(--border)}
+.cov-card.ok{border-left-color:var(--green)} .cov-card.stale{border-left-color:var(--amber)} .cov-card.empty-c{border-left-color:var(--red)}
+.cov-card .t{font-size:12px;font-weight:700;color:var(--ink)}
+.cov-card .m{font-size:12px;color:var(--ink2);margin-top:4px;font-variant-numeric:tabular-nums}
+.cov-card .s{font-size:11px;margin-top:4px}
+.s.g{color:var(--green)} .s.a{color:var(--amber)} .s.r{color:var(--red)}
+details.help{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:0;margin-bottom:20px}
+details.help summary{padding:12px 16px;font-weight:700;font-size:13px;cursor:pointer;color:var(--ink)}
+details.help .body{padding:0 16px 14px;font-size:12.5px;color:var(--ink2);line-height:1.55}
+details.help .body b{color:var(--ink)}
+details.help ul{margin:6px 0 6px 18px} details.help li{margin:3px 0}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-title">Import Vasy exports</div>
+  <div class="note">
+    Vasy ERP is the source of truth for money. Upload the daily exports here —
+    imports are <b>idempotent</b> (re-uploading the same/overlapping file updates,
+    never duplicates). Receipts key on <b>Receipt No.</b>; Outstanding refreshes each
+    customer's current balance and records a dated snapshot for the trend.
+  </div>
+
+  <!-- Data coverage -->
+  <div class="section-title">Data coverage — what's loaded</div>
+  <div class="cov-grid">
+    {% for c in coverage %}
+    {% set cls = 'empty-c' if (c.kind=='ledger' and not c.rows) or (c.kind=='snapshot' and not c.snapshots)
+                 else ('stale' if c.stale_days is not none and c.stale_days > 2 else 'ok') %}
+    <div class="cov-card {{ cls }}">
+      <div class="t">{{ c.label }}</div>
+      {% if c.kind == 'ledger' %}
+        {% if c.rows %}
+          <div class="m">{{ c.rows }} rows · {{ c.from }} → {{ c.to }}</div>
+          <div class="s {{ 'g' if c.stale_days is not none and c.stale_days <= 2 else 'a' }}">
+            {% if c.stale_days is not none and c.stale_days <= 0 %}up to date{% elif c.stale_days == 1 %}latest 1d ago{% elif c.stale_days is not none %}latest {{ c.stale_days }}d ago{% endif %}
+          </div>
+        {% else %}<div class="m">— nothing loaded —</div><div class="s r">upload to populate</div>{% endif %}
+      {% else %}
+        {% if c.snapshots %}
+          <div class="m">{{ c.snapshots }} daily snapshot{{ 's' if c.snapshots != 1 else '' }} · {{ c.parties }} parties · latest {{ c.to }}</div>
+          <div class="s {{ 'g' if c.stale_days is not none and c.stale_days == 0 else 'a' }}">
+            {% if c.snapshots < 2 %}⚠️ need ≥2 days for trend{% elif c.stale_days == 0 %}up to date (today){% else %}latest {{ c.stale_days }}d ago{% endif %}
+          </div>
+        {% else %}<div class="m">— nothing loaded —</div><div class="s r">upload to populate</div>{% endif %}
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <details class="help">
+    <summary>❓ How uploads work — do I upload daily?</summary>
+    <div class="body">
+      <b>Two kinds of files, two behaviours:</b>
+      <ul>
+        <li><b>Ledgers</b> (Receipts, Sales Invoices, Purchases, Expenses, Payments) upsert on their
+          document number — <b>cumulative &amp; idempotent</b>. Any range works (a day, a month, a year);
+          re-uploading overlaps never duplicates. The DB keeps the union of everything uploaded.</li>
+        <li><b>Outstanding</b> is a <b>daily snapshot</b> stamped <em>today</em> — it refreshes each
+          customer's current balance <em>and</em> records one dated snapshot. Trend / rising-falling /
+          sharper credit scores need <b>≥2 different days</b>, so upload it <b>once every day</b>.</li>
+      </ul>
+      <b>Recommended routine:</b>
+      <ul>
+        <li><b>One-time backfill:</b> upload the widest date range Vasy allows for the 5 ledgers — history populates in one shot.</li>
+        <li><b>Then daily:</b> export yesterday (overlap is safe) for all six &amp; upload; Outstanding especially, every day.</li>
+        <li><b>For a correct P&amp;L,</b> keep Sales Invoices, Purchases &amp; Expenses over the <b>same date range</b> — otherwise the Financials page shows its coverage warning.</li>
+      </ul>
+    </div>
+  </details>
+
+  <div class="section-title">Upload files</div>
+  <div class="grid2">
+    <div class="card">
+      <h3>💸 Receipts</h3>
+      <p>Vasy → Bank/Cash → Receipt export (money in).</p>
+      <input type="file" id="f-receipts" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-receipts" onclick="upload('receipts')">Upload receipts</button>
+      <div class="result" id="r-receipts"></div>
+    </div>
+    <div class="card">
+      <h3>📊 Customer Outstanding</h3>
+      <p>Vasy → Reports → Outstanding (today's full balance list).</p>
+      <input type="file" id="f-outstanding" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-outstanding" onclick="upload('outstanding')">Upload outstanding</button>
+      <div class="result" id="r-outstanding"></div>
+    </div>
+    <div class="card">
+      <h3>🍗 Sales (items + revenue)</h3>
+      <p>Vasy → Sales &amp; Sales Return Item Register (<b>All Data Excel</b>). Line-item SKU sales →
+         product mix, aggregated per voucher → invoice revenue. Source of truth for sales.</p>
+      <input type="file" id="f-sales-items" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-sales-items" onclick="upload('sales-items')">Upload sales</button>
+      <div class="result" id="r-sales-items"></div>
+    </div>
+    <div class="card">
+      <h3>🛒 Purchases</h3>
+      <p>Vasy → Purchase export (COGS → P&amp;L / margin).</p>
+      <input type="file" id="f-purchases" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-purchases" onclick="upload('purchases')">Upload purchases</button>
+      <div class="result" id="r-purchases"></div>
+    </div>
+    <div class="card">
+      <h3>🧾 Expenses</h3>
+      <p>Vasy → Expense export (opex → P&amp;L / cash-flow).</p>
+      <input type="file" id="f-expenses" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-expenses" onclick="upload('expenses')">Upload expenses</button>
+      <div class="result" id="r-expenses"></div>
+    </div>
+    <div class="card">
+      <h3>💸 Payments (out)</h3>
+      <p>Vasy → Payment export (money out → cash-flow).</p>
+      <input type="file" id="f-payments" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-payments" onclick="upload('payments')">Upload payments</button>
+      <div class="result" id="r-payments"></div>
+    </div>
+    <div class="card">
+      <h3>🏭 Supplier Outstanding</h3>
+      <p>Vasy → Supplier Bill List (accounts payable → true AP + aging).</p>
+      <input type="file" id="f-supplier-outstanding" accept=".xlsx,.xlsm">
+      <button class="btn" id="b-supplier-outstanding" onclick="upload('supplier-outstanding')">Upload supplier bills</button>
+      <div class="result" id="r-supplier-outstanding"></div>
+    </div>
+  </div>
+
+  <div class="section-title">Recent imports</div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th>When</th><th>Entity</th><th>File</th>
+        <th class="num">Rows</th><th class="num">New</th><th class="num">Updated</th><th class="num">Unattributed</th><th>Notes</th>
+      </tr></thead>
+      <tbody>
+        {% for l in logs %}
+        <tr>
+          <td style="white-space:nowrap">{{ l.imported_at }}</td>
+          <td><span class="tag {{ l.entity }}">{{ l.entity }}</span></td>
+          <td>{{ l.source_file }}</td>
+          <td class="num">{{ l.rows_total }}</td>
+          <td class="num">{{ l.created }}</td>
+          <td class="num">{{ l.updated }}</td>
+          <td class="num {{ 'warn' if l.unmatched else '' }}">{{ l.unmatched }}</td>
+          <td style="font-size:11px;color:var(--ink3)">{{ l.notes }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">No imports yet. Upload a file above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+</main>
+
+<script>
+async function upload(kind){
+  const fileEl = document.getElementById('f-'+kind);
+  const btn = document.getElementById('b-'+kind);
+  const res = document.getElementById('r-'+kind);
+  res.className = 'result';
+  if (!fileEl.files.length){ res.className='result err'; res.textContent='Choose a file first.'; return; }
+  const fd = new FormData(); fd.append('file', fileEl.files[0]);
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try{
+    const r = await fetch('/dashboard/analytics/import/'+kind, {method:'POST', body:fd});
+    const j = await r.json();
+    if (!r.ok){ throw new Error(j.detail || ('HTTP '+r.status)); }
+    const s = j.summary;
+    let msg = '<b>Done.</b> '+s.rows+' rows — '+s.created+' new, '+s.updated+' updated, <b>'+s.matched+'</b> matched';
+    if (s.unmatched) msg += ', <b>'+s.unmatched+'</b> unattributed';
+    if (s.snapshot_date) msg += ' · snapshot '+s.snapshot_date;
+    if (s.customers) msg += ' · customers +'+s.customers.created+'/~'+s.customers.updated;
+    res.className = s.truncation_warning ? 'result err' : 'result ok';
+    if (s.truncation_warning) msg += '<br>'+s.truncation_warning;
+    res.innerHTML = msg + ' — <a href="/dashboard/analytics/imports" style="color:inherit;font-weight:700">refresh</a>';
+  }catch(e){
+    res.className='result err'; res.textContent = 'Import failed: '+e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = 'Upload '+kind;
+  }
+}
+</script>
+</body>
+</html>

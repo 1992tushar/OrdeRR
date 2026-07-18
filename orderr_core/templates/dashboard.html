@@ -59,6 +59,9 @@
         .mobile-only { display:block; }
         @media(min-width:700px){ .mobile-only { display:none !important; } }
 
+        /* ── Area group header ── */
+        .area-header { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; color:#075e54; margin:18px 0 8px; padding-bottom:5px; border-bottom:2px solid #d4e6e2; text-transform:uppercase; letter-spacing:.03em; }
+        .area-count { background:#075e54; color:#fff; font-size:11px; font-weight:700; border-radius:10px; padding:1px 9px; letter-spacing:0; }
         /* ── Order Cards ── */
         .order-card { background:white; border-radius:12px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.1); border-left:4px solid #075e54; }
         .order-card.unclear { border-left-color:#e67e22; }
@@ -104,13 +107,6 @@
         .add-sp-form label { font-size:12px; color:#666; display:block; margin-bottom:3px; }
         .add-sp-form input { padding:10px 12px; border:1px solid #ccc; border-radius:8px; font-size:15px; width:100%; }
         .add-sp-btns { display:flex; gap:8px; }
-
-        /* ── Pending ── */
-        .pending-group { background:white; border-radius:12px; padding:14px 16px; margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.1); }
-        .pending-group h3 { font-size:14px; color:#075e54; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
-        .pending-list { list-style:none; }
-        .pending-list li { padding:7px 0; border-bottom:1px solid #f5f5f5; font-size:13px; display:flex; justify-content:space-between; align-items:center; }
-        .pending-list li:last-child { border-bottom:none; }
 
         /* ── Window Status ── */
         .window-filter-bar { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
@@ -318,15 +314,29 @@
 
 <div class="tab-nav">
     <button class="tab-btn active" data-tab="orders" onclick="onTabClick('orders',this)">📦 Orders</button>
-    <button class="tab-btn" data-tab="pending" onclick="onTabClick('pending',this)">⏳ Pending</button>
     <button class="tab-btn" data-tab="unclear" onclick="onTabClick('unclear',this)" id="unclear-tab-btn">⚠️ Unclear</button>
     <button class="tab-btn" data-tab="customers" onclick="onTabClick('customers',this)">👥 Customers</button>
     <button class="tab-btn" data-tab="salespersons" onclick="onTabClick('salespersons',this)">🧑 Sales</button>
     <button class="tab-btn" data-tab="window" onclick="onTabClick('window',this)" id="window-tab-btn">📡 Windows</button>
     <button class="tab-btn" onclick="location.href='/billing'" id="billing-tab-btn">💰 Billing</button>
     <button class="tab-btn" onclick="location.href='/staff'" id="staff-tab-btn">🧑‍💼 Staff</button>
+    <button class="tab-btn" onclick="location.href='/dashboard/analytics'" id="analytics-tab-btn">📊 Analytics</button>
+    <button class="tab-btn" onclick="location.href='/dashboard/reminders'" id="reminders-tab-btn">📌 Reminders</button>
+    <button class="tab-btn" onclick="location.href='/dashboard/broadcast'" id="broadcast-tab-btn">📣 Broadcast</button>
     <button class="tab-btn {% if not reliability_stats.has_issues %}hidden{% endif %}" data-tab="failed" onclick="onTabClick('failed',this)" id="failed-tab-btn">⚠️ Failed<span class="tab-dot"></span></button>
 </div>
+
+{% if attention and attention.count %}
+<a href="/dashboard/reminders" style="display:flex;align-items:center;gap:10px;margin:10px 12px 0;padding:10px 14px;background:{% if attention.overdue %}#fee2e2{% else %}#fef3c7{% endif %};border:1px solid {% if attention.overdue %}#fca5a5{% else %}#f5cc6e{% endif %};border-radius:10px;text-decoration:none;color:#333;font-size:13px">
+  <span style="font-size:16px">📌</span>
+  <span style="flex:1">
+    <b>Needs attention:</b>
+    {% if attention.overdue %}<span style="color:#c62828;font-weight:700">{{ attention.overdue }} overdue</span>{% endif %}{% if attention.overdue and (attention.due_soon or attention.nudges) %} · {% endif %}{% if attention.due_soon %}{{ attention.due_soon }} due soon{% endif %}{% if attention.due_soon and attention.nudges %} · {% endif %}{% if attention.nudges %}{{ attention.nudges }} to re-buy{% endif %}
+    {% if attention['items'] %}<span style="color:#888"> — {{ attention['items'][0].title|truncate(60) }}{% if attention.count > 1 %} +{{ attention.count - 1 }} more{% endif %}</span>{% endif %}
+  </span>
+  <span style="color:#888">›</span>
+</a>
+{% endif %}
 
 <!-- ══════════════════════════════════════════════════════════════════════════
      ORDERS TAB
@@ -364,7 +374,7 @@
                 <tbody>
                     {% if product_summary %}
                         {% for item in product_summary %}
-                        <tr><td>{{ item.product }}</td><td><strong>{{ item.total_quantity }}</strong></td><td>{{ item.unit }}</td><td>{{ item.orders_count }}</td></tr>
+                        <tr><td>{{ erp_name(item.product) }}</td><td><strong>{{ item.total_quantity }}</strong></td><td>{{ item.unit }}</td><td>{{ item.orders_count }}</td></tr>
                         {% endfor %}
                     {% else %}
                         <tr><td colspan="4" style="text-align:center;color:#aaa">No orders for this date</td></tr>
@@ -375,7 +385,9 @@
 
         <h2>✅ Orders</h2>
         {% if clear_orders %}
-            {% for order in clear_orders %}
+            {% for group in area_groups %}
+            <div class="area-header">📍 {{ group.area }} <span class="area-count">{{ group.orders|length }}</span></div>
+            {% for order in group.orders %}
             <div class="order-card">
                 <div class="order-header">
                     <div>
@@ -393,7 +405,7 @@
                         {% endif %}
                     </span>
                 </div>
-                <div class="items">{% for item in order.items_parsed %}{{ item.product }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}
+                <div class="items">{% for item in order.items_parsed %}{{ erp_name(item.product) }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}
                 
                                 {% if is_before_cutoff %}
                 {% if not order.is_next_day_override %}
@@ -440,6 +452,7 @@
                 {% endif %}
             </div>
             {% endfor %}
+            {% endfor %}
         {% else %}
             <div class="empty">No clear orders for this date</div>
         {% endif %}
@@ -457,21 +470,6 @@
         </div>
         {% endfor %}
         {% endif %}
-    </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════════════════════
-     PENDING TAB
-     ══════════════════════════════════════════════════════════════════════════ -->
-<div id="tab-pending" class="tab-pane">
-    <div class="cards">
-        <div class="card warning"><div class="number" id="pending-total">—</div><div class="label">Pending</div></div>
-        <div class="card"><div class="number" id="pending-groups">—</div><div class="label">Salespersons</div></div>
-        <div class="card warning"><div class="number" id="pending-unassigned">—</div><div class="label">Unassigned</div></div>
-    </div>
-    <div class="section">
-        <h2>⏳ Pending — Today <button class="section-btn" onclick="loadPending()">↻</button></h2>
-        <div id="pending-content"><div class="empty">Loading...</div></div>
     </div>
 </div>
 
@@ -543,6 +541,7 @@
         <div class="card warning"><div class="number" id="stat-inactive">—</div><div class="label">Inactive</div></div>
         <div class="card success"><div class="number" id="stat-ordered">—</div><div class="label">Ordered</div></div>
         <div class="card danger"><div class="number" id="stat-nophone">—</div><div class="label">No Mobile</div></div>
+        <div class="card"><div class="number" id="stat-outstanding" style="color:#c62828">—</div><div class="label">Total Outstanding</div></div>
     </div>
     <div class="section">
         <h2>👥 Customers
@@ -887,6 +886,10 @@
 <div id="toast"></div>
 
 <script>
+// friendly → Vasy ERP name map (from ERP_ITEMS); erpName() shows the ERP name
+// wherever product names are rendered client-side, falling back to the raw name.
+window.ERP_NAMES = {{ erp_names_map | tojson }};
+function erpName(p){ return (p && window.ERP_NAMES[p]) || p; }
 let allSalespersons = [];
 let currentAssignId = null;
 let windowData = [];
@@ -924,7 +927,6 @@ function switchTab(name, btn) {
     if (btn) btn.classList.add('active');
     if (name === 'customers')    { loadSalespersons().then(loadCustomers); }
     if (name === 'salespersons') { loadSalespersons(); }
-    if (name === 'pending')      { loadPending(); }
     if (name === 'failed')       { loadFailedMessages(); }
     if (name === 'window')       { loadWindowStatus(); }
     // CHANGE 6: also call loadCustomerAliases when switching to unclear
@@ -1217,6 +1219,7 @@ function renderCustomers(customers) {
     document.getElementById('stat-inactive').textContent= customers.filter(c=>!c.is_active).length;
     document.getElementById('stat-ordered').textContent = customers.filter(c=>c.ordered_today).length;
     document.getElementById('stat-nophone').textContent = customers.filter(c=>!c.has_phone).length;
+    document.getElementById('stat-outstanding').textContent = fmtMoney(customers.reduce((sum,c)=>sum+Number(c.outstanding||0),0));
     updateSortIndicators();   // reflect current sort in headers + mobile controls
     renderCustomerRows(customers);
 }
@@ -1513,7 +1516,7 @@ async function openHistory(cid,rname) {
         const orders=data.orders||[];
         if(!orders.length){document.getElementById('history-body').innerHTML='<div class="empty">No orders found</div>';return;}
         document.getElementById('history-body').innerHTML=orders.map(o=>{
-            const items=(o.items||[]).map(i=>`${esc(i.product)} — ${i.quantity} ${esc(i.unit)}`).join('<br>');
+            const items=(o.items||[]).map(i=>`${esc(erpName(i.product))} — ${i.quantity} ${esc(i.unit)}`).join('<br>');
             const dl=o.delivery_date||(o.created_at?o.created_at.substring(0,10):'—');
             const unclearItems=o.unclear_items||[];
             const tag=o.is_cancelled?'<span class="badge inactive" style="font-size:10px">Cancelled</span>':o.is_unclear?'<span class="badge unclear" style="font-size:10px">Unclear</span>':unclearItems.length?'<span class="badge unclear" style="font-size:10px">Partial</span>':'<span class="badge active" style="font-size:10px">OK</span>';
@@ -1588,21 +1591,39 @@ async function submitPostOrder() {
     const btn = document.getElementById('po-submit-btn');
     btn.disabled = true;
     btn.textContent = 'Posting…';
-    try {
-        const data = await api(
-            'POST',
-            `/admin/customers/${_postOrderCustomerId}/post-order`,
-            { message }
-        );
+
+    const onOk = (data) => {
         const isUnclear = data.status === 'unclear';
         const label = isUnclear
             ? `⚠️ Posted — some items unclear (Order #${data.order_id || '?'})`
             : `✅ Order #${data.order_id || '?'} posted for ${data.customer}`;
         showToast(label, 'success');
         closeModal('post-order-modal');
-        // Reload so the new order appears immediately
         setTimeout(() => location.reload(), 800);
+    };
+
+    try {
+        onOk(await api('POST', `/admin/customers/${_postOrderCustomerId}/post-order`, { message }));
     } catch(e) {
+        // Credit guardrail: server returns 409 {detail:{code:'credit_warning',message}}
+        let detail = null;
+        try { detail = JSON.parse(e.message)?.detail; } catch(_) {}
+        if (detail && detail.code === 'credit_warning') {
+            if (confirm('⚠️ ' + detail.message)) {
+                try {
+                    onOk(await api('POST', `/admin/customers/${_postOrderCustomerId}/post-order`,
+                                   { message, acknowledge_credit: true }));
+                } catch(e2) {
+                    let m2 = 'Failed to post order';
+                    try { m2 = JSON.parse(e2.message)?.detail || m2; } catch(_) {}
+                    showToast('❌ ' + m2, 'error');
+                    btn.disabled = false; btn.textContent = 'Post Order';
+                }
+            } else {
+                btn.disabled = false; btn.textContent = 'Post Order';
+            }
+            return;
+        }
         let msg = 'Failed to post order';
         try { msg = JSON.parse(e.message)?.detail || msg; } catch(_) {}
         showToast('❌ ' + msg, 'error');
@@ -1612,25 +1633,6 @@ async function submitPostOrder() {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-
-// ── Pending ───────────────────────────────────────────────────────────────────
-
-async function loadPending() {
-    document.getElementById('pending-content').innerHTML='<div class="empty">Loading...</div>';
-    try {
-        const data=await api('GET','/admin/pending');
-        const groups=data.groups||[];
-        document.getElementById('pending-total').textContent=data.total_pending;
-        document.getElementById('pending-groups').textContent=groups.filter(g=>g.salesperson_id!==null).length;
-        document.getElementById('pending-unassigned').textContent=groups.find(g=>g.salesperson_id===null)?.pending_count||0;
-        if(!data.total_pending){document.getElementById('pending-content').innerHTML='<div class="empty">✅ All customers have ordered today!</div>';return;}
-        document.getElementById('pending-content').innerHTML=groups.map(g=>`
-            <div class="pending-group">
-                <h3><span>${g.salesperson_id?'👤 '+esc(g.salesperson_name):'⚠️ Unassigned'}</span><span class="badge pending-badge">${g.pending_count} pending</span></h3>
-                <ul class="pending-list">${g.customers.map(c=>`<li><span>🏪 ${esc(c.restaurant_name)}</span><span style="font-size:12px;color:#aaa">${esc(c.area||'')}</span></li>`).join('')}</ul>
-            </div>`).join('');
-    } catch(e){document.getElementById('pending-content').innerHTML='<div class="empty" style="color:#e67e22">Failed to load</div>';}
-}
 
 // ── Window Status ─────────────────────────────────────────────────────────────
 
@@ -1729,7 +1731,7 @@ async function loadUnclearOrders() {
             return;
         }
 
-        const productOptions = products.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+        const productOptions = products.map(p => `<option value="${esc(p)}">${esc(erpName(p))}</option>`).join('');
 
         container.innerHTML = orders.map(order => {
             const parsedSection = order.parsed_items.length ? `
@@ -1737,7 +1739,7 @@ async function loadUnclearOrders() {
                     <div class="unclear-section-label unclear-parsed-label">✅ Parsed items (included in product summary):</div>
                     ${order.parsed_items.map(i => `
                         <div style="font-size:13px;color:#2d3748;padding:2px 0;">
-                            &nbsp;&nbsp;• ${esc(i.product)} — ${Number.isInteger(i.quantity) || i.quantity%1===0 ? parseInt(i.quantity) : i.quantity} ${esc(i.unit)}
+                            &nbsp;&nbsp;• ${esc(erpName(i.product))} — ${Number.isInteger(i.quantity) || i.quantity%1===0 ? parseInt(i.quantity) : i.quantity} ${esc(i.unit)}
                         </div>`).join('')}
                 </div>` : '';
 
@@ -1815,7 +1817,7 @@ async function loadUnclearOrders() {
                             return `
                                 <div class="unclear-item-row" id="${rowId}-row">
                                     <span class="qty-ambiguous-label">⚖️ Unit unclear</span>
-                                    <div class="qty-ambiguous-pill">${esc(product)} — ${esc(qty)} <em style="color:#aaa">kg or g?</em></div>
+                                    <div class="qty-ambiguous-pill">${esc(erpName(product))} — ${esc(qty)} <em style="color:#aaa">kg or g?</em></div>
                                     <button class="unit-toggle-btn" id="${rowId}-kg"
                                         onclick="selectUnit('${rowId}', 'kg')">kg</button>
                                     <button class="unit-toggle-btn" id="${rowId}-g"
@@ -1960,7 +1962,7 @@ async function resolveQtyItem(orderId, product, quantity, customerPhone, rowId) 
         ordersStale = true;
         btn.textContent = `✅ ${quantity} ${unit}`;
         btn.classList.add('done');
-        showToast(`✅ ${product}: confirmed as ${quantity} ${unit}`, 'success');
+        showToast(`✅ ${erpName(product)}: confirmed as ${quantity} ${unit}`, 'success');
         setTimeout(() => loadUnclearOrders(), 1500);
     } catch(e) {
         btn.disabled = false;
@@ -2025,7 +2027,7 @@ async function resolveWordQtyItem(orderId, rowId, customerPhone) {
         ordersStale = true;
         btn.textContent = `✅ ${quantity} ${unit} — ${data.retro_patched} past order${data.retro_patched !== 1 ? 's' : ''} updated`;
         btn.classList.add('done');
-        showToast(`✅ ${product}: ${quantity} ${unit} added to order (${data.retro_patched} past orders updated)`, 'success');
+        showToast(`✅ ${erpName(product)}: ${quantity} ${unit} added to order (${data.retro_patched} past orders updated)`, 'success');
         setTimeout(() => { loadUnclearOrders(); loadAliases(); loadCustomerAliases(); }, 1800);
     } catch(e) {
         btn.disabled    = false;
@@ -2061,7 +2063,7 @@ async function loadAliases() {
                         ${aliases.map(a => `
                             <tr id="alias-row-${a.id}">
                                 <td class="alias-raw">${esc(a.raw_text)}</td>
-                                <td style="color:#2d3748;font-weight:600;">${esc(a.canonical_product_name)}</td>
+                                <td style="color:#2d3748;font-weight:600;">${esc(erpName(a.canonical_product_name))}</td>
                                 <td style="color:#aaa;font-size:12px;">${a.created_at ? a.created_at.substring(0,10) : '—'}</td>
                                 <td>
                                     <button onclick="deleteAlias(${a.id})"
@@ -2120,7 +2122,7 @@ async function loadCustomerAliases() {
                                     ${a.customer_name ? `<div style="font-size:11px;color:#a0aec0;">${esc(a.customer_phone)}</div>` : ''}
                                 </td>
                                 <td class="alias-raw">${esc(a.raw_text)}</td>
-                                <td style="color:#2d3748;font-weight:600;">${esc(a.canonical_product_name)}</td>
+                                <td style="color:#2d3748;font-weight:600;">${esc(erpName(a.canonical_product_name))}</td>
                                 <td style="color:#aaa;font-size:12px;">${a.created_at ? a.created_at.substring(0,10) : '—'}</td>
                                 <td>
                                     <button onclick="deleteCustomerAlias(${a.id})"

@@ -1,4 +1,5 @@
 import json
+from orderr_core.utils import fmt_qty
 import logging
 import os
 import re
@@ -17,7 +18,12 @@ from orderr_core.services.notifier import (
     send_replace_confirmation_request,
     send_repeat_order_confirmation_request,
 )
-from orderr_core.services.template_parser import parse_template_order
+from orderr_core.services.template_parser import (
+    parse_template_order,
+    erp_display_name,
+    _split_on_connectors,
+    _split_multi_item_line,
+)
 from orderr_core.services.customer_service import get_customer_by_phone, create_new_customer
 from orderr_core.services.adhoc_reporter import is_report_keyword, handle_adhoc_report_request
 from orderr_core.services.intent_classifier import (
@@ -34,70 +40,68 @@ from orderr_core.services.intent_classifier import (
 
 logger = logging.getLogger(__name__)
 
-MANAGER_PHONE        = os.getenv("MANAGER_PHONE", "")
-PLANT_NAME           = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
 BASE_URL             = os.getenv("BASE_URL", "")   # e.g. https://orderr.onrender.com
-IST                  = timezone(timedelta(hours=5, minutes=30))
-RESET_HOUR           = 20  # 8 PM IST
+from orderr_core.constants import IST
 DISPATCH_CUTOFF_HOUR = int(os.getenv("DISPATCH_CUTOFF_HOUR", "9"))
 
 
 # ── Date helpers ──────────────────────────────────────────────────────────────
-
-def get_today_ist() -> date:
-    return datetime.now(IST).date()
-
-def compute_business_date(created_at_utc: datetime) -> date:
-    ist_time = created_at_utc.astimezone(IST)
-    if ist_time.hour >= RESET_HOUR:
-        return (ist_time + timedelta(days=1)).date()
-    return ist_time.date()
-
-def get_current_business_date() -> date:
-    now_ist = datetime.now(IST)
-    if now_ist.hour >= RESET_HOUR:
-        return (now_ist + timedelta(days=1)).date()
-    return now_ist.date()
-
-def get_current_business_date_str() -> str:
-    return get_current_business_date().strftime("%Y-%m-%d")
-
-def get_delivery_date_str() -> str:
-    return get_today_ist().strftime("%Y-%m-%d")
+# Canonical implementations live in orderr_core.dates; re-exported here so the
+# many `from order_service import get_current_business_date[_str]` / RESET_HOUR
+# importers keep working unchanged.
+from orderr_core.constants import RESET_HOUR
+from orderr_core.dates import (
+    get_today_ist,
+    compute_business_date,
+    get_current_business_date,
+    get_current_business_date_str,
+    get_delivery_date_str,
+)
 
 
 # ── JSON-safety helper ────────────────────────────────────────────────────────
 
-def _safe_load_list(value) -> list:
-    """
-    Safely coerce a JSONB/text column value to a Python list.
-    Handles: None, already-a-list (normal JSONB), JSON string (legacy),
-    double-encoded JSON string, empty/null sentinels.
-
-    Use this everywhere you need to read parsed_items or unclear_items
-    back from an Order row — never call json.loads() directly on these
-    columns, because on Postgres/JSONB the driver already returns a list.
-    """
-    if not value:
-        return []
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str):
-        if value in ("null", "[]", ""):
-            return []
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, list):
-                return parsed
-            if isinstance(parsed, str):  # double-encoded
-                inner = json.loads(parsed)
-                return inner if isinstance(inner, list) else []
-        except Exception:
-            pass
-    return []
+from orderr_core.utils import safe_list as _safe_load_list
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
+
+UNASSIGNED_AREA = "Area not set"
+
+
+def group_orders_by_area(db: Session, orders: list) -> list[dict]:
+    """Group a list of orders by the ordering customer's assigned area.
+
+    Area lives on the Customer (free text, nullable); orders join by phone.
+    Returns a list of {"area": str, "orders": [...]} sorted by descending
+    order count, with the UNASSIGNED_AREA bucket always last. Ties broken
+    alphabetically. Order objects are returned unchanged (same references).
+    """
+    phones = {o.customer_phone for o in orders if o.customer_phone}
+    phone_to_area: dict[str, str] = {}
+    if phones:
+        rows = (
+            db.query(Customer.phone_number, Customer.area)
+            .filter(Customer.phone_number.in_(phones))
+            .all()
+        )
+        phone_to_area = {p: (a or "").strip() for p, a in rows}
+
+    groups: dict[str, list] = {}
+    for o in orders:
+        area = phone_to_area.get(o.customer_phone, "") or UNASSIGNED_AREA
+        groups.setdefault(area, []).append(o)
+
+    def _sort_key(item):
+        area, order_list = item
+        return (area == UNASSIGNED_AREA, -len(order_list), area.lower())
+
+    return [
+        {"area": area, "orders": order_list}
+        for area, order_list in sorted(groups.items(), key=_sort_key)
+    ]
+
 
 def get_internal_phones(db: Session) -> set:
     salesperson_phones = {
@@ -265,8 +269,8 @@ def _build_unclear_alert(
     if parsed_items:
         lines.append("*Parsed items (confirmed):*")
         for i in parsed_items:
-            qty = int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']
-            lines.append(f"  ✅ {i['product']} — {qty} {i['unit']}")
+            qty = fmt_qty(i['quantity'])
+            lines.append(f"  ✅ {erp_display_name(i['product'])} — {qty} {i['unit']}")
         lines.append("")
     lines.append("*Could not understand:*")
     for raw in unclear_items:
@@ -278,6 +282,35 @@ def _build_unclear_alert(
 def _has_digits(text: str) -> bool:
     """Return True if the message contains any digit — signals a quantity/order attempt."""
     return bool(re.search(r'\d', text))
+
+
+def _unparseable_segments(message: str) -> list:
+    """Break an order the parser couldn't read AT ALL into the same per-item
+    segments it would have tried, keeping only the digit-bearing chunks.
+
+    Lets a fully-unrecognised (but numeric) message still surface as individual
+    dropdown-correctable rows in the Unclear tab, instead of a contentless
+    'couldn't read anything' order with nothing to fix. Falls back to the whole
+    message when no cleaner split is possible."""
+    def _clean(seg: str) -> str:
+        # Customers use runs of dots as separators ("Chicken..15"); collapse
+        # those to a space so the name/qty read cleanly — but leave single dots
+        # alone so decimals like "2.5" survive. Trim stray leading/trailing
+        # dots and whitespace.
+        seg = re.sub(r"\.{2,}", " ", seg)
+        seg = re.sub(r"\s+", " ", seg).strip(" .")
+        return seg
+
+    segments = []
+    for line in message.splitlines():
+        for part in _split_on_connectors(line):
+            segments.extend(_split_multi_item_line(part))
+    segments = [_clean(s) for s in segments]
+    segments = [s for s in segments if s and _has_digits(s)]
+    # De-dupe while preserving order.
+    seen = set()
+    unique = [s for s in segments if not (s in seen or seen.add(s))]
+    return unique or [_clean(message) or message.strip()]
 
 
 def _save_and_notify(
@@ -320,7 +353,7 @@ def _save_and_notify(
 
     if is_edit:
         items_text = "\n".join(
-            f"• {i['product']} — {int(i['quantity']) if i['quantity'] == int(i['quantity']) else i['quantity']} {i['unit']}"
+            f"• {erp_display_name(i['product'])} — {fmt_qty(i['quantity'])} {i['unit']}"
             for i in parsed_items
         )
         # Notify customer (free-form — always within their window)
@@ -691,13 +724,18 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
         if _has_digits(message):
             # Contains digits → likely a failed order attempt, not small talk.
             # Save as unclear order so it surfaces immediately on the dashboard.
+            # Store the message's number-bearing segments as unclear_items so
+            # each becomes a dropdown-correctable row in the Unclear tab — rather
+            # than a contentless order with nothing for the manager to fix.
+            segments = _unparseable_segments(message)
             order = Order(
                 plant_name     = PLANT_NAME,
                 customer_phone = customer_phone,
                 customer_name  = customer.restaurant_name,
                 raw_message    = message,
                 is_unclear     = True,
-                unclear_reason = "Contains numbers but no items could be matched",
+                unclear_items  = segments,
+                unclear_reason = "Items not recognised — set each from the dropdown",
                 business_date  = get_current_business_date_str(),
                 delivery_date  = get_delivery_date_str(),
                 status         = "received",
@@ -768,7 +806,7 @@ def _handle_order(db: Session, customer: Customer, message: str, is_photo: bool)
             # so this is an extra contextual note about it being a second order).
             existing_items = _safe_load_list(existing_order.parsed_items)
             existing_lines = "\n".join(
-                f"• {i['product']} — {i['quantity']} {i['unit']}"
+                f"• {erp_display_name(i['product'])} — {i['quantity']} {i['unit']}"
                 for i in existing_items
             )
             additional_note = (

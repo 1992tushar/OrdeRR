@@ -82,6 +82,12 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 .badge-invoiced{background:var(--blue-bg);color:var(--blue)}
 .badge-pending{background:var(--bg);color:var(--ink3);border:1px solid var(--border)}
 .badge-error{background:var(--red-bg);color:var(--red)}
+/* Vasy-sync pill, shown only on invoiced cards: green when the bot has confirmed
+   the bill exists in Vasy, muted grey while it hasn't synced yet. */
+.badge-vasy{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;margin-left:6px;
+  background:var(--green-bg);color:var(--green)}
+.badge-vasy-pending{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;margin-left:6px;
+  background:var(--bg);color:var(--ink3);border:1px solid var(--border)}
 .chevron{color:var(--ink3);font-size:16px;transition:transform .2s;flex-shrink:0}
 .chevron.open{transform:rotate(180deg)}
 .hotel-body{border-top:1px solid var(--border);background:var(--bg);display:none;padding:16px}
@@ -98,6 +104,8 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 .qty-inp:focus{outline:none;border-color:var(--green)}
 .conf-btn{font-size:12px;font-weight:600;padding:5px 11px;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer}
 .check-tag{font-size:12px;color:var(--green);font-weight:500}
+.edit-link{font-size:12px;color:var(--blue);font-weight:600;cursor:pointer;margin-left:8px;text-decoration:underline}
+.edit-link:hover{opacity:.8}
 
 .unmatched-head{font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;display:flex;align-items:center;gap:5px}
 .unmatched-block{background:var(--red-bg);border:1px solid var(--red-border);border-radius:8px;padding:12px 14px;margin-bottom:8px}
@@ -204,13 +212,14 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
   <div class="nav-logo">Fluffy Billing</div>
   <div class="nav-tabs">
     <div class="nav-tab active" id="tab-today" onclick="goView('today')">Today</div>
-    <div class="nav-tab" id="tab-upload" onclick="goView('upload')">Confirm delivery</div>
+    <div class="nav-tab" id="tab-deliveries" onclick="location.href='/billing/deliveries'">Enter deliveries</div>
     <div class="nav-tab" id="tab-rates" onclick="goView('rates')">Rates</div>
     <div class="nav-tab" id="tab-history" onclick="goView('history')">History</div>
   </div>
   <div class="nav-right">
     <div class="date-chip" id="date-label">-</div>
-    <button class="btn btn-primary btn-sm" onclick="dlAllPDFs()">All PDFs</button>
+    <button id="print-all-btn" class="btn btn-primary btn-sm" onclick="printAllPDFs()" title="Print one bill per half-sheet. No printer settings to change — just keep Two-sided OFF.">🖨 Print all</button>
+    <button id="dl-all-btn" class="btn btn-sm" onclick="dlAllPDFs()" title="Download the individual bills as a ZIP">All PDFs</button>
   </div>
 </nav>
 
@@ -222,7 +231,7 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
     <div class="stat-card s-blue"><div class="n" id="s-invoiced">-</div><div class="l">Invoiced</div></div>
     <div class="stat-card s-green"><div class="n" id="s-clear">-</div><div class="l">Ready</div></div>
     <div class="stat-card s-amber"><div class="n" id="s-unclear">-</div><div class="l">Attention</div></div>
-    <div class="stat-card"><div class="n" id="s-pending">-</div><div class="l">Awaiting photo</div></div>
+    <div class="stat-card"><div class="n" id="s-pending">-</div><div class="l">Awaiting entry</div></div>
   </div>
 
   <div id="attn-banner" class="attn-banner" style="display:none">
@@ -240,50 +249,7 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
   <div id="today-sections"></div>
 
   <div class="action-bar" style="margin-top:12px">
-    <button class="btn btn-ghost btn-sm" onclick="goView('upload')">Confirm delivery (upload photo)</button>
     <button class="btn btn-ghost btn-sm" onclick="refreshTodayView()">Refresh</button>
-  </div>
-</div>
-
-
-<div class="view" id="view-upload">
-  <div class="card">
-    <div class="card-head">
-      <span class="card-title">Confirm delivered quantities</span>
-    </div>
-    <div class="card-body">
-
-      <div id="report-ok-banner" class="ok-banner" style="display:none"><span id="report-ok-text"></span></div>
-
-      <div id="photo-prog-wrap" style="display:none" class="prog-wrap">
-        <div class="prog-lbl"><span id="prog-txt">0 of 0 hotels confirmed</span><span id="prog-pct">0%</span></div>
-        <div class="prog-bg"><div class="prog-fill" id="prog-bar" style="width:0%"></div></div>
-      </div>
-
-      <div class="drop-zone" id="photo-zone"
-           onclick="document.getElementById('photo-files-inp').click()"
-           ondragover="onDrag(event,'photo-zone',true)"
-           ondragleave="onDrag(event,'photo-zone',false)"
-           ondrop="onDropFile(event)">
-        <span class="dz-icon">+</span>
-        <div class="drop-label">Tap to choose photos</div>
-        <div class="drop-sub">Photo of today's dispatch/delivery sheet - JPG, PNG or PDF - Multiple pages OK</div>
-        <input type="file" id="photo-files-inp" accept="image/*,.pdf" multiple onchange="onFileSelect(event)">
-      </div>
-      <div class="file-pills" id="photo-pill-list"></div>
-      <div id="photo-err" class="err-banner" style="display:none;margin-top:14px"></div>
-      <div class="action-bar">
-        <button class="btn btn-primary" id="btn-upload-photos" onclick="doPhotosUpload()" disabled>Read photos and update</button>
-      </div>
-
-      <div id="upload-spinner" style="display:none">
-        <div class="spin-wrap">
-          <div class="spinner"></div>
-          <div class="spin-label" id="spin-msg">Processing...</div>
-        </div>
-      </div>
-
-    </div>
   </div>
 </div>
 
@@ -295,10 +261,13 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
       <span id="rates-saved-chip" style="display:none;font-size:12px;color:var(--green);font-weight:600">Saved</span>
     </div>
     <div class="card-body" style="padding-top:14px;padding-bottom:0">
-      <div style="margin-bottom:14px">
-        <label for="cust-select" style="font-size:12px;font-weight:600;color:var(--ink2);margin-right:8px">Edit rates for customer:</label>
+      <div style="margin-bottom:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+        <label for="cust-search" style="font-size:12px;font-weight:600;color:var(--ink2)">Edit rates for customer:</label>
+        <input id="cust-search" type="text" placeholder="🔍 Search customer by name…" autocomplete="off"
+               oninput="filterCustomerOptions()"
+               style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:13px;background:var(--surface);flex:1;min-width:200px;max-width:320px">
         <select id="cust-select"
-                style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:13px;background:var(--surface)"
+                style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:13px;background:var(--surface);max-width:320px"
                 onchange="rerenderRates()">
           <option value="">- all customers (default rates) -</option>
         </select>
@@ -342,10 +311,11 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
           <th onclick="sortHist('business_date')">Date</th>
           <th>Phone</th>
           <th onclick="sortHist('total')" style="text-align:right">Amount</th>
+          <th style="text-align:center">Vasy</th>
           <th style="text-align:center">PDF</th>
         </tr></thead>
         <tbody id="hist-tbody">
-          <tr><td colspan="6" style="padding:40px;text-align:center;color:var(--ink3)">Loading...</td></tr>
+          <tr><td colspan="7" style="padding:40px;text-align:center;color:var(--ink3)">Loading...</td></tr>
         </tbody>
       </table>
       <div class="hist-empty" id="hist-empty" style="display:none">No invoices match your search.</div>
@@ -359,8 +329,13 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 </main>
 
 <div id="toast"></div>
+<datalist id="prod-list"></datalist>
 
 <script>
+// friendly → Vasy ERP name map (from ERP_ITEMS); erpName() shows the ERP name
+// wherever product names are rendered client-side, falling back to the raw name.
+window.ERP_NAMES = {{ erp_names_map | tojson }};
+function erpName(p){ return (p && window.ERP_NAMES[p]) || p; }
 let today     = new Date().toISOString().slice(0,10);
 let hotelResults = [];
 let rateRows  = [];
@@ -368,7 +343,6 @@ let editedRates = {};
 let allInvoices = [];
 let sortCol   = 'business_date';
 let sortDir   = 'desc';
-let photoFiles = [];
 
 function fmt(iso){
   return new Date(iso+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
@@ -381,29 +355,21 @@ function fmts(iso){
   document.getElementById('date-label').textContent = fmt(today);
   await Promise.all([loadRates(), refreshTodayView()]);
 
-  // No forced tab switch -- land on Today regardless of pending status.
-  // Manual entry is available right on the Today cards, so photo upload
-  // is no longer the only way to confirm a pending hotel.
+  // Land on Today. Delivered quantities are entered manually right on each
+  // hotel card.
   if(hotelResults.length > 0 && hotelResults.every(h=>h.status==='pending')){
-    showToast(hotelResults.length + ' hotel(s) ordered today - upload a photo or enter quantities manually below');
+    showToast(hotelResults.length + ' hotel(s) ordered today - enter delivered quantities below');
   }
 })();
 
 function goView(v){
-  ['today','upload','rates','history'].forEach(x=>{
+  ['today','rates','history'].forEach(x=>{
     document.getElementById('view-'+x).classList.toggle('active', x===v);
     document.getElementById('tab-'+x).classList.toggle('active',  x===v);
   });
   window.scrollTo({top:0,behavior:'smooth'});
   if(v==='history') loadHistory();
   if(v==='today')   refreshTodayView();
-  if(v==='upload'){
-    const loaded = hotelResults.filter(h=>h.status!=='error').length;
-    if(loaded > 0){
-      document.getElementById('report-ok-banner').style.display='flex';
-      document.getElementById('report-ok-text').textContent = loaded + ' hotel(s) ordered today';
-    }
-  }
 }
 
 async function refreshTodayView(){
@@ -479,16 +445,27 @@ function buildHotelCard(h){
 
   const statusLabel = {
     clear:'Ready', invoiced:'Invoiced', unclear:'Needs attention',
-    error:'Error', pending:'Awaiting photo'
+    error:'Error', pending:'Awaiting entry'
   }[h.status] || h.status;
+
+  // On invoiced cards, show whether the bill has been synced into Vasy ERP by
+  // the bot (green ✓ Vasy + voucher tooltip when known, else muted "Vasy pending").
+  const vasyBadge = (h.status === 'invoiced')
+    ? (h.vasy_synced
+        ? '<span class="hotel-badge badge-vasy" title="Synced to Vasy'
+            + (h.vasy_voucher_no ? ' as '+h.vasy_voucher_no : '') + '">✓ Vasy'
+            + (h.vasy_voucher_no ? ' '+h.vasy_voucher_no : '') + '</span>'
+        : '<span class="hotel-badge badge-vasy-pending" title="Not yet synced to Vasy">Vasy pending</span>')
+    : '';
 
   const head = document.createElement('div');
   head.className = 'hotel-head';
   head.innerHTML =
     '<span class="hotel-dot dot-'+h.status+'"></span>' +
     '<span class="hotel-name">'+h.hotel_name+'</span>' +
-    (h.invoice_number ? '<span class="hotel-meta">'+h.invoice_number+' - Rs.'+h.invoice_total?.toFixed(2)+'</span>' : '') +
+    (h.invoice_number ? '<span class="hotel-meta">'+h.invoice_number+' - ₹'+h.invoice_total?.toFixed(2)+'</span>' : '') +
     '<span class="hotel-badge badge-'+h.status+'">'+statusLabel+'</span>' +
+    vasyBadge +
     '<span class="chevron" id="chev-'+h.order_id+'">v</span>';
   head.onclick = ()=> toggleCard(h.order_id);
   wrap.appendChild(head);
@@ -533,21 +510,21 @@ function toggleCard(orderId){
 }
 
 function buildPendingBody(h){
-  // Manual fallback: pending items already have actual_id seeded by the
-  // backend (_ensure_order_seeded), so the operator can type every delivered
-  // quantity and confirm the whole hotel at once via confirmAllItems -- no
-  // photo required. One Confirm button per hotel, never per item.
+  // Pending items already have actual_id seeded by the backend
+  // (_ensure_order_seeded), so the operator can type every delivered quantity
+  // and confirm the whole hotel at once via confirmAllItems. One Confirm button
+  // per hotel, never per item.
   const wrap = document.createElement('div');
   let rows = '';
   (h.items||[]).forEach(it=>{
     const qid = 'qi-'+h.order_id+'-'+it.actual_id;
     rows += '<tr>' +
-      '<td><strong>'+it.product+'</strong></td>' +
+      '<td><strong>'+erpName(it.product)+'</strong></td>' +
       '<td style="text-align:right">'+(it.ordered_qty!=null?it.ordered_qty:'-')+'</td>' +
       '<td style="text-align:right">' +
       '<input class="qty-inp" id="'+qid+'" type="number" step="0.001" min="0" placeholder="qty" ' +
       'onkeydown="if(event.key===\'Enter\'){event.preventDefault();confirmAllItems('+h.order_id+')}" ' +
-      'aria-label="Delivered quantity for '+it.product+'">' +
+      'aria-label="Delivered quantity for '+erpName(it.product)+'">' +
       '</td>' +
       '<td>'+it.unit+'</td>' +
       '</tr>';
@@ -559,7 +536,7 @@ function buildPendingBody(h){
     '<div class="action-bar" style="margin-top:12px">' +
     '<button class="gen-btn" onclick="confirmAllItems('+h.order_id+')">Confirm delivered quantities</button>' +
     '</div>' +
-    '<div style="margin-top:8px;font-size:12px;color:var(--ink3)">Fill in every item, then confirm. Or use "Confirm delivery (upload photo)" instead.</div>';
+    '<div style="margin-top:8px;font-size:12px;color:var(--ink3)">Fill in every item, then confirm.</div>';
   return wrap;
 }
 
@@ -568,29 +545,37 @@ function buildItemsTable(h){
   let rows = '';
   let anyEditable = false;
   (h.items||[]).forEach(it=>{
-    // An item is unconfirmed if it was flagged for review OR still has no
-    // delivered quantity. Items seeded from an order start with actual_qty=null
+    // An item is editable if it was flagged for review, still has no delivered
+    // quantity, OR the operator clicked "Edit" to reopen an already-confirmed
+    // value (it._editing). Items seeded from an order start with actual_qty=null
     // and are NOT needs_review, so they must stay editable here — otherwise they
     // render as a bare "OK" and get billed at their ordered quantity.
     const nr  = it.needs_review;
-    const unconfirmed = nr || it.actual_qty == null;
+    const unconfirmed = nr || it.actual_qty == null || it._editing;
+    // A confirmed value can only be reopened when it's backed by a server row
+    // (actual_id) that confirm-items can re-write.
+    const canEdit = !unconfirmed && it.actual_id != null;
     if(unconfirmed && it.actual_id != null) anyEditable = true;
     const qid = 'qi-'+h.order_id+'-'+it.actual_id;
     rows += '<tr class="'+(unconfirmed?'nr':'')+'">' +
-      '<td><strong>'+it.product+'</strong></td>' +
+      '<td><strong>'+erpName(it.product)+'</strong></td>' +
       '<td style="text-align:right">'+(it.ordered_qty!=null?it.ordered_qty:'-')+'</td>' +
       '<td style="text-align:right">' +
       (unconfirmed
         ? '<div class="qty-row">' +
           '<input class="qty-inp" id="'+qid+'" type="number" step="0.001" min="0" value="'+(it.actual_qty??'')+'" placeholder="qty" ' +
           'onkeydown="if(event.key===\'Enter\'){event.preventDefault();confirmAllItems('+h.order_id+')}" ' +
-          'aria-label="Delivered quantity for '+it.product+'"></div>' +
+          'aria-label="Delivered quantity for '+erpName(it.product)+'"></div>' +
           (it.review_reason?'<div class="review-label">'+it.review_reason+'</div>':'')
         : it.actual_qty
       ) +
       '</td>' +
       '<td>'+it.unit+'</td>' +
-      '<td>'+(unconfirmed ? '' : '<span class="check-tag">OK</span>')+'</td>' +
+      '<td>'+(unconfirmed
+        ? ''
+        : '<span class="check-tag">OK</span>' +
+          (canEdit ? ' <a class="edit-link" onclick="editRow('+h.order_id+','+it.actual_id+')">Edit</a>' : '')
+      )+'</td>' +
       '</tr>';
   });
   wrap.innerHTML = '<table class="items-tbl"><thead><tr>' +
@@ -598,9 +583,25 @@ function buildItemsTable(h){
     '</tr></thead><tbody>'+rows+'</tbody></table>' +
     (anyEditable
       ? '<div class="action-bar" style="margin-top:12px">' +
-        '<button class="gen-btn" onclick="confirmAllItems('+h.order_id+')">Confirm delivered quantities</button>' +
+        (h.status==='invoiced'
+          ? '<button class="gen-btn" onclick="reissueInvoice('+h.order_id+')">Save correction &amp; reissue invoice</button>' +
+            '<span style="font-size:12px;color:var(--ink3);margin-left:10px">Updates this bill in place (same number). Then edit the matching voucher in Vasy by hand — do NOT re-run the bot.</span>'
+          : '<button class="gen-btn" onclick="confirmAllItems('+h.order_id+')">Confirm delivered quantities</button>') +
         '</div>'
-      : '');
+      : '') +
+    // Add a product the customer didn't order but we deliver anyway (standing
+    // items). On an already-invoiced card this also reissues the bill in place.
+    '<div class="add-item-row" style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<input class="qty-inp" list="prod-list" id="addp-'+h.order_id+'" placeholder="Add product" ' +
+        'style="flex:1;min-width:150px" onchange="onAddProductPick('+h.order_id+')" ' +
+        'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addItem('+h.order_id+')}" aria-label="Add product">' +
+      '<input class="qty-inp" id="addq-'+h.order_id+'" type="number" step="0.001" min="0" placeholder="qty" ' +
+        'style="width:80px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addItem('+h.order_id+')}" aria-label="Add product quantity">' +
+      '<select id="addu-'+h.order_id+'" class="qty-inp" style="width:72px" aria-label="Add product unit">' +
+        '<option value="kg">kg</option><option value="nos">nos</option></select>' +
+      '<button class="resolve-btn" onclick="addItem('+h.order_id+')">' +
+        (h.status==='invoiced' ? 'Add &amp; reissue' : 'Add product') + '</button>' +
+    '</div>';
   return wrap;
 }
 
@@ -632,8 +633,9 @@ function buildInvArea(h){
       : '/dashboard/invoices/'+h.invoice_number;
     area.innerHTML =
       '<a class="inv-success" href="'+invLink+'" style="text-decoration:none" title="View invoice detail">' +
-      'OK '+h.invoice_number+' - Rs.'+h.invoice_total?.toFixed(2)+'</a>' +
-      '<a class="pdf-link" href="/billing/api/invoices/'+h.invoice_number+'/pdf" target="_blank">Download PDF</a>';
+      'OK '+h.invoice_number+' - ₹'+h.invoice_total?.toFixed(2)+'</a>' +
+      '<a class="pdf-link" href="/billing/api/invoices/'+h.invoice_number+'/pdf" target="_blank">Download PDF</a>' +
+      '<a class="pdf-link" href="#" onclick="printOne(\''+h.invoice_number+'\');return false;" title="Print this bill (can reprint any time)">🖨 Print</a>';
   } else if(h.status === 'clear'){
     area.innerHTML =
       '<input class="phone-inp" type="text" id="ph-'+h.order_id+'" value="'+(h.customer_phone||'')+'" placeholder="Customer phone">' +
@@ -676,8 +678,24 @@ function renderStatCounts(){
 // card to Ready while other items still have no delivered quantity — mirrors the
 // backend status logic in _build_hotel_record.
 function isHotelClear(h){
-  return (h.items||[]).every(i => !i.needs_review && i.actual_qty != null)
+  return (h.items||[]).every(i => !i.needs_review && i.actual_qty != null && !i._editing)
     && (!h.unmatched || h.unmatched.every(u => u._done));
+}
+
+// Reopen an already-confirmed delivered quantity for correction. Flips the row
+// back to an editable input (pre-filled with the current value) and drops the
+// hotel out of "Ready" until it's re-confirmed, so a stale value can't be
+// invoiced mid-edit.
+function editRow(orderId, actualId){
+  const h = hotelResults.find(x=>x.order_id===orderId);
+  if(!h) return;
+  const it = h.items.find(i=>i.actual_id===actualId);
+  if(!it) return;
+  it._editing = true;
+  if(h.status!=='invoiced') h.status = 'unclear';
+  rebuildCard(orderId);
+  const inp = document.getElementById('qi-'+orderId+'-'+actualId);
+  if(inp){ inp.focus(); inp.select(); }
 }
 
 // One button per hotel: gather every editable delivered-quantity input on the
@@ -690,12 +708,12 @@ async function confirmAllItems(orderId){
 
   const payload = [];
   for(const it of (h.items||[])){
-    const editable = (it.needs_review || it.actual_qty == null) && it.actual_id != null;
+    const editable = (it.needs_review || it.actual_qty == null || it._editing) && it.actual_id != null;
     if(!editable) continue;
     const inp = document.getElementById('qi-'+orderId+'-'+it.actual_id);
     const qty = parseFloat(inp ? inp.value : '');
     if(!qty || qty<=0){
-      showToast('Enter a delivered quantity for '+it.product);
+      showToast('Enter a delivered quantity for '+erpName(it.product));
       if(inp) inp.focus();
       return;
     }
@@ -712,12 +730,119 @@ async function confirmAllItems(orderId){
     showToast('Confirmed '+payload.length+' item'+(payload.length>1?'s':''));
     payload.forEach(p=>{
       const it = h.items.find(i=>i.actual_id===p.actual_id);
-      if(it){ it.actual_qty=p.actual_qty; it.needs_review=false; }
+      if(it){ it.actual_qty=p.actual_qty; it.needs_review=false; it._editing=false; }
     });
     if(h.status!=='invoiced')
       h.status = isHotelClear(h) ? 'clear' : 'unclear';
     rebuildCard(orderId);
   } else showToast('Failed: '+(d.error||'unknown'));
+}
+
+// Correct an ALREADY-invoiced order: gather the edited delivered quantities and
+// rebuild the existing invoice in place (same number) via correct-invoice. Used
+// to fix a data-entry typo (e.g. 405 kg → 4.05 kg) without minting a new invoice
+// or a duplicate in Vasy. The Vasy voucher still has to be edited by hand.
+async function reissueInvoice(orderId){
+  const h = hotelResults.find(x=>x.order_id===orderId);
+  if(!h){ return; }
+
+  const payload = [];
+  for(const it of (h.items||[])){
+    const editable = (it.needs_review || it.actual_qty == null || it._editing) && it.actual_id != null;
+    if(!editable) continue;
+    const inp = document.getElementById('qi-'+orderId+'-'+it.actual_id);
+    const qty = parseFloat(inp ? inp.value : '');
+    if(!qty || qty<=0){
+      showToast('Enter a delivered quantity for '+erpName(it.product));
+      if(inp) inp.focus();
+      return;
+    }
+    payload.push({actual_id: it.actual_id, actual_qty: qty});
+  }
+  if(!payload.length){ showToast('Nothing to correct'); return; }
+
+  const r = await fetch('/billing/api/correct-invoice',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order_id:orderId, items:payload})
+  });
+  const d = await r.json();
+  if(d.ok){
+    showToast('Invoice '+d.invoice_number+' reissued — ₹'+(d.total||0).toFixed(2)+'. Now edit it in Vasy by hand.');
+    payload.forEach(p=>{
+      const it = h.items.find(i=>i.actual_id===p.actual_id);
+      if(it){ it.actual_qty=p.actual_qty; it.needs_review=false; it._editing=false; }
+    });
+    h.invoice_total = d.total;
+    rebuildCard(orderId);
+  } else showToast('Failed: '+(d.error||'unknown'));
+}
+
+// When a product is picked from the datalist, default its unit from the rate
+// master (kg/nos) so the operator rarely has to touch the unit select.
+function onAddProductPick(orderId){
+  const pEl = document.getElementById('addp-'+orderId);
+  const uEl = document.getElementById('addu-'+orderId);
+  if(!pEl || !uEl) return;
+  const row = (window._prodByErp||{})[(pEl.value||'').trim()];
+  if(row && row.unit) uEl.value = row.unit;
+}
+
+// Add a product to an order right on the billing card — including one the
+// customer never ordered but we always send. Maps the picked ERP name back to
+// the canonical product name (so rate lookup works), persists a confirmed
+// actual, and — if the order is already invoiced — reissues the bill in place.
+async function addItem(orderId){
+  const h = hotelResults.find(x=>x.order_id===orderId);
+  if(!h) return;
+  const pEl = document.getElementById('addp-'+orderId);
+  const qEl = document.getElementById('addq-'+orderId);
+  const uEl = document.getElementById('addu-'+orderId);
+  const typed = (pEl?pEl.value:'').trim();
+  const qty   = parseFloat(qEl?qEl.value:'');
+  const unit  = uEl?uEl.value:'kg';
+  if(!typed){ showToast('Pick or type a product'); if(pEl)pEl.focus(); return; }
+  if(!qty || qty<=0){ showToast('Enter a quantity'); if(qEl)qEl.focus(); return; }
+
+  // ERP label → canonical product name (fallback to what was typed).
+  const row = (window._prodByErp||{})[typed];
+  const product = row ? row.product : typed;
+
+  const r = await fetch('/billing/api/add-item',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order_id:orderId, product, qty, unit})
+  });
+  const d = await r.json();
+  if(!d.ok){ showToast('Failed: '+(d.error||'unknown')); return; }
+
+  // Reflect in the local model (update if it already existed, else append).
+  let it = h.items.find(i=>i.product===product);
+  if(it){
+    it.actual_qty=d.qty; it.actual_unit=unit; it.unit=unit;
+    it.needs_review=false; it._editing=false; it.actual_id=d.actual_id;
+  } else {
+    h.items.push({product, actual_qty:d.qty, ordered_qty:d.qty, unit,
+                  needs_review:false, actual_id:d.actual_id});
+  }
+
+  if(h.status==='invoiced'){
+    // Fold the new line into the existing bill (same invoice number).
+    const rr = await fetch('/billing/api/correct-invoice',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({order_id:orderId, items:[]})
+    });
+    const dd = await rr.json();
+    if(dd.ok){
+      h.invoice_total = dd.total;
+      showToast((d.updated?'Updated ':'Added ')+erpName(product)+' — invoice '+dd.invoice_number+
+                ' reissued (₹'+(dd.total||0).toFixed(2)+'). Now edit it in Vasy by hand.');
+    } else {
+      showToast('Item saved but reissue failed: '+(dd.error||'unknown'));
+    }
+  } else {
+    h.status = isHotelClear(h) ? 'clear' : 'unclear';
+    showToast((d.updated?'Updated ':'Added ')+erpName(product));
+  }
+  rebuildCard(orderId);
 }
 
 async function resolveUnmatched(lineId, orderId){
@@ -766,7 +891,7 @@ async function generateInvoice(orderId){
     if(phone && d.invoice_number){
       const ia = document.getElementById('ia-'+orderId);
       if(ia){
-        const waText = encodeURIComponent('Invoice '+d.invoice_number+' - Rs.'+(d.total||0).toFixed(2)+'. Download PDF: /billing/api/invoices/'+d.invoice_number+'/pdf');
+        const waText = encodeURIComponent('Invoice '+d.invoice_number+' - ₹'+(d.total||0).toFixed(2)+'. Download PDF: /billing/api/invoices/'+d.invoice_number+'/pdf');
         const waBtn = document.createElement('a');
         waBtn.className = 'pdf-link';
         waBtn.href = 'https://wa.me/'+phone.replace(/\D/g,'')+'?text='+waText;
@@ -782,8 +907,67 @@ async function generateInvoice(orderId){
   }
 }
 
+// Open a PDF blob in a new tab and trigger the print dialog. Every page is a
+// standard A4 with the bill in the top half, so feeding pre-cut half-sheets
+// needs no printer configuration — just confirm the print.
+function openAndPrint(blob){
+  const obj = URL.createObjectURL(blob);
+  const w = window.open(obj, '_blank');
+  if(w){ w.addEventListener('load', ()=>{ try{ w.focus(); w.print(); }catch(e){} }); }
+  else { showToast('Allow pop-ups for this site to print.'); }
+  setTimeout(()=>URL.revokeObjectURL(obj), 60000);
+}
+
+// Print all bills for the day. scope='new' (default) prints ONLY bills not yet
+// printed and marks them, so a later click after more invoicing prints just the
+// new ones. scope='all' reprints every bill for the day.
+async function doPrintAll(scope){
+  const btn = document.getElementById('print-all-btn');
+  const orig = btn.textContent;
+  btn.disabled=true; btn.textContent='Preparing...';
+  try{
+    const r = await fetch('/billing/api/invoices/pdf/print?business_date='+today+'&scope='+scope);
+    if(r.status===409){
+      const d = await r.json().catch(()=>({}));
+      btn.disabled=false; btn.textContent=orig;
+      if(confirm((d.error||'All bills already printed.')+'\n\nReprint ALL of them anyway?')){
+        return doPrintAll('all');
+      }
+      return;
+    }
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.statusText);
+    const n = r.headers.get('X-Printed-Count') || '?';
+    openAndPrint(await r.blob());
+    showToast('Printing '+n+' bill(s) — Two-sided OFF, feed half-sheets, confirm print');
+  } catch(e){ showToast('Print failed: '+e.message); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+function printAllPDFs(){
+  // Duplex guard: this printer (HP Laser 303d) can print two-sided, and a
+  // leftover "both sides" setting would print two bills on one half-sheet (and
+  // may jam). We can't force simplex from the browser, so remind before we mark
+  // anything printed — the user can still cancel here.
+  if(!confirm(
+    "Printing today's bills — one bill per half-sheet.\n\n"+
+    "⚠ Before you confirm in the print dialog, make sure\n"+
+    "   \"Two-sided / Print on both sides\" is OFF.\n\n"+
+    "Otherwise two bills print on one sheet (and can jam).\n\n"+
+    "Ready to print?")) return;
+  return doPrintAll('new');
+}
+
+// Print a single bill (repeatable). Opens inline and triggers print; also marks
+// the bill printed so "Print all" won't reprint it.
+async function printOne(invoiceNumber){
+  try{
+    const r = await fetch('/billing/api/invoices/'+encodeURIComponent(invoiceNumber)+'/print');
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.statusText);
+    openAndPrint(await r.blob());
+  } catch(e){ showToast('Print failed: '+e.message); }
+}
+
 async function dlAllPDFs(){
-  const btn = document.querySelector('.nav-right .btn-primary');
+  const btn = document.getElementById('dl-all-btn');
   const orig = btn.textContent;
   btn.disabled=true; btn.textContent='Preparing...';
   try{
@@ -800,100 +984,54 @@ async function dlAllPDFs(){
   finally{ btn.disabled=false; btn.textContent=orig; }
 }
 
-function onDrag(e, zoneId, over){
-  e.preventDefault();
-  document.getElementById(zoneId).classList.toggle('drag', over);
-}
-function onDropFile(e){
-  e.preventDefault();
-  addPhotoFiles([...e.dataTransfer.files]);
-  onDrag(e, 'photo-zone', false);
-}
-function onFileSelect(e){
-  addPhotoFiles([...e.target.files]);
-  e.target.value='';
-}
-
-function addPhotoFiles(files){
-  files.forEach(f=>{ if(!photoFiles.find(x=>x.name===f.name&&x.size===f.size)) photoFiles.push(f); });
-  renderPhotoPills();
-}
-function renderPhotoPills(){
-  const ul = document.getElementById('photo-pill-list');
-  ul.innerHTML='';
-  photoFiles.forEach((f,i)=>{
-    const li = document.createElement('div');
-    li.className='file-pill';
-    li.innerHTML='<span style="color:var(--green)">+</span>' +
-      '<span class="fp-name">'+f.name+'</span>' +
-      '<span class="fp-size">'+(f.size/1024).toFixed(0)+' KB</span>' +
-      '<span class="fp-rm" onclick="rmPhoto('+i+')" title="Remove">x</span>';
-    ul.appendChild(li);
-  });
-  document.getElementById('btn-upload-photos').disabled = photoFiles.length===0;
-  document.getElementById('photo-err').style.display = 'none';
-}
-function rmPhoto(i){ photoFiles.splice(i,1); renderPhotoPills(); }
-
-async function doPhotosUpload(){
-  document.getElementById('upload-spinner').style.display='';
-  const labels=[
-    'Reading your photos...','Identifying hotels and quantities...',
-    "Matching against today's orders...",'Updating delivered quantities...'
-  ];
-  let li=0; document.getElementById('spin-msg').textContent=labels[0];
-  const iv = setInterval(()=>{ if(li<labels.length-1) document.getElementById('spin-msg').textContent=labels[++li]; },2400);
-  const fd = new FormData(); photoFiles.forEach(f=>fd.append('photos',f));
-  try{
-    const r = await fetch('/billing/api/upload',{method:'POST',body:fd});
-    const d = await r.json();
-    clearInterval(iv);
-    if(!r.ok) throw new Error(d.error||'Upload failed');
-    try{
-      const tr = await fetch('/billing/api/today-results');
-      const td = await tr.json();
-      hotelResults = td.hotels || d.hotels;
-      today        = td.today  || d.today || today;
-      setProgBar(td.delivered_count||0, td.total_hotels||hotelResults.length);
-    }catch(_){ hotelResults = d.hotels||[]; }
-    showToast('Upload complete');
-    photoFiles = []; renderPhotoPills();
-    goView('today');
-  }catch(e){
-    clearInterval(iv);
-    document.getElementById('photo-err').textContent = e.message;
-    document.getElementById('photo-err').style.display='';
-  }finally{
-    document.getElementById('upload-spinner').style.display='none';
-  }
-}
-
-function setProgBar(done, total){
-  if(!total) return;
-  const pct = Math.round(done/total*100);
-  document.getElementById('photo-prog-wrap').style.display='';
-  document.getElementById('prog-txt').textContent = done+' of '+total+' hotels confirmed';
-  document.getElementById('prog-pct').textContent = pct+'%';
-  document.getElementById('prog-bar').style.width  = pct+'%';
-}
-
 async function loadRates(){
   try{
     const r = await fetch('/billing/api/customer-rates');
     const d = await r.json();
     today    = d.today || today;
     rateRows = d.products || [];
+    // Populate the shared "Add product" picker: option label = the ERP name the
+    // user recognises, mapped back to the canonical product name that rate
+    // lookup expects (and the default unit) via window._prodByErp.
+    const dl = document.getElementById('prod-list');
+    if(dl){
+      window._prodByErp = {};
+      dl.innerHTML = (rateRows||[]).map(p=>{
+        const label = erpName(p.product);
+        window._prodByErp[label] = p;               // {product (canonical), unit, ...}
+        return '<option value="'+String(label).replace(/"/g,'&quot;')+'"></option>';
+      }).join('');
+    }
     window._ratesData = d;
     document.getElementById('date-label').textContent = fmt(today);
+    window._allCustomers = d.customers || [];
     const sel = document.getElementById('cust-select');
     sel.innerHTML = '<option value="">- all customers (default rates) -</option>';
-    (d.customers||[]).forEach(c=>{
+    window._allCustomers.forEach(c=>{
       const o=document.createElement('option');
       o.value=c.phone; o.textContent=c.name;
       sel.appendChild(o);
     });
     rerenderRates();
   }catch(e){ console.warn('rates load failed',e); }
+}
+
+// Filter the customer dropdown by the search box. Keeps <select> as the value
+// holder (so rerenderRates/save logic is unchanged); a single match auto-selects.
+function filterCustomerOptions(){
+  const q = (document.getElementById('cust-search').value||'').trim().toLowerCase();
+  const sel = document.getElementById('cust-select');
+  const prev = sel.value;
+  const list = (window._allCustomers||[]).filter(c => !q || (c.name||'').toLowerCase().includes(q));
+  sel.innerHTML = '<option value="">- all customers (default rates) -</option>';
+  list.forEach(c=>{
+    const o=document.createElement('option');
+    o.value=c.phone; o.textContent=c.name;
+    sel.appendChild(o);
+  });
+  if(q && list.length===1){ sel.value = list[0].phone; }             // one match → pick it
+  else if(prev && list.some(c=>c.phone===prev)){ sel.value = prev; } // keep prior pick
+  if(sel.value !== prev) rerenderRates();
 }
 
 function rerenderRates(){
@@ -932,12 +1070,12 @@ function rerenderRates(){
         : (p.rate!=null?p.rate:'');
     const tr = document.createElement('tr');
     tr.innerHTML =
-      '<td><span class="product-name">'+p.product+'</span>' +
+      '<td><span class="product-name">'+erpName(p.product)+'</span>' +
       '<span class="unit-badge">'+p.unit+'</span>' +
       (p.stale ? '<span class="stale-tag">carried forward - '+p.rate_date+'</span>' : '') +
-      (hasOverride ? '<span class="stale-tag" style="background:var(--blue-bg);color:var(--blue);border:none">override Rs.'+overrideMap[p.product]+'</span>' : '') +
+      (hasOverride ? '<span class="stale-tag" style="background:var(--blue-bg);color:var(--blue);border:none">override ₹'+overrideMap[p.product]+'</span>' : '') +
       '</td>' +
-      '<td style="text-align:right"><input class="rate-inp'+(hasOverride?' edited':'')+'" type="number" step="0.01" min="0" value="'+val+'" placeholder="Rs. -" data-product="'+p.product+'" data-unit="'+p.unit+'" oninput="onRateEdit(this)"></td>' +
+      '<td style="text-align:right"><input class="rate-inp'+(hasOverride?' edited':'')+'" type="number" step="0.01" min="0" value="'+val+'" placeholder="₹ -" data-product="'+p.product+'" data-unit="'+p.unit+'" oninput="onRateEdit(this)"></td>' +
       '<td style="width:48px"></td>';
     tbody.appendChild(tr);
   });
@@ -983,7 +1121,7 @@ async function loadHistory(){
     allInvoices = d.invoices||[];
   }catch(e){
     document.getElementById('hist-tbody').innerHTML=
-      '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--red)">Could not load: '+e.message+'</td></tr>';
+      '<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--red)">Could not load: '+e.message+'</td></tr>';
     return;
   }
   filterHist();
@@ -1017,7 +1155,7 @@ function filterHist(){
     el.innerHTML =
       '<div class="hstat"><strong>'+out.length+'</strong>invoices</div>' +
       '<div class="hstat"><strong>'+dates+'</strong>day(s)</div>' +
-      '<div class="hstat"><strong>Rs.'+total.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong>total</div>';
+      '<div class="hstat"><strong>₹'+total.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong>total</div>';
   } else { el.innerHTML=''; }
 
   if(!out.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
@@ -1027,8 +1165,12 @@ function filterHist(){
     '<td>'+(i.hotel_name||'-')+'</td>' +
     '<td style="color:var(--ink2)">'+fmts(i.business_date)+'</td>' +
     '<td style="color:var(--ink3);font-size:12px">'+(i.customer_phone||'-')+'</td>' +
-    '<td style="text-align:right"><span class="inv-amount">Rs.'+parseFloat(i.total).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></td>' +
-    '<td style="text-align:center"><a class="pdf-link btn-sm" href="/billing/api/invoices/'+i.invoice_number+'/pdf" target="_blank">Download</a></td></tr>'
+    '<td style="text-align:right"><span class="inv-amount">₹'+parseFloat(i.total).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></td>' +
+    '<td style="text-align:center">' + (i.vasy_synced
+        ? '<span class="badge-vasy" title="Synced to Vasy'+(i.vasy_voucher_no?' as '+i.vasy_voucher_no:'')+'">✓'+(i.vasy_voucher_no?' '+i.vasy_voucher_no:'')+'</span>'
+        : '<span class="badge-vasy-pending" title="Not yet synced to Vasy">—</span>') + '</td>' +
+    '<td style="text-align:center"><a class="pdf-link btn-sm" href="/billing/api/invoices/'+i.invoice_number+'/pdf" target="_blank">Download</a>' +
+    ' <a class="pdf-link btn-sm" href="#" onclick="printOne(\''+i.invoice_number+'\');return false;" title="Print this bill">🖨 Print</a></td></tr>'
   ).join('');
 }
 

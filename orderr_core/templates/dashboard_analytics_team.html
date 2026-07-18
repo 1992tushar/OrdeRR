@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Team & area</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 12px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:700}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.seg a{padding:7px 12px;font-size:12px;color:var(--ink2);text-decoration:none;border-right:1px solid var(--border)}
+.seg a:last-child{border-right:none}
+.seg a.active{background:var(--green);color:#fff;font-weight:600}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border)}
+th.num{text-align:right}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.name-cell{min-width:150px}
+.rev-bar{height:6px;border-radius:3px;background:var(--bg);margin-top:5px;overflow:hidden}
+.rev-bar > i{display:block;height:100%;background:var(--green);border-radius:3px}
+.sub{font-size:11px;color:var(--ink3)}
+.empty{color:var(--ink3);text-align:center;padding:26px}
+tr.drill{cursor:pointer}
+tr.drill:hover{background:var(--green-bg)}
+tr.drill .name-cell::after{content:"›";float:right;color:var(--ink3);font-weight:700;font-size:15px;line-height:1}
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 14px;overflow-y:auto}
+.modal-back.open{display:flex}
+.modal{background:var(--surface);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.25);width:100%;max-width:520px;overflow:hidden}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border)}
+.modal-title{font-size:15px;font-weight:700;line-height:1.3}
+.modal-x{background:none;border:none;font-size:22px;line-height:1;color:var(--ink3);cursor:pointer;padding:0 4px}
+.modal-x:hover{color:var(--ink)}
+.modal-body{max-height:60vh;overflow-y:auto}
+.modal-foot{padding:10px 18px;font-size:11px;color:var(--ink3);border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-head">
+    <div class="section-title">Volume sold (KG) · by route</div>
+    <div class="seg">
+      {% for opt, lbl in [("today","Today"),("yesterday","Yesterday"),("7","7d"),("30","30d"),("all","All")] %}
+      <a href="/dashboard/analytics/team?vol={{ opt }}&team_days={{ team_days }}" class="{{ 'active' if vol == opt else '' }}">{{ lbl }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="wrap" style="padding:14px 16px;margin-bottom:14px;display:flex;gap:28px;flex-wrap:wrap;align-items:baseline">
+    <div><div style="font-size:22px;font-weight:800">{{ volume.total_kg_fmt }} <span style="font-size:13px;font-weight:600;color:var(--ink3)">kg</span></div><div class="sub">SOLD · {{ volume.window_label }}</div></div>
+    <div><div style="font-size:22px;font-weight:800">{{ volume.total_value_fmt }}</div><div class="sub">BILLED VALUE</div></div>
+    <div><div style="font-size:22px;font-weight:800">{{ volume.invoices }}</div><div class="sub">INVOICES</div></div>
+    {% if volume.internal_kg > 0 %}<div><div style="font-size:22px;font-weight:800;color:var(--ink3)">{{ volume.internal_kg_fmt }} <span style="font-size:13px;font-weight:600">kg</span></div><div class="sub">INTERNAL (₹0 — wastage/dead bird), not counted</div></div>{% endif %}
+  </div>
+
+  <div class="grid2">
+    <div>
+      <div class="section-title" style="font-size:13px;margin:0 2px 8px">By route / area · {{ volume.window_label }}</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>Route</th><th class="num">KG</th><th class="num">Value</th><th class="num">Invoices</th></tr></thead>
+          <tbody>
+            {% set maxkg = volume.areas[0].kg if volume.areas and volume.areas[0].kg > 0 else 1 %}
+            {% for r in volume.areas %}
+            <tr class="drill" data-dim="area" data-key="{{ r.name }}">
+              <td class="name-cell">{{ r.name }}<div class="rev-bar"><i style="width:{{ (r.kg / maxkg * 100) }}%"></i></div></td>
+              <td class="num" style="font-weight:600">{{ r.kg_fmt }}</td>
+              <td class="num">{{ r.value_fmt }}</td>
+              <td class="num">{{ r.invoices }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty">No sales in this window.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+    <div>
+      <div class="section-title" style="font-size:13px;margin:0 2px 8px">By product · {{ volume.window_label }}</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>Product</th><th class="num">KG</th><th class="num">Value</th></tr></thead>
+          <tbody>
+            {% for r in volume.products %}
+            <tr class="drill" data-dim="product" data-key="{{ r.name }}">
+              <td class="name-cell">{{ r.name }}</td>
+              <td class="num" style="font-weight:600">{{ r.kg_fmt }}</td>
+              <td class="num">{{ r.value_fmt }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="empty">No sales in this window.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+  </div>
+  <div style="font-size:11px;color:var(--ink3);margin:10px 2px 0">
+    From the Vasy Sales Item Register (billed truth). Route = the customer's area; customers with no area roll into <em>Unassigned</em>. ₹0 lines (plant wastage, dead bird, workers' food) are internal transfers and excluded from sold KG.
+  </div>
+
+  <div class="section-head">
+    <div class="section-title">Salesperson &amp; area performance</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="seg">
+        {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
+        <a href="/dashboard/analytics/team?team_days={{ opt }}&vol={{ vol }}" class="{{ 'active' if team_days == opt else '' }}">{{ lbl }}</a>
+        {% endfor %}
+      </div>
+      <a href="/dashboard/analytics/export/team?days={{ team_days }}"
+         style="font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px">⬇ Excel</a>
+    </div>
+  </div>
+
+  <div class="grid2">
+    {% for title, rows in [("By salesperson", team.by_salesperson), ("By area", team.by_area)] %}
+    <div>
+      <div class="section-title" style="font-size:13px;margin:0 2px 8px">{{ title }} · {{ team.window_label }}</div>
+      <div class="wrap"><div class="scroll">
+        <table>
+          <thead><tr><th>{{ 'Salesperson' if loop.first else 'Area' }}</th><th class="num">Revenue</th>{% if team.has_money %}<th class="num">Collected</th><th class="num">Outstanding</th>{% endif %}<th class="num">Orders</th><th class="num">Active</th></tr></thead>
+          <tbody>
+            {% set maxrev = rows[0].revenue if rows and rows[0].revenue > 0 else 1 %}
+            {% for r in rows %}
+            <tr>
+              <td class="name-cell">
+                {{ r.name }}
+                <div class="rev-bar"><i style="width:{{ (r.revenue / maxrev * 100) }}%"></i></div>
+              </td>
+              <td class="num">{{ r.revenue_fmt }}</td>
+              {% if team.has_money %}<td class="num" style="color:var(--green)">{{ r.collected_fmt }}</td><td class="num" style="color:var(--amber)">{{ r.outstanding_fmt }}</td>{% endif %}
+              <td class="num">{{ r.orders }}</td>
+              <td class="num">{{ r.active }}<span class="sub">/{{ r.portfolio }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="{{ 6 if team.has_money else 4 }}" class="empty">No data.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+    </div>
+    {% endfor %}
+  </div>
+  <div style="font-size:11px;color:var(--ink3);margin-top:12px">
+    Revenue from OrdeRR invoices (operational). “Active” = customers who ordered in the window; “/n” = assigned portfolio size. Customers with no salesperson/area roll into <em>Unassigned</em>.
+  </div>
+</main>
+
+<div class="modal-back" id="drillBack">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="drillTitle">
+    <div class="modal-head">
+      <div class="modal-title" id="drillTitle">Hotels</div>
+      <button class="modal-x" id="drillClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Hotel</th><th class="num">KG</th><th class="num">Value</th><th class="num">Invoices</th></tr></thead>
+          <tbody id="drillRows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-foot" id="drillFoot"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var VOL = {{ vol|tojson }};
+  var back = document.getElementById('drillBack');
+  var title = document.getElementById('drillTitle');
+  var rowsEl = document.getElementById('drillRows');
+  var footEl = document.getElementById('drillFoot');
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function close(){ back.classList.remove('open'); }
+
+  function open(dim, key){
+    title.textContent = key;
+    rowsEl.innerHTML = '<tr><td colspan="4" class="empty">Loading…</td></tr>';
+    footEl.textContent = '';
+    back.classList.add('open');
+    var url = '/dashboard/analytics/team/breakdown?dim=' + encodeURIComponent(dim)
+            + '&key=' + encodeURIComponent(key) + '&vol=' + encodeURIComponent(VOL);
+    fetch(url, {credentials:'same-origin'})
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        title.textContent = (dim==='product'?'🍗 ':'📍 ') + d.key;
+        if(!d.rows || !d.rows.length){
+          rowsEl.innerHTML = '<tr><td colspan="4" class="empty">No sales in this window.</td></tr>';
+          footEl.textContent = d.window_label || '';
+          return;
+        }
+        rowsEl.innerHTML = d.rows.map(function(r){
+          return '<tr><td class="name-cell">' + esc(r.name) + '</td>'
+               + '<td class="num" style="font-weight:600">' + esc(r.kg_fmt) + '</td>'
+               + '<td class="num">' + esc(r.value_fmt) + '</td>'
+               + '<td class="num">' + esc(r.invoices) + '</td></tr>';
+        }).join('');
+        footEl.textContent = d.hotel_count + ' hotel' + (d.hotel_count===1?'':'s')
+                           + ' · ' + d.total_kg_fmt + ' kg · ' + d.total_value_fmt
+                           + ' · ' + (d.window_label||'');
+      })
+      .catch(function(){
+        rowsEl.innerHTML = '<tr><td colspan="4" class="empty">Could not load. Please try again.</td></tr>';
+      });
+  }
+
+  document.querySelectorAll('tr.drill').forEach(function(tr){
+    tr.addEventListener('click', function(){
+      open(tr.getAttribute('data-dim'), tr.getAttribute('data-key'));
+    });
+  });
+  document.getElementById('drillClose').addEventListener('click', close);
+  back.addEventListener('click', function(e){ if(e.target===back) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+})();
+</script>
+</body>
+</html>

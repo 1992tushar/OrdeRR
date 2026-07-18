@@ -110,6 +110,14 @@ class Customer(Base):
         server_default="0",
     )
 
+    # Credit limit (₹) for this customer — owner-set ceiling on receivables
+    # exposure. NULL = no limit set. Used by the Phase-3 credit-risk / breach
+    # alert (exposure crosses limit) — see analytics credit intelligence.
+    credit_limit = Column(
+        Numeric(12, 2),
+        nullable=True,
+    )
+
     # Relationship
     salesperson = relationship("Salesperson", back_populates="customers")
 

@@ -49,15 +49,20 @@ from orderr_core.models.customer_product_alias import CustomerProductAlias
 from orderr_core.services.customer_service import normalize_phone, validate_phone
 from orderr_core.services.notifier import send_whatsapp_message
 from orderr_core.services.pending_orders import get_pending_customers, get_delivery_date_for_now
-from orderr_core.services.template_parser import PRODUCT_DEFINITIONS
+from orderr_core.services.template_parser import (
+    PRODUCT_DEFINITIONS,
+    normalize_alias_key,
+    alias_keys_match,
+    strip_list_marker,
+)
 from orderr_core.services.customer_service import create_customer_manually
 from orderr_core.services.customer_service import import_customers_from_xlsx
 from orderr_core.services.order_service import process_incoming_order
-from orderr_core.services.order_service import get_current_business_date_str, RESET_HOUR
+from orderr_core.services.order_service import get_current_business_date_str, get_current_business_date, RESET_HOUR
 from orderr_core.services.notifier import send_manager_alert
 from orderr_core.services.customer_service import get_customer_by_phone
 from orderr_core.models.noise_phrase import NoisePhrase
-from orderr_core.services.notifier import send_whatsapp_message, send_customer_registration_welcome
+from orderr_core.services.notifier import send_whatsapp_message
 from sqlalchemy.exc import IntegrityError
 
 from fastapi.responses import HTMLResponse
@@ -67,9 +72,8 @@ logger = logging.getLogger(__name__)
 
 
 router     = APIRouter()
-PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
-MANAGER_PHONE = os.getenv("MANAGER_PHONE", "")
-IST        = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.config import MANAGER_PHONE, PLANT_NAME
+from orderr_core.constants import IST
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -127,6 +131,7 @@ class NextDayOverride(BaseModel):
 class PostOrderPayload(BaseModel):
     """Payload for admin posting an order on behalf of a customer."""
     message: str
+    acknowledge_credit: bool = False   # set true to post past a credit warning
 
 class CancelOrderPayload(BaseModel):
     reason: Optional[str] = None
@@ -176,27 +181,7 @@ class ResolveWordQtyItem(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _safe_list(val) -> list:
-    """
-    Safely coerce a JSONB column value to a Python list.
-    Handles: None, already-a-list, JSON string, double-encoded JSON string.
-    Never raises.
-    """
-    if val is None:
-        return []
-    if isinstance(val, list):
-        return val
-    if isinstance(val, str):
-        if val in ("null", "[]", ""):
-            return []
-        try:
-            result = json.loads(val)
-            if isinstance(result, str):          # double-encoded
-                result = json.loads(result)
-            return result if isinstance(result, list) else []
-        except Exception:
-            return []
-    return []
+from orderr_core.utils import safe_list as _safe_list
 
 
 LINE_RE = re.compile(
@@ -211,6 +196,9 @@ def _extract_product_name(raw_line: str) -> tuple[str, float]:
     returns (product_name_lower, quantity).
     """
     line_clean = re.sub(r'__+', '', raw_line).strip()
+    # Drop a leading list marker ("1)", "2.") so it isn't mistaken for the name
+    # or the quantity — mirrors the parser, which strips it before matching.
+    line_clean = strip_list_marker(line_clean)
     line_clean = re.sub(r'(\d+)\s*k\b', r'\1 kg', line_clean)
     m = LINE_RE.match(line_clean)
     if m:
@@ -230,7 +218,10 @@ def _extract_product_name_from_line(line: str) -> str:
 
 
 def _extract_qty_from_line(line: str) -> float:
-    m = re.search(r"([\d]+(?:[./][\d]+)?)", line)
+    # Strip a leading list marker first — otherwise "1)Chicken big --- 30 kg"
+    # returns 1.0 (the "1" from "1)") instead of the real quantity 30.
+    cleaned = strip_list_marker(line)
+    m = re.search(r"([\d]+(?:[./][\d]+)?)", cleaned)
     if m:
         try:
             return float(m.group(1))
@@ -318,7 +309,9 @@ def _retroactive_patch_global(raw: str, canonical: str, db: Session) -> int:
                 remaining.append(line)
                 continue
             product_part = _extract_product_name_from_line(line)
-            if product_part == raw or product_part.startswith(raw) or raw in product_part:
+            if (alias_keys_match(line, raw)
+                    or product_part == raw or product_part.startswith(raw)
+                    or raw in product_part):
                 matched_lines.append(line)
             else:
                 remaining.append(line)
@@ -372,7 +365,9 @@ def _retroactive_patch_customer(raw: str, canonical: str, phone: str, db: Sessio
                 remaining.append(line)
                 continue
             product_part = _extract_product_name_from_line(line)
-            if product_part == raw or product_part.startswith(raw) or raw in product_part:
+            if (alias_keys_match(line, raw)
+                    or product_part == raw or product_part.startswith(raw)
+                    or raw in product_part):
                 matched_lines.append(line)
             else:
                 remaining.append(line)
@@ -414,7 +409,9 @@ def _patch_order_unclear(order: Order, raw: str, canonical: str, db: Session) ->
     matched_lines = []
     for line in unclear:
         product_part = _extract_product_name_from_line(line)
-        if product_part == raw or product_part.startswith(raw) or raw in product_part:
+        if (alias_keys_match(line, raw)
+                or product_part == raw or product_part.startswith(raw)
+                or raw in product_part):
             matched_lines.append(line)
         else:
             remaining.append(line)
@@ -788,10 +785,7 @@ def add_customer_manually(
         except Exception as e:
             logger.warning(f"Manager notification failed for new customer {customer.phone_number}: {e}")
 
-        try:
-            send_customer_registration_welcome(customer.phone_number, PLANT_NAME)
-        except Exception as e:
-            logger.warning(f"Welcome template failed for {customer.phone_number}: {e}")
+        # Welcome template removed 2026-07-14 (owner decision — 3-template setup).
 
         return {"status": "created", "customer": _customer_row(customer, db)}
     except (ValueError, IntegrityError):
@@ -1009,6 +1003,48 @@ def post_order_on_behalf(
         raise HTTPException(status_code=400, detail="Customer is inactive")
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Order message cannot be empty")
+
+    # An order is keyed to the customer's mobile number, so we can't post one for
+    # a customer who has none saved (e.g. customers created from the Vasy
+    # outstanding/sales import, which carry no phone). Fail with a plain-language
+    # message instead of letting the order pipeline crash with a technical error.
+    if not (customer.phone_number or "").strip():
+        name = customer.restaurant_name or "This customer"
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{name} doesn’t have a mobile number saved, so an order can’t be "
+                    "posted for them yet. Please add their mobile number first — open the "
+                    "customer, click Edit, enter their WhatsApp mobile number, save, then "
+                    "post the order again."),
+        )
+
+    # Credit guardrail — warn (once) before posting for an over-limit / long-overdue
+    # customer. The manager can acknowledge and proceed (acknowledge_credit=true).
+    # Open critical notes on the customer ride the same gate (Registers & Reminders P2).
+    if not payload.acknowledge_credit:
+        from orderr_core.services import analytics_service
+        should_warn, warn_msg = analytics_service.credit_gate(
+            db, customer, get_current_business_date())
+        note_lines = []
+        try:
+            from orderr_core.services import reminders_service
+            notes = reminders_service.open_notes_for_customer(
+                db, customer.id, get_current_business_date())
+            note_lines = [f"📝 {n['note']}" + (f" ({n['amount_fmt']})" if n['amount_fmt'] else "")
+                          for n in notes[:3]]
+        except Exception:
+            pass
+        if should_warn or note_lines:
+            parts = []
+            if should_warn:
+                parts.append(warn_msg)
+            if note_lines:
+                name = customer.restaurant_name or "this customer"
+                parts.append(f"Open critical note(s) on {name}:\n" + "\n".join(note_lines)
+                             + "\nPost the order anyway?")
+            raise HTTPException(status_code=409,
+                                detail={"code": "credit_warning",
+                                        "message": "\n\n".join(parts)})
 
     existing_orders = (
         db.query(Order)
@@ -1309,7 +1345,11 @@ def resolve_unclear_item(
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    raw       = payload.raw_text.strip().lower()
+    # Canonicalize the alias key the SAME way the parser will on lookup, so a
+    # resolved phrase matches the next order regardless of list markers, dash
+    # decoration, or a trailing quantity ("1)chicken big ------ 30 kg" → "chicken
+    # big"). Without this the alias silently never re-matches.
+    raw       = normalize_alias_key(payload.raw_text)
     canonical = payload.canonical_product_name.strip()
 
     if not raw or not canonical:
@@ -1695,26 +1735,16 @@ def delete_customer_alias(alias_id: int, db: Session = Depends(get_db), username
 
 # ── Test notifications ────────────────────────────────────────────────────────
 
-from orderr_core.services.pending_notifier import (
-    send_customer_reminders,
-    notify_salespersons_pending,
-    send_management_summary,
-)
+from orderr_core.services.pending_notifier import notify_salespersons_pending
 from orderr_core.services.reporter import send_daily_report
 
-@router.post("/test-notifications/customer-reminders")
-def test_customer_reminders(db: Session = Depends(get_db), username: str = Depends(require_auth)):
-    send_customer_reminders(db)
-    return {"status": "sent"}
+# Removed 2026-07-14 (owner decision — reports live on the status page now):
+#   /test-notifications/customer-reminders  → manual 📣 Broadcast screen
+#   /test-notifications/management-summary  → template dropped
 
 @router.post("/test-notifications/salesperson-pending")
 def test_salesperson_pending(db: Session = Depends(get_db), username: str = Depends(require_auth)):
     notify_salespersons_pending(db)
-    return {"status": "sent"}
-
-@router.post("/test-notifications/management-summary")
-def test_management_summary(db: Session = Depends(get_db), username: str = Depends(require_auth)):
-    send_management_summary(db)
     return {"status": "sent"}
 
 @router.post("/test-notifications/daily-report")

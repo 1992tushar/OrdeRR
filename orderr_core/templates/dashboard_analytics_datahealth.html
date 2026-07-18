@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Data health</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1120px;margin:0 auto;padding:24px 18px 80px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:0 2px 12px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:700}
+.section-sub{font-size:12px;color:var(--ink3)}
+.note{font-size:11.5px;color:var(--ink2);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin:12px 0;line-height:1.5}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:8px}
+@media(max-width:640px){.kpis{grid-template-columns:1fr}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .n{font-size:22px;font-weight:800;line-height:1;letter-spacing:-.3px}
+.kpi.hot .n{color:var(--red)}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 12px}
+.toolbar input{font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink);flex:1;min-width:150px}
+.count{font-size:12px;color:var(--ink3);margin-left:auto}
+.xlsx{font-size:12px;font-weight:600;color:var(--green);text-decoration:none;border:1px solid var(--green-border);background:var(--green-bg);padding:7px 12px;border-radius:8px}
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:960px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border)}
+th.num{text-align:right}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.side-inv{border-left:3px solid var(--blue)}
+.side-ar{border-left:3px solid var(--amber)}
+.cust-name{font-weight:600}
+.cust-sub{font-size:11px;color:var(--ink3)}
+.chip{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.tag{display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;padding:1px 6px;border-radius:4px}
+.tag.inv{background:var(--blue-bg);color:var(--blue)}
+.tag.ar{background:var(--amber-bg);color:var(--amber)}
+.merge{font-size:11px;font-weight:700;color:var(--green);background:var(--green-bg);border:1px solid var(--green-border);padding:5px 10px;border-radius:6px;white-space:nowrap;cursor:pointer}
+.merge:hover{background:var(--green);color:#fff}
+.merge:disabled{opacity:.5;cursor:default}
+.merged{font-size:11px;font-weight:700;color:var(--green)}
+.empty{color:var(--green);text-align:center;padding:26px;font-weight:600}
+a.cust-link{color:var(--ink);text-decoration:none}
+a.cust-link:hover{color:var(--green)}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-head">
+    <div class="section-title">🩹 Data health — split customers</div>
+    <div class="section-sub">one Vasy customer landed in two OrdeRR records{% if dh.as_of %} · AR as of {{ dh.as_of }}{% endif %}</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi hot"><div class="n">{{ dh.counts.pairs }}</div><div class="l">Split pairs (merge suggested)</div></div>
+    <div class="kpi"><div class="n">{{ dh.counts.ar_only }}</div><div class="l">AR-only records (₹ owed, no invoices)</div></div>
+    <div class="kpi"><div class="n">{{ dh.counts.invoice_only }}</div><div class="l">Invoice-only records (sales, no AR)</div></div>
+  </div>
+
+  <div class="note">
+    A <b>split</b> is one real customer stored as two OrdeRR rows: an <span class="tag inv">invoice</span> record
+    (holds the Vasy sales invoices → revenue) and an <span class="tag ar">AR</span> record (holds the outstanding
+    &amp; receipts + the phone/salesperson). It happens when the Vasy <b>sales-invoice export names the party
+    differently</b> from the customer master (e.g. <i>PATILVADA</i> vs <i>PATILVADA HOTEL</i>) and carries no mobile,
+    so the importer can't link the invoices to the phone-bearing record. Pairs below are matched by name prefix.
+    <b>Merge</b> moves the invoices/revenue onto the AR record, records a name alias so <b>future imports
+    auto-link (no re-split)</b>, and deletes the duplicate — the permanent one-time fix. Review each pair before merging.
+  </div>
+
+  {% if not dh.pairs %}
+  <div class="wrap"><div class="empty">✓ No split customers detected.</div></div>
+  {% else %}
+
+  <div class="toolbar">
+    <input id="q" type="text" placeholder="Search either name / phone…" autocomplete="off">
+    <span class="count" id="count"></span>
+    <a class="xlsx" href="/dashboard/analytics/export/data-health">⬇ Excel</a>
+  </div>
+
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr>
+        <th>Invoice record <span style="color:var(--blue)">(revenue)</span></th>
+        <th class="num">Revenue</th>
+        <th class="num">Invoices</th>
+        <th>Last invoice</th>
+        <th>AR record <span style="color:var(--amber)">(outstanding)</span></th>
+        <th class="num">Outstanding</th>
+        <th>Last payment</th>
+        <th>Suggested action</th>
+      </tr></thead>
+      <tbody id="body">
+      {% for p in dh.pairs %}
+        <tr class="prow"
+            data-search="{{ (p.invoice_side.name ~ ' ' ~ p.ar_side.name ~ ' ' ~ p.ar_side.phone) | lower }}">
+          <td class="side-inv">
+            <a class="cust-link cust-name" href="/dashboard/analytics/customer/{{ p.invoice_side.id }}">{{ p.invoice_side.name }}</a>
+            <div class="cust-sub">#{{ p.invoice_side.id }}{% if p.invoice_side.phone %} · {{ p.invoice_side.phone }}{% else %} · no phone{% endif %}</div>
+          </td>
+          <td class="num" style="font-weight:700;color:var(--blue)">{{ p.invoice_side.revenue_fmt }}</td>
+          <td class="num">{{ p.invoice_side.invoices }}</td>
+          <td>{{ p.invoice_side.last_invoice }}</td>
+          <td class="side-ar">
+            <a class="cust-link cust-name" href="/dashboard/analytics/customer/{{ p.ar_side.id }}">{{ p.ar_side.name }}</a>
+            <div class="cust-sub">#{{ p.ar_side.id }}
+              {%- if p.ar_side.phone %} · {{ p.ar_side.phone }}{% endif %}
+              {%- if p.ar_side.salesperson %} · 🧑 {{ p.ar_side.salesperson }}{% endif %}
+              {%- if p.ar_side.area %} <span class="chip">{{ p.ar_side.area }}</span>{% endif %}</div>
+          </td>
+          <td class="num" style="font-weight:700;color:var(--amber)">{{ p.ar_side.outstanding_fmt }}</td>
+          <td>{{ p.ar_side.last_payment }}</td>
+          <td><button class="merge"
+                onclick="doMerge(this, {{ p.invoice_side.id }}, {{ p.ar_side.id }}, '{{ p.invoice_side.name | e }}', '{{ p.ar_side.name | e }}')">
+                Merge #{{ p.invoice_side.id }} → #{{ p.ar_side.id }}</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% endif %}
+</main>
+
+<script>
+async function doMerge(btn, invoiceId, arId, invName, arName){
+  if(!confirm('Merge "'+invName+'" (#'+invoiceId+') into "'+arName+'" (#'+arId+')?\n\n'
+     + 'Its invoices/revenue move to #'+arId+', a name alias is recorded so future '
+     + 'imports auto-link, and the duplicate #'+invoiceId+' is deleted. This cannot be auto-undone.')) return;
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Merging…';
+  try{
+    const r = await fetch('/dashboard/analytics/data-health/merge', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({invoice_id: invoiceId, ar_id: arId})
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.detail || 'merge failed');
+    const cell = btn.parentElement;
+    cell.innerHTML = '<span class="merged">✓ Merged into #'+arId+'</span>';
+    const row = btn.closest('tr');
+    if(row) row.style.opacity = '.55';
+  }catch(e){
+    alert('Could not merge: '+e.message);
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+(function(){
+  const q = document.getElementById('q');
+  if(!q) return;
+  const rows = Array.from(document.querySelectorAll('tr.prow'));
+  const count = document.getElementById('count');
+  function render(){
+    const term = q.value.trim().toLowerCase();
+    let shown = 0;
+    rows.forEach(r => {
+      const hit = !term || r.getAttribute('data-search').includes(term);
+      r.style.display = hit ? '' : 'none';
+      if(hit) shown++;
+    });
+    count.textContent = shown + ' of ' + rows.length + ' pairs';
+  }
+  q.addEventListener('input', render);
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ d.customer.name }} · Analytics</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
+
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.hdr h1{font-size:22px;font-weight:800;letter-spacing:-.4px}
+.hdr .meta{margin-top:6px;display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--ink2)}
+.chip.on{background:var(--green-bg);border-color:var(--green-border);color:var(--green)}
+.chip.off{background:var(--red-bg);border-color:var(--red-border);color:var(--red)}
+
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px}
+@media(max-width:820px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:480px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 14px;box-shadow:var(--shadow)}
+.kpi .n{font-size:19px;font-weight:800;line-height:1.05;color:var(--ink);letter-spacing:-.3px}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+
+.section-title{font-size:15px;font-weight:700;margin:24px 2px 10px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.note{font-size:11px;color:var(--ink3);margin-top:8px}
+
+/* chart */
+.chart-wrap{position:relative}
+svg.trend{display:block;width:100%;height:220px}
+svg.trend .bar{fill:var(--green);transition:opacity .12s}
+svg.trend .bar:hover{opacity:.78;cursor:default}
+svg.trend .axis{stroke:var(--border-strong);stroke-width:1}
+svg.trend .xlab{fill:var(--ink3);font-size:10px}
+svg.trend .ylab{fill:var(--ink3);font-size:10px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;opacity:0;transform:translate(-50%,-100%);white-space:nowrap;z-index:5}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.st{display:inline-block;font-size:10px;padding:1px 8px;border-radius:20px;background:var(--bg);border:1px solid var(--border);color:var(--ink2)}
+.mixline{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.mixline:last-child{border-bottom:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.empty{color:var(--ink3);font-size:13px;text-align:center;padding:22px}
+.items-inline{color:var(--ink2);font-size:12px}
+
+/* intelligence profile */
+.intel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px;margin-bottom:22px}
+.intel-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.score-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;width:76px;height:76px;border-radius:50%;flex-shrink:0;border:3px solid}
+.score-badge .s{font-size:24px;font-weight:800;line-height:1}
+.score-badge .g{font-size:11px;font-weight:700;letter-spacing:.5px}
+.grade-A,.grade-B{color:var(--green);border-color:var(--green-border);background:var(--green-bg)}
+.grade-C{color:var(--amber);border-color:var(--amber-border);background:var(--amber-bg)}
+.grade-D,.grade-E{color:var(--red);border-color:var(--red-border);background:var(--red-bg)}
+.intel-head{flex:1;min-width:200px}
+.intel-head .lc{font-size:16px;font-weight:800}
+.intel-head .sub{font-size:12px;color:var(--ink3);margin-top:3px}
+.warn{background:var(--red-bg);border:1px solid var(--red-border);color:var(--red);font-size:12px;font-weight:600;padding:8px 12px;border-radius:8px;margin-top:8px}
+.sig-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px}
+.sig{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.sig .n{font-size:16px;font-weight:800;letter-spacing:-.2px}
+.sig .l{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
+.gauge{height:6px;border-radius:4px;background:var(--border);margin-top:6px;overflow:hidden}
+.gauge>i{display:block;height:100%;border-radius:4px}
+.trj-up{color:var(--green)} .trj-down{color:var(--red)}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/analytics" class="nav-back">← Analytics</a>
+  <span class="nav-logo">📊 {{ plant_name }}</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  <div class="hdr">
+    <div>
+      <h1>{{ d.customer.name }}</h1>
+      <div class="meta">
+        {% if d.customer.is_active %}<span class="chip on">Active</span>{% else %}<span class="chip off">Inactive</span>{% endif %}
+        {% if d.customer.phone %}<span class="chip">{{ d.customer.phone }}</span>{% else %}<span class="chip off">no phone</span>{% endif %}
+        {% if d.customer.area %}<span class="chip">{{ d.customer.area }}</span>{% endif %}
+        {% if d.customer.salesperson %}<span class="chip">🧑 {{ d.customer.salesperson }}</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if open_notes %}
+  <div style="background:var(--red-bg,#fee2e2);border:1px solid var(--red-border,#fca5a5);border-radius:10px;padding:12px 16px;margin-bottom:16px">
+    <div style="font-size:13px;font-weight:800;color:var(--red,#b91c1c);margin-bottom:6px">📝 Open critical notes ({{ open_notes|length }})</div>
+    {% for n in open_notes %}
+    <div style="font-size:13px;margin:4px 0">
+      • {{ n.note }}{% if n.amount_fmt %} — <b>{{ n.amount_fmt }}</b>{% endif %}
+      {% if n.event_date %}<span style="color:#888;font-size:12px">({{ n.event_date }})</span>{% endif %}
+      {% if n.overdue %}<span style="color:var(--red,#b91c1c);font-weight:700;font-size:12px"> · follow-up overdue</span>{% endif %}
+    </div>
+    {% endfor %}
+    <a href="/dashboard/reminders?tab=notes" style="font-size:12px;color:var(--red,#b91c1c)">Manage on the Reminders screen →</a>
+  </div>
+  {% endif %}
+
+  {% set intel = d.intelligence %}
+  <div class="intel">
+    <div class="intel-top">
+      <div class="score-badge grade-{{ intel.grade }}">
+        <div class="s">{{ intel.score }}</div><div class="g">GRADE {{ intel.grade }}</div>
+      </div>
+      <div class="intel-head">
+        <div class="lc">{{ intel.lifecycle }}
+          {% if intel.trajectory_pct is not none and intel.trajectory_pct != 0 %}
+            <span class="{{ 'trj-up' if intel.trajectory_pct>0 else 'trj-down' }}" style="font-size:13px">
+              {{ '▲' if intel.trajectory_pct>0 else '▼' }}{{ intel.trajectory_pct }}% spend (3mo)</span>
+          {% endif %}
+        </div>
+        <div class="sub">Payment-reliability score · {{ intel.tenure_months }} mo tenure ·
+          {% if intel.invoices_per_month %}{{ intel.invoices_per_month }} invoices/mo{% else %}—{% endif %}</div>
+        {% if intel.deteriorating %}<div class="warn">⚠ Deteriorating — balance not reducing and no recent payment. Chase and hold new credit.</div>{% endif %}
+      </div>
+    </div>
+    <div class="sig-grid">
+      <div class="sig"><div class="n">{{ intel.current_outstanding_fmt }}</div><div class="l">Outstanding</div></div>
+      {% if intel.credit_limit_fmt %}
+      <div class="sig"><div class="n">{{ intel.utilization_pct }}%</div><div class="l">Credit used · {{ intel.credit_limit_fmt }} limit</div>
+        <div class="gauge"><i style="width:{{ [intel.utilization_pct, 100]|min }}%;background:{{ 'var(--red)' if intel.utilization_pct>90 else 'var(--amber)' if intel.utilization_pct>70 else 'var(--green)' }}"></i></div>
+      </div>{% endif %}
+      <div class="sig"><div class="n">{% if intel.days_since_payment is none %}never{% else %}{{ intel.days_since_payment }}d{% endif %}</div><div class="l">Since last payment</div></div>
+      <div class="sig"><div class="n">{% if intel.dso_days %}{{ intel.dso_days }}d{% else %}—{% endif %}</div><div class="l">Balance days (DSO)</div></div>
+      <div class="sig"><div class="n">{% if intel.avg_gap_days %}{{ intel.avg_gap_days }}d{% else %}—{% endif %}</div><div class="l">Avg gap between buys</div></div>
+      <div class="sig"><div class="n">{{ intel.avg_order_value_fmt }}</div><div class="l">Avg invoice</div></div>
+    </div>
+    <div class="note">Score = payment recency (50%) + credit utilisation (30%) + payment consistency (20%). Based on the running-account model (balance + last payment); DSO = outstanding ÷ recent daily billing.</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="n">{{ d.kpis.total_revenue_fmt }}</div><div class="l">Revenue (all time)</div></div>
+    <div class="kpi"><div class="n">{{ d.kpis.orders }}</div><div class="l">Orders</div></div>
+    <div class="kpi"><div class="n">{{ d.kpis.avg_order_value_fmt }}</div><div class="l">Avg invoice</div></div>
+    <div class="kpi"><div class="n">{% if d.kpis.recency_days == "" %}—{% else %}{{ d.kpis.recency_days }}d{% endif %}</div><div class="l">Since last order</div></div>
+    <div class="kpi"><div class="n" style="font-size:14px">{{ d.kpis.last_order_display }}</div><div class="l">Last order</div></div>
+    <div class="kpi"><div class="n" style="font-size:14px">{{ d.kpis.first_order_display }}</div><div class="l">First order</div></div>
+  </div>
+
+  <!-- Revenue trend -->
+  <div class="section-title">Revenue trend · last 12 months</div>
+  <div class="card">
+    <div class="chart-wrap">
+      <svg class="trend" id="trend" role="img" aria-label="Monthly revenue, last 12 months"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="note">Revenue from <b>Vasy sales invoices</b> (source of truth), by invoice month.</div>
+  </div>
+
+  <div class="grid2" style="margin-top:22px">
+    <!-- Product mix -->
+    <div>
+      <div class="section-title">Product mix · all time (billed)</div>
+      <div class="card">
+        {% if d.sku_mix %}
+          {% for m in d.sku_mix %}
+          <div class="mixline"><span>{{ m.product }}</span><span class="num">{{ m.value_fmt }} · {{ m.pct }}%</span></div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No billed items yet.</div>
+        {% endif %}
+      </div>
+
+      <!-- P3-9 share-of-wallet / upsell -->
+      <div class="section-title" style="margin-top:18px">Share of wallet · {{ d.upsell.share_of_wallet_pct }}%</div>
+      <div class="card">
+        <div class="note" style="margin:0 0 10px">Buys <b>{{ d.upsell.bought_count }}</b> of {{ d.upsell.catalog_count }} SKUs. Top products peers buy that this customer doesn't:</div>
+        {% if d.upsell.suggestions %}
+          {% for s in d.upsell.suggestions %}
+          <div class="mixline"><span>{{ s.name }}</span><span class="num" style="color:var(--blue)">{{ s.peer_pct }}% of peers</span></div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">Buys the full catalog — no upsell gaps. 🎉</div>
+        {% endif %}
+      </div>
+    </div>
+    <!-- Invoice history -->
+    <div>
+      <div class="section-title">Invoices ({{ d.invoices|length }})</div>
+      <div class="card" style="padding:0">
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Invoice</th><th>Date</th><th class="num">Total</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for i in d.invoices %}
+              <tr><td>{{ i.number }}</td><td>{{ i.date_display }}</td><td class="num">{{ i.total_fmt }}</td><td><span class="st">{{ i.status }}</span></td></tr>
+              {% else %}
+              <tr><td colspan="4" class="empty">No invoices.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P2-14 Payments & balance -->
+  {% if d.payments.has_data %}
+  <div class="section-title">Payments &amp; balance</div>
+  <div class="kpis" style="grid-template-columns:repeat(5,1fr)">
+    <div class="kpi"><div class="n" style="color:var(--amber)">{{ d.payments.current_outstanding_fmt }}</div><div class="l">Current outstanding</div></div>
+    <div class="kpi"><div class="n" style="color:var(--green)">{{ d.payments.collected_fmt }}</div><div class="l">Collected (in receipts)</div></div>
+    <div class="kpi"><div class="n">{{ d.payments.receipt_count }}</div><div class="l">Receipts</div></div>
+    <div class="kpi"><div class="n">{{ d.payments.avg_receipt_fmt }}</div><div class="l">Avg receipt</div></div>
+    <div class="kpi"><div class="n" style="font-size:14px">{{ d.payments.last_payment_display }}</div><div class="l">Last payment{% if d.payments.days_since_payment != "" %} ({{ d.payments.days_since_payment }}d){% endif %}</div></div>
+  </div>
+
+  {% if d.payments.balance_trend|length >= 2 %}
+  <div class="card" style="margin-top:14px">
+    <div class="chart-wrap">
+      <svg class="trend" id="baltrend" role="img" aria-label="Outstanding balance over time"></svg>
+      <div class="tip" id="baltip"></div>
+    </div>
+    <div class="note">Outstanding balance (Vasy closing) per imported snapshot date.</div>
+  </div>
+  {% else %}
+  <div class="note" style="margin-top:8px">Balance-trend chart appears once a 2nd daily outstanding snapshot is imported (only one on record so far).</div>
+  {% endif %}
+
+  <div class="card" style="padding:0;margin-top:14px">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Receipt</th><th>Date</th><th>Mode</th><th class="num">Amount</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for r in d.payments.receipts %}
+          <tr><td>{{ r.receipt_no }}</td><td>{{ r.date_display }}</td><td>{{ r.mode }}</td><td class="num">{{ r.amount_fmt }}</td><td><span class="st">{{ r.status }}</span></td></tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No receipts in the imported set for this customer.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Order history -->
+  <div class="section-title" style="margin-top:24px">Order history ({{ d.orders|length }})</div>
+  <div class="card" style="padding:0">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Status</th><th>Items</th></tr></thead>
+        <tbody>
+          {% for o in d.orders %}
+          <tr>
+            <td style="white-space:nowrap">{{ o.date_display }}</td>
+            <td><span class="st">{{ o.status }}</span></td>
+            <td class="items-inline">
+              {% for it in o.line_items %}{{ it.name }} ({{ it.qty }} {{ it.unit }}){% if not loop.last %} · {% endif %}{% endfor %}
+              {% if not o.line_items %}<span style="color:var(--ink3)">—</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="empty">No orders.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+const TREND = {{ d.trend | tojson }};
+
+function drawTrend(){
+  const svg = document.getElementById('trend');
+  const tip = document.getElementById('tip');
+  const W = svg.clientWidth || 900, H = 220;
+  const padL = 44, padR = 12, padT = 14, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(1, ...TREND.map(d => d.revenue));
+  // "nice" y-max: round up to 1/2/5 × 10^n
+  const pow = Math.pow(10, Math.floor(Math.log10(max)));
+  const niceMax = (max/pow <= 1 ? 1 : max/pow <= 2 ? 2 : max/pow <= 5 ? 5 : 10) * pow;
+
+  const n = TREND.length, gap = 8;
+  const bw = (plotW - gap*(n-1)) / n;
+  const inr = v => '₹' + Math.round(v).toLocaleString('en-IN');
+
+  let els = '';
+  // y gridlines/labels (0, mid, max)
+  [0, niceMax/2, niceMax].forEach(v => {
+    const y = padT + plotH - (v/niceMax)*plotH;
+    els += `<line class="axis" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" ${v===0?'':'stroke-opacity="0.35"'}/>`;
+    els += `<text class="ylab" x="${padL-6}" y="${y+3}" text-anchor="end">${inr(v)}</text>`;
+  });
+  // bars
+  TREND.forEach((d,i) => {
+    const x = padL + i*(bw+gap);
+    const h = (d.revenue/niceMax)*plotH;
+    const y = padT + plotH - h;
+    const r = Math.min(4, bw/2);
+    // rounded top only, anchored to baseline
+    const rr = h > r ? r : 0;
+    els += `<path class="bar" d="M${x},${padT+plotH} L${x},${y+rr} Q${x},${y} ${x+rr},${y} L${x+bw-rr},${y} Q${x+bw},${y} ${x+bw},${y+rr} L${x+bw},${padT+plotH} Z" `
+        +  `data-label="${d.label}" data-val="${inr(d.revenue)}" data-x="${x+bw/2}" data-y="${y}"></path>`;
+    if (i % (n>8?2:1) === 0)
+      els += `<text class="xlab" x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+  });
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = els;
+
+  svg.querySelectorAll('.bar').forEach(b => {
+    b.addEventListener('mouseenter', e => {
+      tip.style.opacity = 1;
+      tip.style.left = b.getAttribute('data-x') + 'px';
+      tip.style.top = (parseFloat(b.getAttribute('data-y')) - 6) + 'px';
+      tip.innerHTML = '<strong>' + b.getAttribute('data-val') + '</strong> · ' + b.getAttribute('data-label');
+    });
+    b.addEventListener('mouseleave', () => tip.style.opacity = 0);
+  });
+}
+drawTrend();
+window.addEventListener('resize', drawTrend);
+
+// P2-14 balance-trend line (only present when >= 2 snapshots)
+const BALANCE = {{ d.payments.balance_trend | tojson }};
+function drawBalance(){
+  const svg = document.getElementById('baltrend');
+  if (!svg || BALANCE.length < 2) return;
+  const tip = document.getElementById('baltip');
+  const W = svg.clientWidth || 900, H = 220, padL=52, padR=14, padT=14, padB=26;
+  const plotW=W-padL-padR, plotH=H-padT-padB, n=BALANCE.length;
+  const vals = BALANCE.map(d=>d.closing);
+  const max = Math.max(1, ...vals), min = Math.min(0, ...vals);
+  const span = (max-min) || 1;
+  const x = i => padL + (n===1?plotW/2:i*(plotW/(n-1)));
+  const y = v => padT + plotH - ((v-min)/span)*plotH;
+  const inr = v => '₹'+Math.round(v).toLocaleString('en-IN');
+  let els='';
+  [min,(min+max)/2,max].forEach(v=>{els+=`<line class="axis" x1="${padL}" y1="${y(v)}" x2="${W-padR}" y2="${y(v)}" stroke-opacity="0.35"/><text class="ylab" x="${padL-6}" y="${y(v)+3}" text-anchor="end">${inr(v)}</text>`;});
+  const pts = BALANCE.map((d,i)=>`${x(i)},${y(d.closing)}`).join(' ');
+  els+=`<polyline points="${pts}" fill="none" stroke="var(--amber)" stroke-width="2"/>`;
+  BALANCE.forEach((d,i)=>{
+    els+=`<circle cx="${x(i)}" cy="${y(d.closing)}" r="4" fill="#fff" stroke="var(--amber)" stroke-width="2" data-l="${d.label}" data-v="${inr(d.closing)}" data-x="${x(i)}" data-y="${y(d.closing)}" class="bdot"></circle>`;
+    if (i%(n>8?2:1)===0) els+=`<text class="xlab" x="${x(i)}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+  });
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=els;
+  svg.querySelectorAll('.bdot').forEach(c=>{
+    c.addEventListener('mouseenter',()=>{tip.style.opacity=1;tip.style.left=c.getAttribute('data-x')+'px';tip.style.top=(parseFloat(c.getAttribute('data-y'))-8)+'px';tip.innerHTML='<strong>'+c.getAttribute('data-v')+'</strong> · '+c.getAttribute('data-l');});
+    c.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+drawBalance();
+window.addEventListener('resize', drawBalance);
+</script>
+
+</body>
+</html>

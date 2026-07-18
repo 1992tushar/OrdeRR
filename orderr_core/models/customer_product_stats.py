@@ -12,7 +12,7 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, UniqueConstrain
 
 from orderr_core.database import Base
 
-IST = timezone(timedelta(hours=5, minutes=30))
+from orderr_core.constants import IST
 
 
 class CustomerProductStats(Base):

@@ -26,6 +26,7 @@ v4 changes:
 """
 
 import re
+from orderr_core.utils import fmt_qty
 import os
 from orderr_core.models.customer_product_alias import CustomerProductAlias
 from orderr_core.models.unclear_item_alias import UnclearItemAlias
@@ -34,9 +35,11 @@ from orderr_core.models.noise_phrase import NoisePhrase
 # Sentinel stored in a parsed item's "unit" field when the quantity is
 # ambiguous and needs manager resolution.  order_service.py and admin.py
 # both check for this value to route the item to the unclear-items flow.
-UNIT_AMBIGUOUS_MARKER = "__unit_ambiguous__"
+# Canonical definition lives in orderr_core.constants; re-exported here for
+# the existing `from template_parser import UNIT_AMBIGUOUS_MARKER` importers.
+from orderr_core.constants import UNIT_AMBIGUOUS_MARKER
 
-PLANT_NAME = os.getenv("PLANT_NAME", "Fluffy")
+from orderr_core.config import PLANT_NAME
 
 # ── Multi-item single-line splitter ───────────────────────────────────────────
 # Some customers send several items on ONE line/string instead of one per
@@ -108,7 +111,11 @@ PRODUCT_DEFINITIONS = [
         "no skin tandoor", "no skin td",
         "sl tandoor", "wos tandoor",
         "al faham", "al-faham", "alfaham",
-        "skin remove tandoor","तंदूर", "तंदूरी", "तंदूर चिकन", "तंदूरी चिकन", "तंदूर साइज", "तंदूर बर्ड",
+        "skin remove tandoor",
+        # NOTE: bare/generic tandoor (tandoor, tandur, tandoori, तंदूर, …) is
+        # intentionally NOT listed here. It doesn't state skin, so it is routed
+        # to the Unclear flow via AMBIGUOUS_SKIN_TERMS below — the manager picks
+        # W/O Skin vs WS Tandoor once, and the learned alias auto-maps after.
     ]),
 
     ("W/O Skin Regular Chicken", "kg", [
@@ -126,17 +133,12 @@ PRODUCT_DEFINITIONS = [
    
     ("WS Regular Chicken", "kg", [
         "with skin whole chicken regular", "ws whole chicken regular",
-        "with skin regular", "whole chicken regular",
-        "ws regular chicken", "ws regular", "regular chicken",
+        "with skin regular", "ws regular chicken", "ws regular",
         "skin regular",
-        "regular", "reg chicken", "reg chik",
-        "big chicken", "big chik", "full chicken",
-        "large chicken", "heavy chicken",
-        "1.5kg chicken", "regular bird",
-        "whole chicken", "whole broiler", "whole broiler chicken",
-        "broiler", "boiler", "full bird", "wbc",
-        "murgi", "murg", "kombdi", "kombadi",
-        "reguler", "reglar", "big bird", "large bird",
+        # NOTE: skin-ambiguous whole-chicken terms (regular, big chicken,
+        # broiler/boiler, murgi, whole chicken, …) are NOT listed here. They
+        # don't state skin, so they route to the Unclear flow via
+        # AMBIGUOUS_SKIN_TERMS below rather than silently defaulting to WS.
     ]),
 
     # ── Boneless ──────────────────────────────────────────────────────────────
@@ -150,6 +152,7 @@ PRODUCT_DEFINITIONS = [
         "bb", "cb",
         "bl breast", "breast bl", "b/l breast", "b.l breast",
         "brest", "brest boneless", "breast bnls","bonlesh", "bonles", "bonless chicken", "bonlesh chicken",
+        "chicken breast", "chiken breast", "chicken brest",
     ]),
 
     ("Leg Boneless", "kg", [
@@ -169,13 +172,6 @@ PRODUCT_DEFINITIONS = [
         "chicken lollipop", "ready lollypop",
         "lp", "lpop",
         "loli", "lolypop",
-    ]),
-
-    # ── Ready Lollipop ────────────────────────────────────────────────────────
-
-    ("Ready Lollipop", "kg", [
-        "ready lollipop", 
-        "ready lollypop",
     ]),
 
     # ── Bone Products ─────────────────────────────────────────────────────────
@@ -217,7 +213,7 @@ PRODUCT_DEFINITIONS = [
         "drmstk", "drumstik", "darmistk",
     ]),
 
-    ("Whole Leg", "nos", [
+    ("Whole Leg", "kg", [
         "whole leg", "full leg", "full chicken leg",
         "leg piece", "complete leg",
         "wl",
@@ -249,29 +245,158 @@ PRODUCT_DEFINITIONS = [
         "khima", "qeema",
     ]),
 
-    # ── New canonical products (used pervasively across customer orders /
-    #    test fixtures but previously missing from the catalog) ───────────────
+    # ── Whole Chicken: With Skin Tandoor (ERP CH1024560) ──────────────────────
+    # Was previously offered in the order template but missing here, so
+    # "with skin tandoor" orders never matched. Generic/Hindi "tandoor" stays
+    # mapped to the W/O Skin (skinless) variant above to preserve behaviour.
 
-    ("Chicken Leg", "kg", [
-        "chicken leg", "chiken leg", "chicken legs",
+    ("WS Tandoor Chicken", "kg", [
+        "with skin tandoor", "with skin whole chicken tandoor",
+        "ws tandoor", "ws tandoor chicken", "skin tandoor",
+        "tandoor with skin", "with skin td",
     ]),
 
-    ("Mutton", "kg", [
-        "mutton", "mutton meat", "goat meat", "goat", "lamb",
+    # ── Specialty Boneless (ERP) ──────────────────────────────────────────────
+
+    ("Thai Boneless", "kg", [
+        "thai boneless", "thai bonless", "thai boneless chicken",
+        "thai bnls", "thai bl",
     ]),
 
-    ("Chicken Breast", "kg", [
-        "chicken breast", "chiken breast", "chicken brest",
+    ("Supreme Boneless", "kg", [
+        "supreme boneless", "supreme bonless", "supreme boneless chicken",
+        "supreme bnls", "supreme",
     ]),
 
-    ("Chicken Whole", "nos", [
-        "chicken whole", "whole chicken nos",
+    # ── Byproducts (ERP) ──────────────────────────────────────────────────────
+
+    ("Chicken Neck", "kg", [
+        "chicken neck", "neck", "gardan", "gala", "chicken gardan",
+    ]),
+
+    ("Chicken Skin", "kg", [
+        "chicken skin", "only skin", "skin only", "chamdi", "chicken chamdi",
+    ]),
+
+    ("Chicken Feet", "kg", [
+        "chicken feet", "feet", "chicken paw", "paw", "paws", "panje", "chicken panje",
+    ]),
+
+    ("Chicken Mundi", "kg", [
+        "chicken mundi", "mundi", "chicken head", "head", "mundya", "chicken mundya",
     ]),
 
 ]
 
 # Flat set of all valid canonical product names (for alias resolution validation)
 VALID_PRODUCT_NAMES = {d for d, _, _ in PRODUCT_DEFINITIONS}
+
+
+# ── Skin-ambiguous whole-chicken terms ────────────────────────────────────────
+# Whole-chicken words that DON'T state With Skin vs Without Skin. With/Without
+# Skin are different priced products, so the parser must not guess: these route
+# to the Unclear flow (manager picks the variant from the dropdown). Once
+# resolved, the learned alias (global or per-customer) auto-maps next time —
+# checked BEFORE the catalog — so this is a one-time cleanup per term.
+# Matching is by token SET (word order & simple punctuation ignored), so
+# "chicken big" and "big chicken" are both caught.
+AMBIGUOUS_SKIN_TERMS = [
+    # Regular whole chicken — no skin stated
+    "regular", "regular chicken", "whole chicken regular", "reg chicken",
+    "reg chik", "reguler", "reglar",
+    "big chicken", "chicken big", "big chik", "full chicken", "large chicken",
+    "heavy chicken", "big bird", "large bird", "regular bird",
+    "whole chicken", "whole broiler", "whole broiler chicken", "broiler",
+    "boiler", "full bird", "wbc",
+    "murgi", "murg", "kombdi", "kombadi",
+    # Tandoor whole chicken — no skin stated
+    "tandoor", "tandur", "tandoori", "tanduri",
+    "tandoor chicken", "tandoori chicken", "tandur chicken", "tanduri chicken",
+    "तंदूर", "तंदूरी", "तंदूर चिकन", "तंदूरी चिकन", "तंदूर साइज", "तंदूर बर्ड",
+]
+
+
+# ── Vasy ERP catalog mapping ──────────────────────────────────────────────────
+# Maps each canonical (friendly) product name to its exact Vasy ERP item, so
+# parsed orders line up 1:1 with the ERP catalog for push / reconciliation.
+# Source: Vasy ERP "Product List" export (FY 2026-27).
+#
+# Friendly names above stay stable (they key rates, invoices, stats, history);
+# this dict is the sole ERP integration point. `erp_code` / `erp_name` are the
+# exact ERP Item Code and Name.
+#
+# Deliberately EXCLUDED from matching (not customer-orderable / not selected):
+#   Delivery Charges, Plant Wastage, Dead Bird           (internal, non-product)
+#   Live/Gavran birds (CH1024551/552/553/554)            (not sold to hotels)
+#   Pure Gavran Chicken Curry Cut (CH1024556)            (gavran range)
+#   Chicken Liver and Gizzard combo (CH1024577)          (kept Liver & Gizzard separate)
+#   Chicken Curry Cut With Skin (CH1024562, Deactive)    (generic Curry Cut → Without Skin)
+ERP_ITEMS = {
+    "WS Regular Chicken":       {"erp_code": "CH1024561", "erp_name": "With Skin whole chicken Regular",    "category": "Chicken"},
+    "WS Tandoor Chicken":       {"erp_code": "CH1024560", "erp_name": "With Skin whole chicken Tandoor",    "category": "Chicken"},
+    "W/O Skin Regular Chicken": {"erp_code": "CH1024559", "erp_name": "Without Skin whole chicken Regular", "category": "Chicken"},
+    "W/O Skin Tandoor Chicken": {"erp_code": "CH1024558", "erp_name": "Without Skin whole chicken Tandoor", "category": "Chicken"},
+    "Curry Cut":                {"erp_code": "CH1024563", "erp_name": "Chicken Curry Cut Without Skin",     "category": "Chicken"},
+    "Biryani Cut":              {"erp_code": "CH1024576", "erp_name": "Chicken Biryani Cut",                "category": "Chicken"},
+    "Breast Boneless":          {"erp_code": "CH1024574", "erp_name": "Chicken Breast boneless",            "category": "Chicken"},
+    "Leg Boneless":             {"erp_code": "CH1024557", "erp_name": "Chicken Leg Boneless",               "category": "Chicken"},
+    "Thai Boneless":            {"erp_code": "FS10246370","erp_name": "THAI BONLESS",                       "category": "Chicken"},
+    "Supreme Boneless":         {"erp_code": "CH1024578", "erp_name": "Supreme Bonless",                    "category": "Chicken"},
+    "Wings":                    {"erp_code": "CH1024575", "erp_name": "Chicken Wings with Skin",            "category": "Chicken"},
+    "Drumstick":                {"erp_code": "CH1024573", "erp_name": "Chicken Drumstick",                  "category": "Chicken"},
+    "Whole Leg":                {"erp_code": "CH1024572", "erp_name": "Chicken Whole Leg",                  "category": "Chicken"},
+    "Carcass":                  {"erp_code": "CH1024567", "erp_name": "Chicken Carcass",                    "category": "Chicken"},
+    "Chicken Neck":             {"erp_code": "CH1024565", "erp_name": "Chicken Neck",                       "category": "Chicken"},
+    "Chicken Skin":             {"erp_code": "CH1024564", "erp_name": "Chicken Skin",                       "category": "Chicken"},
+    "Chicken Feet":             {"erp_code": "CH1024568", "erp_name": "Chicken Feet",                       "category": "Chicken"},
+    "Chicken Mundi":            {"erp_code": "CH1024566", "erp_name": "Chicken Mundi",                      "category": "Chicken"},
+    "Liver":                    {"erp_code": "CH1024570", "erp_name": "Chicken Liver",                      "category": "Chicken"},
+    "Gizzard":                  {"erp_code": "CH1024569", "erp_name": "Chicken Gizzard",                    "category": "Chicken"},
+    "Kheema":                   {"erp_code": "CH1024571", "erp_name": "Chicken Kheema",                     "category": "Chicken"},
+}
+
+# Safety net: every ERP-mapped name must be a real canonical product, and every
+# canonical product must have an ERP mapping — catches drift the moment it happens.
+assert set(ERP_ITEMS) == VALID_PRODUCT_NAMES, (
+    "ERP_ITEMS / PRODUCT_DEFINITIONS mismatch — "
+    f"only in ERP_ITEMS: {set(ERP_ITEMS) - VALID_PRODUCT_NAMES}; "
+    f"only in PRODUCT_DEFINITIONS: {VALID_PRODUCT_NAMES - set(ERP_ITEMS)}"
+)
+
+
+def get_erp_item(canonical_name: str) -> dict | None:
+    """Return the Vasy ERP item ({erp_code, erp_name, category}) for a canonical
+    product name, or None if the name isn't in the catalog."""
+    return ERP_ITEMS.get(canonical_name)
+
+
+def erp_display_name(product: str) -> str:
+    """Human-facing display name for a product — the EXACT Vasy ERP item name when
+    the product maps to the ERP catalog, else the name unchanged.
+
+    Use this at EVERY surface where a product name is shown to a human (WhatsApp
+    messages, reports, invoices, dashboard, ledger). Storage and lookup KEYS
+    (rates, stats, aliases, form field names) must keep the friendly canonical
+    name — only the display is swapped."""
+    erp = get_erp_item((product or "").strip())
+    return erp["erp_name"] if erp else (product or "")
+
+
+# Reverse lookup: exact Vasy ERP name → friendly canonical (short) name.
+_ERP_NAME_TO_SHORT = {v["erp_name"]: k for k, v in ERP_ITEMS.items()}
+
+
+def short_product_name(product: str) -> str:
+    """Compact product label for width-constrained surfaces (the per-hotel rows
+    on the printed production sheet). Returns the friendly canonical name — e.g.
+    'Curry Cut', 'W/O Skin Tandoor Chicken' — for anything in the ERP catalog,
+    whether the product is given as the canonical name OR the long ERP name.
+    Falls back to the name unchanged. Display only — storage/lookup keys stay on
+    the canonical name (see erp_display_name)."""
+    name = (product or "").strip()
+    if name in ERP_ITEMS:
+        return name
+    return _ERP_NAME_TO_SHORT.get(name, name)
 
 
 # ── Normalizers ───────────────────────────────────────────────────────────────
@@ -296,6 +421,80 @@ def _tokenize(text: str) -> set:
     return set(_normalize(text).split())
 
 
+# ── Alias-key normalization ───────────────────────────────────────────────────
+# A SINGLE canonical key for matching unclear-item aliases, applied IDENTICALLY
+# when an alias is STORED (admin resolve endpoint) and when it is LOOKED UP
+# (parser). Without this, a resolved phrase silently fails to match the very next
+# order, because the stored key kept surrounding noise that the parser strips:
+#   stored   "1)chicken big ------"    (list marker + dash tail retained)
+#   lookup   "chicken big ------"      (list marker stripped by the parser)
+# Normalizing BOTH sides down to "chicken big" makes the match survive list
+# numbers ("1)", "2."), dash decoration ("------"), and a trailing quantity/unit
+# ("30 kg"), which is exactly the noise that differs between two sends of the
+# same item.
+_LIST_MARKER_RE = re.compile(r'^\s*(?:\d+\s*[)\.\-:]|[•\*–—\-])\s*')
+
+
+def strip_list_marker(text: str) -> str:
+    """Remove a single leading list marker — "1)", "2.", "3-", "•", "-", "*" —
+    from the start of a line. Leaves a bare decimal quantity untouched is NOT a
+    concern here (callers pass product-name text, not qty-first lines)."""
+    if not text:
+        return text
+    return _LIST_MARKER_RE.sub('', text.strip(), count=1)
+
+
+def normalize_alias_key(raw: str) -> str:
+    """Canonical, human-readable alias key: lowercased product phrase with any
+    leading list marker, parenthetical size annotation ("(900 gm)"), trailing
+    quantity/unit, and trailing dash/punctuation decoration removed. Used for
+    STORAGE (and display) so the saved key stays readable.
+
+        "1)Chicken big ------- 30 kg"        -> "chicken big"
+        "chicken big (900 gm) 30 kg"         -> "chicken big"
+        "chicken big ------"                 -> "chicken big"
+        "tandoori"                           -> "tandoori"
+    """
+    if not raw:
+        return ""
+    s = strip_list_marker(str(raw))                              # leading "1)" etc.
+    s = re.sub(r'\([^)]*\)', ' ', s)                            # "(900 gm)" size notes
+    s = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', s)     # trailing "30 kg"
+    s = re.sub(r'[\s\-–—:_.]+$', '', s)                # trailing "------"
+    s = re.sub(r'\s+', ' ', s).strip().lower()                   # collapse + lower
+    return s
+
+
+def alias_token_set(raw: str) -> frozenset:
+    """Word-set of an alias key — the matching unit. Order-independent so
+    "chicken big" and "big chicken" (the same product, typed either way) match."""
+    return frozenset(normalize_alias_key(raw).split())
+
+
+def alias_keys_match(a: str, b: str) -> bool:
+    """True when two raw alias texts refer to the same product, ignoring list
+    markers, dash decoration, trailing quantity, size annotations, AND word
+    order. This is THE alias-matching predicate — used on both lookup and the
+    retroactive patch so a single resolution covers every spelling variant."""
+    ta = alias_token_set(a)
+    return bool(ta) and ta == alias_token_set(b)
+
+
+# Token-sets of the skin-ambiguous terms, built once (lazily so it can rely on
+# _tokenize being defined). Compared as frozensets so word order doesn't matter.
+_AMBIGUOUS_TOKEN_SETS = None
+
+
+def _is_skin_ambiguous(raw_tokens: set) -> bool:
+    """True when the input is exactly a known skin-ambiguous whole-chicken term
+    (see AMBIGUOUS_SKIN_TERMS). Such inputs must fall through to the Unclear
+    flow rather than being matched/guessed to a skin variant."""
+    global _AMBIGUOUS_TOKEN_SETS
+    if _AMBIGUOUS_TOKEN_SETS is None:
+        _AMBIGUOUS_TOKEN_SETS = {frozenset(_tokenize(t)) for t in AMBIGUOUS_SKIN_TERMS}
+    return bool(raw_tokens) and frozenset(raw_tokens) in _AMBIGUOUS_TOKEN_SETS
+
+
 def _match_product(raw_name: str):
     """
     Returns (display_name, unit) or None.
@@ -311,7 +510,14 @@ def _match_product(raw_name: str):
     n = _normalize(raw_name)
     s = _squish(raw_name)
     raw_tokens = _tokenize(raw_name)
- 
+
+    # 0. Skin-ambiguous whole-chicken terms → no catalog match, so they route to
+    #    the Unclear flow instead of being guessed to a With/Without Skin variant.
+    #    Runs before any (exact/fuzzy) matching. Learned aliases are checked
+    #    upstream of _match_product, so a resolved term still auto-maps.
+    if _is_skin_ambiguous(raw_tokens):
+        return None
+
     # 1. Exact
     for display, unit, aliases in PRODUCT_DEFINITIONS:
         for alias in aliases:
@@ -354,7 +560,7 @@ def _match_product(raw_name: str):
 def _lookup_alias(raw_name: str, db) -> tuple | None:
     if db is None:
         return None
-    
+
     # Try exact match first
     normalized = raw_name.strip().lower()
     row = db.query(UnclearItemAlias).filter(
@@ -374,6 +580,17 @@ def _lookup_alias(raw_name: str, db) -> tuple | None:
         if row:
             unit = _get_unit_for_canonical(row.canonical_product_name)
             return (row.canonical_product_name, unit)
+
+    # Fallback: word-set match so aliases match across list markers / dash
+    # decoration / trailing qty / size annotations / word order that the exact
+    # queries above miss (e.g. stored "1)chicken big ------" or "big chicken"
+    # vs lookup "chicken big"). Old rows are matched without any migration.
+    key = alias_token_set(raw_name)
+    if key:
+        for row in db.query(UnclearItemAlias).all():
+            if alias_token_set(row.raw_text) == key:
+                unit = _get_unit_for_canonical(row.canonical_product_name)
+                return (row.canonical_product_name, unit)
 
     return None
 
@@ -397,6 +614,21 @@ def _lookup_customer_alias(raw_name: str, customer_phone: str, db) -> tuple | No
         CustomerProductAlias.customer_phone == customer_phone,
         CustomerProductAlias.raw_text == normalized,
     ).first()
+    if not row:
+        # Fallback: word-set match across list markers / dash decoration /
+        # trailing qty / size annotations / word order that exact match misses
+        # (stored "1)chicken big ------" or "big chicken" vs lookup "chicken
+        # big"). A customer has few aliases, so scanning all of theirs is cheap
+        # and matches old rows without any migration.
+        key = alias_token_set(raw_name)
+        if key:
+            rows = db.query(CustomerProductAlias).filter(
+                CustomerProductAlias.customer_phone == customer_phone,
+            ).all()
+            row = next(
+                (r for r in rows if alias_token_set(r.raw_text) == key),
+                None,
+            )
     if not row:
         return None
     # Find the unit for this canonical product (same logic as _lookup_alias)
@@ -583,8 +815,10 @@ def _is_noise_line(line: str, restaurant_name_norm: str | None) -> bool:
 
     norm = _normalize(text_only)
 
-    # 3. Date-only line
-    if _DATE_LINE_RE.match(norm.strip()):
+    # 3. Date-only line. Check the raw text too, not just `norm`: _normalize
+    #    strips "/" separators, which would hide slash dates ("16/07/2026") from
+    #    the regex and dump them into the Unclear tab as a bogus item.
+    if _DATE_LINE_RE.match(norm.strip()) or _DATE_LINE_RE.match(text_only.strip()):
         return True
 
     # 4. Filler header/footer phrase
@@ -700,6 +934,17 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
 
         # Strip placeholder tokens
         line_clean = re.sub(r'__+', '', line).strip()
+
+        # Strip an inline per-piece size annotation — "(900 gm)", "( 900 gm )",
+        # "(900 gm size)". It's the bird's target weight, never the ORDER
+        # quantity (that's the kg figure outside the parens), but glued onto the
+        # line it makes the tolerant qty regex read "900 gm" as the quantity and
+        # the item then fails to match. Only parentheticals naming a gram/size
+        # unit are removed, so a genuine "(30 kg)" style qty is left untouched.
+        line_clean = re.sub(
+            r'\([^)]*\b(?:gm|gms|gram|grams|g|size)\b[^)]*\)', ' ',
+            line_clean, flags=re.IGNORECASE,
+        ).strip()
 
         # Empty after stripping placeholders → skip
         if not line_clean:
@@ -902,7 +1147,7 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
             errors.append({
                 "line":       line,
                 "reason":     f"*{display_name}* is ordered in *{expected_unit}* (you sent {raw_unit_str})",
-                "suggestion": f"{display_name} - {int(qty) if qty == int(qty) else qty} {expected_unit}",
+                "suggestion": f"{display_name} - {fmt_qty(qty)} {expected_unit}",
             })
             continue
 

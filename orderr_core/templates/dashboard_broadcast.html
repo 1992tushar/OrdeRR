@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Broadcast</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green)}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:860px;margin:0 auto;padding:24px 18px 80px}
+.section-title{font-size:15px;font-weight:700;margin:22px 2px 10px}
+.note{font-size:12px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin:12px 0}
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+.mut{color:var(--ink3)}
+.empty{color:var(--ink3);text-align:center;padding:24px}
+.btn{border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:default}
+.btn-send{background:var(--green);color:#fff;font-size:14px;padding:11px 20px}
+.btn-add{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.btn-x{background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;font-weight:600;padding:2px 6px}
+.addbar{display:flex;gap:8px;margin:10px 0 4px}
+.addbar select{flex:1;padding:9px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--ink);min-width:0}
+.sendbar{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;margin-top:6px;flex-wrap:wrap}
+.sendbar .who{font-size:13px;color:var(--ink2)}
+.result{font-size:13px;border-radius:8px;padding:10px 14px;margin-top:10px;display:none}
+.result.ok{display:block;background:var(--green-bg);border:1px solid var(--green-border);color:var(--green)}
+.result.bad{display:block;background:var(--red-bg);border:1px solid var(--red-border);color:var(--red)}
+.err{color:var(--red);font-size:12px;margin-top:6px;min-height:14px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📣 {{ plant_name }} Broadcast</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  <div class="section-title" style="margin-top:0">Order reminder broadcast</div>
+  <div class="sendbar">
+    <button class="btn btn-send" id="send-btn" onclick="sendAll(this)" {% if not pending %}disabled{% endif %}>
+      📤 Send reminder to {{ pending }} pending customer{{ '' if pending == 1 else 's' }}
+    </button>
+    <span class="who">Members who already ordered today are skipped. Free chat message for customers
+      who messaged in the last 24h; the <b>customer_order_reminder_v2</b> template for the rest
+      (needs WhatsApp balance — delivery not guaranteed).</span>
+  </div>
+  <div class="result" id="send-result"></div>
+
+  <div class="section-title">Broadcast list ({{ members|length }})</div>
+  <div class="addbar">
+    <select id="add-select">
+      <option value="">— add a customer to the list —</option>
+      {% for c in addable %}
+      <option value="{{ c.customer_id }}">{{ c.name }}{% if c.area %} · {{ c.area }}{% endif %}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-add" onclick="addMember(this)">＋ Add</button>
+  </div>
+  <div class="err" id="err"></div>
+
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Customer</th><th>Area</th><th>Today</th><th>Phone</th><th>Last sent</th><th></th></tr></thead>
+      <tbody>
+        {% for m in members %}
+        <tr>
+          <td><b>{{ m.name }}</b></td>
+          <td>{{ m.area or '—' }}</td>
+          <td>{% if m.ordered %}✅ ordered{% else %}<span style="color:var(--red)">pending</span>{% endif %}</td>
+          <td class="mut">{{ m.phone }}</td>
+          <td class="mut">{{ m.last_sent or 'never' }}</td>
+          <td style="text-align:right"><button class="btn-x" onclick="removeMember({{ m.customer_id }}, this)">✕ remove</button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">Nobody on the list yet — add customers above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+
+  <div class="note">
+    This list is also the roster for the <a href="{{ status_url }}" target="_blank">📊 live status page</a> —
+    customers here appear there and count toward pending. Only customers on this list get the reminder;
+    the old automatic 10&nbsp;PM reminder is switched off. Add or remove customers any time.
+  </div>
+</main>
+
+<script>
+function err(msg){ document.getElementById('err').textContent = msg || ''; }
+
+async function post(url, body, btn){
+  err('');
+  if(btn) btn.disabled = true;
+  try{
+    const res = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+    if(!res.ok){ const j = await res.json().catch(()=>({})); err(j.detail||'Something went wrong.'); if(btn) btn.disabled=false; return null; }
+    return await res.json();
+  }catch(e){ err('Network error — try again.'); if(btn) btn.disabled=false; return null; }
+}
+
+async function addMember(btn){
+  const sel = document.getElementById('add-select');
+  if(!sel.value){ err('Pick a customer first.'); return; }
+  if(await post('/dashboard/broadcast/add', {customer_id: sel.value}, btn)) location.reload();
+}
+
+async function removeMember(id, btn){
+  if(await post('/dashboard/broadcast/remove', {customer_id: id}, btn)) location.reload();
+}
+
+async function sendAll(btn){
+  const n = {{ pending }};
+  if(!confirm('Send the WhatsApp reminder to ' + n + ' pending customer' + (n===1?'':'s') + ' now?')) return;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  const r = await post('/dashboard/broadcast/send', {}, btn);
+  const box = document.getElementById('send-result');
+  if(r){
+    box.className = 'result ' + (r.failed ? 'bad' : 'ok');
+    let msg = '✅ Sent ' + r.sent + ' — ' + r.via_chat + ' via chat window';
+    if(r.via_template) msg += ', ' + r.via_template + ' via template (delivery depends on WhatsApp balance)';
+    if(r.skipped_ordered) msg += '; skipped ' + r.skipped_ordered + ' who already ordered';
+    msg += '.';
+    if(r.failed){
+      msg = '⚠️ ' + msg + ' ' + r.failed + ' failed: ' +
+            r.failures.map(f => f.name + ' (' + f.reason + ')').join(', ');
+    }
+    box.textContent = msg;
+    setTimeout(()=>location.reload(), 6000);
+  }else{
+    btn.disabled = false;
+    btn.textContent = '📤 Send reminder to ' + n + ' pending customer' + (n===1?'':'s');
+  }
+}
+</script>
+</body>
+</html>

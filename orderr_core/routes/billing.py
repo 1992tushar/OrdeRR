@@ -15,12 +15,13 @@ Billing's job is now:
   1. Read today's orders straight from `orders` (no upload step).
   2. Lazily seed `OrderItemActual` rows from `parsed_items` the first time an
      order is viewed (this replaces the old HTML-report-driven seeding).
-  3. Surface `unclear_items` as review items (same UI/table as OCR-unmatched
-     lines from photo uploads), tagged with a distinct reason.
-  4. Photo upload only *matches* OCR'd hotel blocks against TODAY'S EXISTING
-     orders (by customer_name) and writes delivered quantities -- it never
-     creates a new order row. If no match is found, that hotel surfaces as
-     an explicit error rather than silently creating a duplicate order.
+  3. Surface `unclear_items` as review items, tagged with a distinct reason.
+
+Delivered quantities are entered manually per hotel (one Confirm button per
+order). Photo/OCR capture was removed: handwritten quantities on the production
+sheet were being misread (e.g. 8.5->6.5, 30->80) and, once auto-accepted, could
+not be corrected before invoicing. Manual entry keeps the handwritten sheet as
+the source of truth and every quantity editable until confirmed.
 """
 from __future__ import annotations
 
@@ -32,10 +33,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from orderr_core.database import get_db
@@ -47,11 +48,10 @@ from orderr_core.services.invoice_generator import (
     InvoiceAlreadyExistsError,
     InvoiceHoldError,
     generate_invoice,
+    reissue_invoice,
 )
-from orderr_core.services.invoice_pdf import generate_invoice_pdf
+from orderr_core.services.invoice_pdf import generate_invoice_pdf, render_invoices_combined
 from orderr_core.services.order_service import get_current_business_date_str
-from orderr_core.services.ocr_actuals_parser import parse_claude_hotel_rows
-from orderr_core.services.ocr_engine import OCREngineError, get_production_report_engine
 from orderr_core.services.rate_lookup import get_rate
 from orderr_core.services.rate_parser import ACTIVE_PRODUCTS
 from orderr_core.models.rate_override import CustomerRateOverride
@@ -59,7 +59,8 @@ from orderr_core.models.rate_override import CustomerRateOverride
 import json
 logger = logging.getLogger(__name__)
 router = APIRouter()
-templates = Jinja2Templates(directory="orderr_core/templates")
+from orderr_core.templating import make_templates
+templates = make_templates()
 
 def _today() -> date:
     """Billing 'today' = the current BUSINESS date (rolls over at the 8 PM
@@ -301,202 +302,6 @@ def _ensure_order_seeded(db: Session, order_id: int, parsed_items: list, unclear
 
 
 # ---------------------------------------------------------------------------
-# Merge photo-OCR results into an EXISTING order's actuals. Never creates an
-# order — that already happened in orderr-core when the customer ordered.
-# ---------------------------------------------------------------------------
-
-def _merge_actuals(db: Session, order_id: int, matched: list, unmatched: list) -> dict:
-    existing = {a.product: a for a in db.scalars(
-        select(OrderItemActual).where(OrderItemActual.order_id == order_id)
-    ).all()}
-
-    added = replaced = skipped_manual = needs_review_count = 0
-
-    for item in matched:
-        product = item["product"]
-        ex      = existing.get(product)
-
-        if ex and ex.capture_source == "dashboard_manual":
-            skipped_manual += 1
-            continue
-
-        confidence = "needs_review" if item["needs_review"] else "auto"
-        if item["needs_review"]:
-            needs_review_count += 1
-
-        if ex:
-            # Was seeded from orderr_core (ordered qty known) or a prior
-            # photo_ocr pass -- update in place, keep the ordered_quantity.
-            ex.actual_quantity = item["quantity"]
-            ex.actual_unit     = item["unit"]
-            ex.capture_source  = "photo_ocr"
-            ex.confidence      = confidence
-            ex.confirmed_by    = None
-            ex.confirmed_at    = None
-            replaced += 1
-        else:
-            # Product appeared in the photo but wasn't part of the original
-            # order -- e.g. an add-on delivered on the day. Use the photo's
-            # own quantity as both ordered & actual since we have no other
-            # ordered-quantity source for it.
-            db.add(OrderItemActual(
-                order_id=order_id,
-                product=product,
-                ordered_quantity=item.get("ordered_quantity_hint") or item["quantity"],
-                ordered_unit=item["unit"],
-                actual_quantity=item["quantity"],
-                actual_unit=item["unit"],
-                capture_source="photo_ocr",
-                confidence=confidence,
-                confirmed_by=None,
-                confirmed_at=None,
-            ))
-            added += 1
-
-    for line in unmatched:
-        db.add(OcrUnmatchedLine(
-            order_id=order_id,
-            raw_line=line["raw_line"],
-            reason=line["reason"],
-            resolved=False,
-        ))
-
-    return {
-        "added":          added,
-        "replaced":       replaced,
-        "skipped_manual": skipped_manual,
-        "needs_review":   needs_review_count,
-        "unmatched":      len(unmatched),
-    }
-
-
-def _find_todays_order_by_name(db: Session, hotel_name: str, today: date) -> Optional[tuple]:
-    """
-    Match a photo-OCR'd hotel name against TODAY'S EXISTING orders only.
-    Returns (order_id, customer_name, customer_phone) or None.
-    Never creates a row -- if nothing matches, the caller must surface this
-    as an error so a real order isn't silently duplicated.
-    """
-    return db.execute(
-        text("""
-            SELECT id, customer_name, customer_phone
-            FROM orders
-            WHERE business_date = :today
-              AND is_cancelled = FALSE
-              AND status != 'cancelled'
-              AND LOWER(customer_name) LIKE LOWER(:pattern)
-            ORDER BY id DESC
-            LIMIT 1
-        """),
-        {"today": today.isoformat(), "pattern": f"%{hotel_name}%"},
-    ).fetchone()
-
-
-# ---------------------------------------------------------------------------
-# Photo upload — match against today's existing orders, never create new ones
-# ---------------------------------------------------------------------------
-
-@router.post("/billing/api/upload")
-async def api_upload(
-    photos: list[UploadFile] = File(...),
-    db: Session = Depends(get_db),
-):
-    today            = _today()
-    all_hotel_blocks = []
-
-    try:
-        engine = get_production_report_engine()
-        for photo in photos:
-            image_bytes = await photo.read()
-            if not image_bytes:
-                continue
-            blocks = engine.extract_rows(image_bytes)
-            all_hotel_blocks.extend(blocks)
-    except OCREngineError as e:
-        return JSONResponse(status_code=422, content={"error": str(e)})
-    except Exception as e:
-        logger.exception("Unexpected OCR error")
-        return JSONResponse(status_code=500, content={"error": f"Extraction failed: {e}"})
-
-    if not all_hotel_blocks:
-        return JSONResponse(
-            status_code=422,
-            content={"error": "No hotel orders found in the uploaded photo(s)."},
-        )
-
-    parsed     = parse_claude_hotel_rows(all_hotel_blocks)
-    order_info: dict[str, dict] = {}
-
-    for hotel in parsed["hotels"]:
-        hotel_name = hotel["hotel_name"]
-        matched    = hotel["matched"]
-        unmatched  = hotel["unmatched"]
-
-        match_row = _find_todays_order_by_name(db, hotel_name, today)
-        if not match_row:
-            order_info[hotel_name] = {
-                "order_id": None,
-                "merge":    None,
-                "error":    f"No order placed today matches \"{hotel_name}\" — check spelling, "
-                            f"or confirm this hotel actually ordered today before re-uploading.",
-                "skipped_invoiced": False,
-            }
-            continue
-
-        order_id = match_row[0]
-
-        already_invoiced = db.scalar(
-            select(func.count()).select_from(Invoice).where(Invoice.order_id == order_id)
-        )
-        if already_invoiced:
-            order_info[hotel_name] = {
-                "order_id": order_id,
-                "merge":    None,
-                "error":    None,
-                "skipped_invoiced": True,
-            }
-            continue
-
-        try:
-            merge_summary = _merge_actuals(db, order_id, matched, unmatched)
-            order_info[hotel_name] = {
-                "order_id": order_id,
-                "merge":    merge_summary,
-                "error":    None,
-                "skipped_invoiced": False,
-            }
-        except Exception as e:
-            logger.exception("Failed processing hotel %r", hotel_name)
-            db.rollback()
-            order_info[hotel_name] = {
-                "order_id": None,
-                "merge":    None,
-                "error":    str(e),
-                "skipped_invoiced": False,
-            }
-
-    db.commit()
-
-    hotels_out = []
-    for hotel in parsed["hotels"]:
-        hotel_name = hotel["hotel_name"]
-        info       = order_info[hotel_name]
-
-        if info["error"]:
-            hotels_out.append({
-                "hotel_name": hotel_name,
-                "order_id":   info["order_id"],
-                "error":      info["error"],
-                "status":     "error",
-            })
-            continue
-
-        hotels_out.append(_build_hotel_record(db, hotel_name, info["order_id"]))
-
-    return {"hotels": hotels_out, "today": today.isoformat()}
-
-
-# ---------------------------------------------------------------------------
 # Build the dashboard record for one order. Seeds actuals/unclear-items from
 # orderr-core data on first view.
 # ---------------------------------------------------------------------------
@@ -591,6 +396,9 @@ def _build_hotel_record(db: Session, hotel_name: str, order_id: int) -> dict:
         "invoice_number": existing_invoice.invoice_number if existing_invoice else None,
         "invoice_id":     existing_invoice.id             if existing_invoice else None,
         "invoice_total":  float(existing_invoice.total)   if existing_invoice else None,
+        # Vasy-sync state (set by the bot's /billing/api/vasy-synced callback).
+        "vasy_synced":     bool(existing_invoice and existing_invoice.vasy_synced_at),
+        "vasy_voucher_no": existing_invoice.vasy_voucher_no if existing_invoice else None,
         "items":          items_out,
         "unmatched": [
             {"id": u.id, "raw_line": u.raw_line, "reason": u.reason}
@@ -639,6 +447,56 @@ def api_today_results(db: Session = Depends(get_db)):
         "delivered_count": delivered_count,
         "pending_count":   pending_count,
     }
+
+
+# ---------------------------------------------------------------------------
+# "Enter deliveries" screen — a report-styled sheet the accountant transcribes
+# hand-written delivered quantities into. Mirrors the printed Daily Production
+# Report so paper -> screen is a 1:1 read. Shows ONLY hotels still awaiting
+# delivered-quantity entry (not invoiced, at least one blank/unconfirmed item);
+# each hotel keeps its ORIGINAL number from the full day's order sequence so it
+# still matches the printout even though done hotels are hidden. Per-hotel
+# Confirm reuses /billing/api/confirm-items — no new write path.
+# ---------------------------------------------------------------------------
+
+@router.get("/billing/deliveries", response_class=HTMLResponse)
+def deliveries_entry(request: Request, db: Session = Depends(get_db)):
+    today = _today()
+
+    order_rows = db.execute(
+        text("""
+            SELECT id, customer_name FROM orders
+            WHERE business_date = :today
+              AND is_cancelled = FALSE
+              AND status != 'cancelled'
+            ORDER BY id
+        """),
+        {"today": today.isoformat()},
+    ).fetchall()
+
+    # Number every hotel by the full order sequence FIRST, then keep only those
+    # still awaiting entry. This preserves the printout's numbering (gaps where
+    # already-invoiced/confirmed hotels drop out).
+    awaiting = []
+    for idx, row in enumerate(order_rows, 1):
+        rec = _build_hotel_record(db, hotel_name=row[1], order_id=row[0])
+        needs_entry = rec["status"] != "invoiced" and any(
+            it["actual_qty"] is None or it["needs_review"] for it in rec["items"]
+        )
+        if needs_entry:
+            rec["number"] = idx
+            awaiting.append(rec)
+
+    try:
+        date_label = date.fromisoformat(today.isoformat()).strftime("%d %B %Y")
+    except Exception:
+        date_label = today.isoformat()
+
+    return templates.TemplateResponse(request, "billing_deliveries.html", {
+        "hotels":     awaiting,
+        "today":      today.isoformat(),
+        "date_label": date_label,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +641,78 @@ async def api_resolve_unmatched(request: Request, db: Session = Depends(get_db))
 
 
 # ---------------------------------------------------------------------------
+# add-item — add a product to an order right on the billing card, even if the
+# customer never ordered it (e.g. a standing daily item we always send). Creates
+# a confirmed OrderItemActual so it bills at its delivered quantity. If the same
+# product is already on the order, its quantity is updated instead of duplicated.
+#
+# For an already-invoiced order this only adds to the actuals — the caller then
+# reissues the invoice (correct-invoice) to fold the new line into the bill.
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/add-item")
+async def api_add_item(request: Request, db: Session = Depends(get_db)):
+    body         = await request.json()
+    order_id     = body.get("order_id")
+    product      = (body.get("product") or "").strip()
+    unit         = (body.get("unit") or "kg").strip()
+    confirmed_by = (body.get("confirmed_by") or "plant_manager").strip()
+
+    if not order_id or not product:
+        return JSONResponse(status_code=400, content={"error": "order_id and product required"})
+    try:
+        qty = Decimal(str(body.get("qty")))
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid quantity"})
+    if qty <= 0:
+        return JSONResponse(status_code=400, content={"error": "Quantity must be greater than 0"})
+
+    now = datetime.now(timezone.utc)
+
+    # Don't create a duplicate line — update the existing one if the product is
+    # already on this order.
+    existing = db.scalars(
+        select(OrderItemActual).where(
+            OrderItemActual.order_id == order_id,
+            OrderItemActual.product == product,
+        )
+    ).first()
+
+    if existing:
+        existing.actual_quantity = qty
+        existing.actual_unit     = unit
+        existing.confidence      = "auto"
+        existing.confirmed_by    = confirmed_by
+        existing.confirmed_at    = now
+        actual = existing
+    else:
+        actual = OrderItemActual(
+            order_id=order_id,
+            product=product,
+            ordered_quantity=qty,
+            ordered_unit=unit,
+            actual_quantity=qty,
+            actual_unit=unit,
+            capture_source="manual_add",
+            confidence="auto",
+            confirmed_by=confirmed_by,
+            confirmed_at=now,
+        )
+        db.add(actual)
+        db.flush()
+
+    db.commit()
+    return {
+        "ok":        True,
+        "actual_id": actual.id,
+        "product":   product,
+        "unit":      unit,
+        "qty":       float(qty),
+        "updated":   existing is not None,
+    }
+
+
+# ---------------------------------------------------------------------------
 # generate-invoice (unchanged)
 # ---------------------------------------------------------------------------
 
@@ -831,6 +761,143 @@ async def api_generate_invoice(request: Request, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# correct-invoice — fix an ALREADY-invoiced order in place (same invoice number).
+# Applies any corrected delivered quantities, then rebuilds the existing invoice
+# from the corrected actuals (reissue_invoice) so its line items / total / PDF
+# match — without minting a new number or a duplicate downstream (Vasy).
+#
+# The cached PDF is deleted so it regenerates on next view. NOTE: this only fixes
+# OrdeRR's records; the matching Vasy voucher must be edited in place by hand
+# (the bot only ever CREATES vouchers — re-running it would duplicate).
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/correct-invoice")
+async def api_correct_invoice(request: Request, db: Session = Depends(get_db)):
+    body         = await request.json()
+    order_id     = body.get("order_id")
+    confirmed_by = (body.get("confirmed_by") or "plant_manager").strip()
+    items        = body.get("items") or []
+
+    if order_id is None:
+        return JSONResponse(status_code=400, content={"error": "order_id required"})
+
+    # 1) Apply any corrected quantities first (same validate-then-apply as
+    #    confirm-items, so a bad row never leaves the order half-corrected).
+    resolved: list[tuple[OrderItemActual, Decimal]] = []
+    for entry in items:
+        actual = db.get(OrderItemActual, entry.get("actual_id"))
+        if not actual:
+            return JSONResponse(status_code=404,
+                                content={"error": f"Item {entry.get('actual_id')} not found"})
+        try:
+            qty = Decimal(str(entry.get("actual_qty")))
+        except Exception:
+            return JSONResponse(status_code=400,
+                                content={"error": f"Invalid quantity for {actual.product}"})
+        if qty <= 0:
+            return JSONResponse(status_code=400,
+                                content={"error": f"Quantity for {actual.product} must be greater than 0"})
+        resolved.append((actual, qty))
+
+    now = datetime.now(timezone.utc)
+    for actual, qty in resolved:
+        actual.actual_quantity = qty
+        actual.actual_unit     = actual.actual_unit or actual.ordered_unit
+        actual.confidence      = "auto"
+        actual.confirmed_by    = confirmed_by
+        actual.confirmed_at    = now
+    if resolved:
+        db.flush()
+
+    # 2) Rebuild the invoice in place from the corrected actuals.
+    try:
+        invoice = reissue_invoice(db, order_id)
+    except InvoiceHoldError as e:
+        db.rollback()
+        return JSONResponse(status_code=422, content={"error": str(e)})
+    except ValueError as e:
+        db.rollback()
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        db.rollback()
+        logger.exception("Unexpected invoice reissue error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # 3) Drop the cached PDF(s) for this invoice so it regenerates on next view.
+    try:
+        for p in Path("invoices").glob(f"*_{invoice.invoice_number}.pdf"):
+            p.unlink()
+    except Exception:
+        logger.warning("could not clear cached PDF for %s", invoice.invoice_number)
+
+    # 4) The printed copy is now stale — clear printed_at so "Print all" reprints
+    #    this corrected bill (its total/items changed).
+    invoice.printed_at = None
+    db.commit()
+
+    return {
+        "ok":             True,
+        "invoice_number": invoice.invoice_number,
+        "invoice_id":     invoice.id,
+        "total":          float(invoice.total),
+    }
+
+
+# ---------------------------------------------------------------------------
+# vasy-synced — callback from the vasy-invoice-bot. After the bot posts a bill
+# into Vasy ERP it POSTs the OrdeRR invoice number(s) here so the billing page
+# can show a "Synced to Vasy" indicator. Idempotent: marking an already-synced
+# bill just refreshes its voucher number, never errors. The bot posts its whole
+# "already pushed" ledger each run (voucher_no only for bills pushed this run),
+# so historical bills get backfilled the first time this runs.
+#
+# Body: {"invoices": [{"invoice_number": "FLUFFY-YYYYMMDD-NNN",
+#                      "voucher_no": "INV14207"?}, ...]}
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/vasy-synced")
+async def api_vasy_synced(request: Request, db: Session = Depends(get_db)):
+    body     = await request.json()
+    entries  = body.get("invoices") or []
+    now      = datetime.now(timezone.utc)
+    marked, updated, unknown = [], [], []
+
+    for entry in entries:
+        number = (entry.get("invoice_number") or "").strip()
+        if not number:
+            continue
+        voucher = (entry.get("voucher_no") or "").strip() or None
+
+        invoice = db.scalars(
+            select(Invoice).where(Invoice.invoice_number == number)
+        ).first()
+        if not invoice:
+            unknown.append(number)
+            continue
+
+        if invoice.vasy_synced_at is None:
+            invoice.vasy_synced_at = now
+            marked.append(number)
+        else:
+            updated.append(number)
+        # Always keep the latest voucher we were told about (don't blank a known
+        # one when a later backfill call omits it).
+        if voucher:
+            invoice.vasy_voucher_no = voucher
+
+    db.commit()
+    return {
+        "ok":            True,
+        "marked":        marked,     # newly flagged synced this call
+        "already":       updated,    # were already synced (voucher refreshed)
+        "unknown":       unknown,    # invoice numbers OrdeRR doesn't have
+        "marked_count":  len(marked),
+        "already_count": len(updated),
+        "unknown_count": len(unknown),
+    }
+
+
+# ---------------------------------------------------------------------------
 # invoices/all (unchanged)
 # ---------------------------------------------------------------------------
 
@@ -843,7 +910,9 @@ def api_invoices_all(db: Session = Depends(get_db)):
                 i.business_date,
                 i.customer_phone,
                 i.total,
-                o.customer_name AS hotel_name
+                o.customer_name AS hotel_name,
+                i.vasy_synced_at,
+                i.vasy_voucher_no
             FROM invoices i
             LEFT JOIN orders o ON o.id = i.order_id
             ORDER BY i.business_date DESC, i.invoice_number DESC
@@ -853,11 +922,13 @@ def api_invoices_all(db: Session = Depends(get_db)):
     return {
         "invoices": [
             {
-                "invoice_number": r[0],
-                "business_date":  str(r[1])[:10],
-                "customer_phone": r[2],
-                "total":          float(r[3]),
-                "hotel_name":     r[4],
+                "invoice_number":  r[0],
+                "business_date":   str(r[1])[:10],
+                "customer_phone":  r[2],
+                "total":           float(r[3]),
+                "hotel_name":      r[4],
+                "vasy_synced":     r[5] is not None,
+                "vasy_voucher_no": r[6],
             }
             for r in rows
         ]
@@ -886,12 +957,13 @@ def api_invoice_pdf_by_number(invoice_number: str, db: Session = Depends(get_db)
     safe_name = (hotel_name or "").strip().replace(" ", "_").replace("/", "-")
     pdf_path  = Path("invoices") / f"{safe_name}_{invoice.invoice_number}.pdf"
 
-    if not pdf_path.exists():
-        try:
-            generate_invoice_pdf(invoice, hotel_name)
-        except Exception as e:
-            logger.exception("PDF regeneration failed for invoice %s", invoice_number)
-            return JSONResponse(status_code=500, content={"error": f"PDF generation failed: {e}"})
+    # Always regenerate: the page geometry changed to full-A4/top-half, so any
+    # legacy cached file would print at the old (config-hostile) size.
+    try:
+        generate_invoice_pdf(invoice, hotel_name)
+    except Exception as e:
+        logger.exception("PDF regeneration failed for invoice %s", invoice_number)
+        return JSONResponse(status_code=500, content={"error": f"PDF generation failed: {e}"})
 
     return FileResponse(
         path=pdf_path,
@@ -941,15 +1013,15 @@ def api_invoices_pdf_bulk(
             safe_name = (hotel_name or "").strip().replace(" ", "_").replace("/", "-")
             pdf_path  = Path("invoices") / f"{safe_name}_{invoice.invoice_number}.pdf"
 
-            if not pdf_path.exists():
-                try:
-                    generate_invoice_pdf(invoice, hotel_name)
-                except Exception:
-                    logger.exception(
-                        "Skipping invoice %s in bulk zip -- PDF generation failed",
-                        invoice.invoice_number,
-                    )
-                    continue
+            # Always regenerate so the zip never ships a legacy half-A4 file.
+            try:
+                generate_invoice_pdf(invoice, hotel_name)
+            except Exception:
+                logger.exception(
+                    "Skipping invoice %s in bulk zip -- PDF generation failed",
+                    invoice.invoice_number,
+                )
+                continue
 
             if pdf_path.exists():
                 zf.write(pdf_path, arcname=f"{safe_name}_{invoice.invoice_number}.pdf")
@@ -960,4 +1032,126 @@ def api_invoices_pdf_bulk(
         zip_buffer,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Combined print sheet — one multi-page A4 PDF, one bill per page.
+#
+# This is the print-ready daily run: feed pre-cut half-sheets, open this PDF,
+# print once → one bill per half-sheet. Because every page is a standard A4 with
+# the invoice in the top half, the printer needs NO configuration (paper stays on
+# plain A4 for this and every other job). Served inline so the browser's PDF
+# viewer opens straight to Print.
+#
+# Print tracking (invoices.printed_at): scope="new" (default) prints only bills
+# not yet printed for the date and marks them printed, so clicking "Print all"
+# again after more invoicing prints ONLY the newly-added bills. scope="all"
+# reprints every bill for the date and (re)marks them. The count printed / count
+# already-done is returned in the X-Printed-Count / X-Already-Printed headers.
+# ---------------------------------------------------------------------------
+
+def _hotel_name_for(db: Session, invoice: Invoice) -> str:
+    row = db.execute(
+        text("SELECT customer_name FROM orders WHERE id = :oid"),
+        {"oid": invoice.order_id},
+    ).first()
+    return row[0] if row else invoice.customer_phone
+
+
+@router.get("/billing/api/invoices/pdf/print")
+def api_invoices_pdf_print(
+    business_date: Optional[str] = None,
+    scope: str = "new",
+    db: Session = Depends(get_db),
+):
+    if business_date:
+        try:
+            target_date = date.fromisoformat(business_date)
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": f"Invalid date: {business_date!r}"})
+    else:
+        target_date = _today()
+
+    all_for_date = db.scalars(
+        select(Invoice)
+        .where(Invoice.business_date == target_date)
+        .order_by(Invoice.invoice_number)
+    ).all()
+
+    if not all_for_date:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No invoices found for {target_date.isoformat()}."},
+        )
+
+    already = sum(1 for inv in all_for_date if inv.printed_at is not None)
+    if scope == "all":
+        to_print = list(all_for_date)
+    else:
+        to_print = [inv for inv in all_for_date if inv.printed_at is None]
+
+    if not to_print:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": (f"All {already} bill(s) for {target_date.isoformat()} "
+                          "have already been printed."),
+                "already_printed": already,
+            },
+        )
+
+    items = [(inv, _hotel_name_for(db, inv)) for inv in to_print]
+
+    try:
+        pdf_bytes = render_invoices_combined(items)
+    except Exception as e:
+        logger.exception("Combined print PDF failed for %s", target_date)
+        return JSONResponse(status_code=500, content={"error": f"Print sheet failed: {e}"})
+
+    # Mark as printed only after the PDF built successfully.
+    now = datetime.now(timezone.utc)
+    for inv in to_print:
+        inv.printed_at = now
+    db.commit()
+
+    filename = f"invoices-print-{target_date.isoformat()}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "X-Printed-Count": str(len(to_print)),
+            "X-Already-Printed": str(already),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Single-invoice print — inline PDF, marks the bill printed, freely repeatable.
+# Used by the per-bill "Print" button next to "Download PDF".
+# ---------------------------------------------------------------------------
+
+@router.get("/billing/api/invoices/{invoice_number}/print")
+def api_invoice_print_one(invoice_number: str, db: Session = Depends(get_db)):
+    invoice = db.scalar(select(Invoice).where(Invoice.invoice_number == invoice_number))
+    if not invoice:
+        return JSONResponse(status_code=404, content={"error": f"Invoice {invoice_number!r} not found."})
+
+    hotel_name = _hotel_name_for(db, invoice)
+    try:
+        pdf_bytes = render_invoices_combined([(invoice, hotel_name)])
+    except Exception as e:
+        logger.exception("Single print PDF failed for %s", invoice_number)
+        return JSONResponse(status_code=500, content={"error": f"Print failed: {e}"})
+
+    invoice.printed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    safe_name = (hotel_name or "").strip().replace(" ", "_").replace("/", "-")
+    filename = f"{safe_name}_{invoice.invoice_number}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )

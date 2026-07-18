@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · 5-Day Close</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
+.section-title{font-size:15px;font-weight:700;margin:24px 2px 12px}
+.lede{font-size:12.5px;color:var(--ink2);margin:2px 2px 4px;max-width:70ch}
+.note{font-size:11px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin:12px 0}
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.empty{color:var(--ink3);text-align:center;padding:24px}
+.mut{color:var(--ink3)}
+
+/* window picker */
+.winbar{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
+.winbar .fld{display:flex;flex-direction:column;gap:4px}
+.winbar label{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);font-weight:700}
+.winbar input[type=date]{font:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg);color:var(--ink)}
+.winbar .go{font:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--green);color:#fff;padding:8px 16px;border-radius:8px}
+.winbar .go:hover{opacity:.92}
+.winbar .span{font-size:12px;color:var(--ink3);margin-left:auto;align-self:center}
+
+/* freshness banner */
+.banner{display:flex;align-items:flex-start;gap:10px;border-radius:var(--r);padding:11px 15px;margin:16px 0 4px;font-size:12.5px;border:1px solid}
+.banner.ok{background:var(--green-bg);border-color:var(--green-border);color:var(--green)}
+.banner.warn{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber)}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin:10px 2px 0}
+.chip{font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--ink2);display:inline-flex;gap:5px;align-items:center}
+.chip.stale{background:var(--red-bg);border-color:var(--red-border);color:var(--red)}
+.chip .d{color:var(--ink3);font-size:10px}
+
+/* tie-outs */
+.ties{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:860px){.ties{grid-template-columns:1fr}}
+.tie{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 17px;display:flex;flex-direction:column}
+.tie h3{font-size:14px;font-weight:700;margin-bottom:2px}
+.tie .sub{font-size:11px;color:var(--ink3);margin-bottom:12px}
+.tie .master{color:var(--green);font-weight:600}
+.trow{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dotted var(--border);font-size:13px}
+.trow:last-of-type{border-bottom:none}
+.trow .lbl{color:var(--ink2)}
+.trow .lbl .op{display:inline-block;width:1em;color:var(--ink3);font-weight:700}
+.trow .v{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.trow.exp{border-top:1.5px solid var(--border-strong);border-bottom:none;margin-top:3px;padding-top:8px}
+.trow.exp .lbl{font-weight:700;color:var(--ink)}
+.trow input.cash{width:110px;text-align:right;font:inherit;font-variant-numeric:tabular-nums;font-size:13px;padding:5px 8px;border:1px solid var(--border-strong);border-radius:6px;background:var(--bg)}
+.gapbar{margin-top:12px;border-radius:8px;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700}
+.gapbar .val{font-variant-numeric:tabular-nums}
+.gapbar.tie{background:var(--green-bg);color:var(--green)}
+.gapbar.off{background:var(--red-bg);color:var(--red)}
+.gapbar.idle{background:var(--bg);color:var(--ink3)}
+.tie .foot{font-size:10.5px;color:var(--ink3);margin-top:9px;line-height:1.4}
+
+/* sales recon strip */
+.recon{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:13px 16px}
+.recon .item{display:flex;flex-direction:column}
+.recon .item .n{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
+.recon .item .l{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);margin-top:2px}
+.recon .verdict{margin-left:auto;font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px}
+.recon .verdict.ok{background:var(--green-bg);color:var(--green)}
+.recon .verdict.off{background:var(--red-bg);color:var(--red)}
+
+/* exceptions */
+.exc{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:13px 16px;margin-bottom:10px}
+.exc.warn{border-left-color:var(--amber)}
+.exc.info{border-left-color:var(--blue)}
+.exc .top{display:flex;align-items:center;gap:10px}
+.exc .title{font-size:13.5px;font-weight:700}
+.exc .badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--bg);color:var(--ink2);font-variant-numeric:tabular-nums}
+.exc.warn .badge{background:var(--amber-bg);color:var(--amber)}
+.exc.info .badge{background:var(--blue-bg);color:var(--blue)}
+.exc .note2{font-size:12px;color:var(--ink2);margin-top:5px}
+.exc .samples{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.exc .s{font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:3px 9px;color:var(--ink2)}
+.exc .s b{color:var(--ink);font-weight:600}
+.allclear{background:var(--green-bg);border:1px solid var(--green-border);color:var(--green);border-radius:var(--r);padding:20px;text-align:center;font-weight:600}
+
+/* sign-off bar */
+.signbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:13px 16px;margin-top:14px}
+.signbar .fld{display:flex;flex-direction:column;gap:4px}
+.signbar label{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);font-weight:700}
+.signbar input[type=text]{font:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg);color:var(--ink)}
+.signbar .sign{font:inherit;font-size:13px;font-weight:700;cursor:pointer;border:none;background:var(--green);color:#fff;padding:9px 20px;border-radius:8px}
+.signbar .sign:hover{opacity:.92}
+.signbar .hint{font-size:11.5px;color:var(--ink3)}
+.signbar .signed{margin-left:auto;font-size:12px;font-weight:700;color:var(--green);background:var(--green-bg);border:1px solid var(--green-border);border-radius:20px;padding:5px 12px}
+
+/* flash */
+.flash{background:var(--green-bg);border:1px solid var(--green-border);color:var(--green);border-radius:var(--r);padding:11px 15px;margin:14px 0 0;font-size:13px;font-weight:600}
+
+/* history table */
+.htbl{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px}
+.htbl th{background:var(--bg);color:var(--ink2);text-align:left;padding:8px 11px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap}
+.htbl th.num,.htbl td.num{text-align:right;font-variant-numeric:tabular-nums}
+.htbl td{padding:8px 11px;border-bottom:1px solid var(--border);white-space:nowrap}
+.htbl tr:last-child td{border-bottom:none}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px}
+.pill.ok{background:var(--green-bg);color:var(--green)} .pill.off{background:var(--red-bg);color:var(--red)}
+
+/* toolbar / drill links / print */
+.toolbtn{font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink2);padding:8px 14px;border-radius:8px;text-decoration:none}
+.toolbtn:hover{border-color:var(--green);color:var(--green)}
+.exc .drill{margin-top:8px;display:inline-block;font-size:11.5px;font-weight:600;color:var(--blue);text-decoration:none}
+.exc .drill:hover{text-decoration:underline}
+.printhdr{display:none}
+@media print{
+  .nav,.subnav,.winbar,.signbar,.chips,.toolbtn,.banner,.flash,.exc .drill{display:none !important}
+  body{background:#fff;font-size:11.5px;color:#000}
+  main{max-width:none;padding:0}
+  .ties{grid-template-columns:repeat(3,1fr)}
+  .tie,.exc,.recon,.wrap,.allclear{break-inside:avoid;box-shadow:none}
+  .printhdr{display:block !important;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px}
+  .printhdr h1{font-size:17px;margin:0} .printhdr .meta{font-size:11px;color:#333;margin-top:3px}
+}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">🧮 {{ plant_name }} · 5-Day Close</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <!-- print-only header (filed audit record) -->
+  <div class="printhdr">
+    <h1>{{ plant_name }} · 5-Day Close — {{ close.from_fmt }} → {{ close.to_fmt }}</h1>
+    <div class="meta">
+      {% if close.signed %}Signed by {{ close.signed.signed_by }} on {{ close.signed.signed_at }}{% else %}Unsigned draft — printed {{ current_time }}{% endif %}
+    </div>
+  </div>
+
+  <div class="lede">A mini period-close: three tie-outs (cash is the master check) plus everything worth reviewing, computed from data already in OrdeRR. Import the latest Vasy exports first, then work top to bottom.</div>
+
+  {% if flash == 'signed' %}
+  <div class="flash">✓ Close signed & saved for {{ close.from_fmt }} → {{ close.to_fmt }}. Opening cash will carry into the next window.</div>
+  {% elif flash == 'bank_ok' %}
+  <div class="flash">✓ Bank statement imported — reconciliation updated below.</div>
+  {% elif flash == 'bank_err' %}
+  <div class="flash" style="background:var(--red-bg);border-color:var(--red-border);color:var(--red)">Couldn't read that file — make sure it's the bank statement CSV export.</div>
+  {% elif flash == 'bank_badtype' %}
+  <div class="flash" style="background:var(--red-bg);border-color:var(--red-border);color:var(--red)">Please upload a <b>.csv</b> bank statement.</div>
+  {% endif %}
+
+  <!-- window picker -->
+  <form class="winbar" method="get" action="/dashboard/analytics/close">
+    <div class="fld"><label>From</label><input type="date" name="from" value="{{ close.from_date }}"></div>
+    <div class="fld"><label>To</label><input type="date" name="to" value="{{ close.to_date }}"></div>
+    <button class="go" type="submit">Run close</button>
+    <span class="span">{{ close.from_fmt }} → {{ close.to_fmt }} · {{ close.days }} days</span>
+    <button class="toolbtn" type="button" onclick="window.print()">🖨 Print / Save PDF</button>
+  </form>
+
+  <!-- freshness gate -->
+  {% if close.freshness.all_fresh %}
+  <div class="banner ok">✅ All Vasy streams cover the window — figures are current.</div>
+  {% else %}
+  <div class="banner warn">⚠️ Some streams don't reach {{ close.to_fmt }} yet — import the latest Vasy exports before signing off, or the close may be incomplete.</div>
+  {% endif %}
+  <div class="chips">
+    {% for s in close.freshness.rows %}
+    <span class="chip {{ '' if s.covers else 'stale' }}">
+      {{ '✓' if s.covers else '⚠' }} {{ s.label }}
+      <span class="d">{{ ('to ' + s.latest_event) if s.latest_event else 'none' }}</span>
+    </span>
+    {% endfor %}
+  </div>
+
+  <!-- tie-outs -->
+  <div class="section-title">The three tie-outs</div>
+  <form id="signForm" method="post" action="/dashboard/analytics/close/sign">
+  <input type="hidden" name="from" value="{{ close.from_date }}">
+  <input type="hidden" name="to" value="{{ close.to_date }}">
+  <div class="ties">
+
+    <!-- A · Debtors -->
+    <div class="tie">
+      <h3>A · Debtors (AR)</h3>
+      <div class="sub">What customers owe — Vasy is source of truth</div>
+      <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Opening{% if close.debtors.opening_as_of %} · {{ close.debtors.opening_as_of }}{% endif %}</span><span class="v">{{ close.debtors.opening_fmt }}</span></div>
+      <div class="trow"><span class="lbl"><span class="op">+</span>Sales billed (Vasy)</span><span class="v">{{ close.debtors.sales_fmt }}</span></div>
+      <div class="trow"><span class="lbl"><span class="op">−</span>Collections</span><span class="v">{{ close.debtors.collections_fmt }}</span></div>
+      <div class="trow exp"><span class="lbl">= Expected closing</span><span class="v">{{ close.debtors.expected_closing_fmt }}</span></div>
+      <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Actual{% if close.debtors.actual_as_of %} · {{ close.debtors.actual_as_of }}{% endif %}</span><span class="v">{{ close.debtors.actual_closing_fmt }}</span></div>
+      {% if close.debtors.can_tie %}
+      <div class="gapbar {{ 'tie' if close.debtors.ties else 'off' }}">
+        <span>Gap</span><span class="val">{{ '✓ ties' if close.debtors.ties else close.debtors.gap_fmt }}</span>
+      </div>
+      {% elif close.debtors.has_snapshots %}
+      <div class="gapbar idle"><span>Gap</span><span class="val">can't tie</span></div>
+      <div class="foot">No Outstanding snapshot on/before the window start, so opening debtors is unknown (not zero). Tie needs snapshots bracketing the window.</div>
+      {% else %}
+      <div class="gapbar idle"><span>Gap</span><span class="val">no snapshot</span></div>
+      <div class="foot">Import an Outstanding export to tie debtors.</div>
+      {% endif %}
+    </div>
+
+    <!-- B · Creditors -->
+    <div class="tie">
+      <h3>B · Creditors (AP)</h3>
+      <div class="sub">What you owe suppliers</div>
+      <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Purchases this window</span><span class="v">{{ close.creditors.purchases_fmt }}</span></div>
+      <div class="trow"><span class="lbl"><span class="op">−</span>Paid to suppliers</span><span class="v">{{ close.creditors.payments_fmt }}</span></div>
+      <div class="trow exp"><span class="lbl">= Net movement</span><span class="v">{{ close.creditors.net_movement_fmt }}</span></div>
+      <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Owed to suppliers (running a/c)</span><span class="v">{{ close.creditors.current_ap_fmt }}</span></div>
+      {% if close.creditors.top_creditors %}
+      <div class="gapbar idle" style="flex-direction:column;align-items:stretch;gap:3px">
+        {% for c in close.creditors.top_creditors %}<div style="display:flex;justify-content:space-between"><span style="font-weight:600">{{ c.vendor }}</span><span class="val">{{ c.balance_fmt }}</span></div>{% endfor %}
+      </div>
+      {% endif %}
+      <div class="foot">Running-account basis: each supplier's bills − payments (bill-level "overdue" is ignored — you pay per supplier, not per bill). Accuracy depends on the payments import being complete.</div>
+    </div>
+
+    <!-- C · Cash -->
+    <div class="tie" id="cashTie" data-movement="{{ close.cash.movement }}">
+      <h3>C · Cash <span class="master">· master check</span></h3>
+      <div class="sub">Count the drawer — this is the lie detector</div>
+      <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Cash collected</span><span class="v">{{ close.cash.cash_in_fmt }}</span></div>
+      <div class="trow"><span class="lbl"><span class="op">−</span>Cash paid out</span><span class="v">{{ close.cash.cash_out_fmt }}</span></div>
+      <div class="trow exp"><span class="lbl">= Computed movement</span><span class="v">{{ close.cash.movement_fmt }}</span></div>
+      <div class="trow"><span class="lbl"><span class="op">+</span>Opening cash{% if close.opening_cash_from %} <span class="mut">(from {{ close.opening_cash_from }})</span>{% endif %}</span><input class="cash" id="openCash" name="opening_cash" inputmode="numeric" placeholder="0" value="{{ close.opening_cash if close.opening_cash is not none else '' }}"></div>
+      <div class="trow"><span class="lbl"><span class="op">−</span>Drawings / other out</span><input class="cash" id="drawCash" name="drawings" inputmode="numeric" placeholder="0" value="{{ close.signed.drawings if (close.signed and close.signed.drawings) else '' }}"></div>
+      <div class="trow exp"><span class="lbl">= Expected in hand</span><span class="v" id="expCash">—</span></div>
+      <div class="trow"><span class="lbl"><span class="op">&nbsp;</span>Counted cash <span class="mut">(count drawer)</span></span><input class="cash" id="countCash" name="counted_cash" inputmode="numeric" placeholder="0" value="{{ close.signed.counted_cash if (close.signed and close.signed.counted_cash is not none) else '' }}"></div>
+      <div class="gapbar idle" id="cashGap"><span>Gap</span><span class="val" id="cashGapVal">enter cash</span></div>
+      <div class="foot">Opening cash auto-fills from the last signed close's counted cash. Counting the drawer is the one manual number.</div>
+    </div>
+
+  </div>
+
+  <!-- sign-off -->
+  <div class="signbar">
+    {% if close.already_signed %}
+    <span class="hint">This window was signed on {{ close.signed_at }}. Re-signing updates it.</span>
+    {% else %}
+    <span class="hint">Count the drawer, enter cash above, then sign to lock this window.</span>
+    {% endif %}
+    <div class="fld"><label>Signed by</label><input type="text" name="signed_by" placeholder="your name"></div>
+    <button class="sign" type="submit">{{ 'Re-sign & save' if close.already_signed else 'Sign off & save' }}</button>
+    {% if close.already_signed %}<span class="signed">✓ signed {{ close.signed_at }}</span>{% endif %}
+  </div>
+  </form>
+
+  <!-- sales reconciliation -->
+  <div class="section-title">Sales — OrdeRR vs Vasy</div>
+  <div class="recon">
+    <div class="item"><span class="n">{{ close.sales_recon.orderr_fmt }}</span><span class="l">OrdeRR invoices</span></div>
+    <div class="item"><span class="n">{{ close.sales_recon.vasy_fmt }}</span><span class="l">Vasy invoices</span></div>
+    <div class="item"><span class="n">{{ close.sales_recon.diff_fmt }}</span><span class="l">Difference</span></div>
+    {% if not close.sales_recon.applicable %}
+    <span class="verdict" style="background:var(--bg);color:var(--ink3)">OrdeRR billing not used this window</span>
+    {% else %}
+    <span class="verdict {{ 'ok' if close.sales_recon.agrees else 'off' }}">{{ '✓ agree' if close.sales_recon.agrees else 'differ — investigate' }}</span>
+    {% endif %}
+  </div>
+  <div class="note" style="border-left-color:var(--blue-border)">OrdeRR invoices drive the operational exceptions below; Vasy drives the debtors tie-out. When they agree, both systems captured the same sales.</div>
+
+  <!-- bank reconciliation -->
+  <div class="section-title">Bank reconciliation <span style="font-weight:400;color:var(--ink3);font-size:12px">— what actually moved through the bank vs what's recorded</span></div>
+  {% if not close.bank.has_bank %}
+  <form class="winbar" method="post" action="/dashboard/analytics/close/bank-upload" enctype="multipart/form-data">
+    <input type="hidden" name="from" value="{{ close.from_date }}">
+    <input type="hidden" name="to" value="{{ close.to_date }}">
+    <div class="fld"><label>Bank statement (CSV)</label><input type="file" name="file" accept=".csv" required style="font-size:12px"></div>
+    <button class="go" type="submit">Upload &amp; reconcile</button>
+    <span class="span">Download this period's statement from your bank as CSV and drop it here — the bank is the one source that can't be fudged.</span>
+  </form>
+  {% else %}
+  <div class="recon">
+    <div class="item"><span class="n">{{ close.bank.bank_in_fmt }}</span><span class="l">Bank money in</span></div>
+    <div class="item"><span class="n">{{ close.bank.vasy_in_fmt }}</span><span class="l">Recorded in (bank receipts)</span></div>
+    <div class="item"><span class="n">{{ close.bank.in_gap_fmt }}</span><span class="l">Gap</span></div>
+    {% if close.bank.in_ties %}<span class="verdict ok">✓ ties</span>{% else %}<span class="verdict" style="background:var(--bg);color:var(--ink3)">review the gap</span>{% endif %}
+  </div>
+  <div class="recon" style="margin-top:10px">
+    <div class="item"><span class="n">{{ close.bank.bank_out_fmt }}</span><span class="l">Bank money out</span></div>
+    <div class="item"><span class="n">{{ close.bank.vasy_out_fmt }}</span><span class="l">Recorded out (payments)</span></div>
+    <div class="item"><span class="n">{{ close.bank.out_gap_fmt }}</span><span class="l">Gap</span></div>
+    {% if close.bank.out_ties %}<span class="verdict ok">✓ ties</span>{% else %}<span class="verdict" style="background:var(--bg);color:var(--ink3)">review the gap</span>{% endif %}
+  </div>
+  {% if close.bank.top_out %}
+  <div class="note">
+    <b>Biggest money out of the bank</b> (check each is recorded):
+    {% for t in close.bank.top_out %}<span class="s" style="display:inline-block;margin:2px 4px 0 0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 8px"><b>{{ t.amount_fmt }}</b> · {{ t.desc }} <span class="mut">{{ t.date }}</span></span>{% endfor %}
+  </div>
+  {% endif %}
+  <div class="note" style="border-left-color:var(--blue-border)">A gap is normal — owner transfers, credit-card settlements, salary and EMIs move through the bank but aren't sales or supplier payments. It's a prompt to check the big items are all recorded, not a pass/fail. <a href="#" onclick="document.getElementById('bankReupload').style.display='flex';return false;" style="color:inherit;font-weight:700">Replace statement</a></div>
+  <form class="winbar" id="bankReupload" method="post" action="/dashboard/analytics/close/bank-upload" enctype="multipart/form-data" style="display:none">
+    <input type="hidden" name="from" value="{{ close.from_date }}">
+    <input type="hidden" name="to" value="{{ close.to_date }}">
+    <div class="fld"><label>Bank statement (CSV)</label><input type="file" name="file" accept=".csv" required style="font-size:12px"></div>
+    <button class="go" type="submit">Re-upload &amp; reconcile</button>
+  </form>
+  {% endif %}
+
+  <!-- exceptions -->
+  <div class="section-title">What to review{% if close.exception_count %} ({{ close.exception_count }}){% endif %}</div>
+  {% if not close.exceptions %}
+  <div class="allclear">✓ Nothing flagged — clean close. 🎉</div>
+  {% else %}
+  {% for x in close.exceptions %}
+  <div class="exc {{ x.severity }}">
+    <div class="top">
+      <span class="title">{{ x.title }}</span>
+      {% if x.count is not none %}<span class="badge">{{ x.count }}</span>{% endif %}
+    </div>
+    <div class="note2">{{ x.note }}</div>
+    {% if x.samples %}
+    <div class="samples">
+      {% for s in x.samples %}<span class="s"><b>{{ s.label }}</b>{% if s.detail %} · {{ s.detail }}{% endif %}</span>{% endfor %}
+      {% if x.count and x.count > x.samples|length %}<span class="s mut">+{{ x.count - x.samples|length }} more</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if x.link %}<a class="drill" href="{{ x.link }}">{{ x.link_label }} →</a>{% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- recent closes -->
+  {% if close.recent_closes %}
+  <div class="section-title">Recent closes</div>
+  <div class="wrap"><div class="scroll">
+    <table class="htbl">
+      <thead><tr>
+        <th>Window</th><th class="num">Counted cash</th><th class="num">Cash gap</th>
+        <th class="num">Closing debtors</th><th class="num">Closing creditors</th>
+        <th class="num">Exceptions</th><th>Signed by</th><th>Signed at</th>
+      </tr></thead>
+      <tbody>
+        {% for r in close.recent_closes %}
+        <tr>
+          <td>{{ r.from_fmt }} → {{ r.to_fmt }}</td>
+          <td class="num">{{ r.counted_cash_fmt }}</td>
+          <td class="num">{% if r.cash_gap_fmt != '—' %}<span class="pill {{ 'ok' if r.cash_ties else 'off' }}">{{ '✓' if r.cash_ties else r.cash_gap_fmt }}</span>{% else %}—{% endif %}</td>
+          <td class="num">{{ r.closing_debtors_fmt }}</td>
+          <td class="num">{{ r.closing_creditors_fmt }}</td>
+          <td class="num">{{ r.exception_count }}{% if r.warn_count %} <span class="mut">({{ r.warn_count }}⚠)</span>{% endif %}</td>
+          <td>{{ r.signed_by }}</td>
+          <td class="mut">{{ r.signed_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% endif %}
+
+  <!-- guardrails -->
+  <div class="note">
+    <b>WhatsApp guardrails</b> — merge both order groups (all-area + Lonavala) before trusting counts · untyped photo/voice orders never reach a total · audit on delivery/payment date, not message date · track staff cash float separately · your recorded record is truth, the chat is only the source.
+  </div>
+
+</main>
+
+<script>
+(function(){
+  var tie = document.getElementById('cashTie');
+  if(!tie) return;
+  var movement = parseFloat(tie.getAttribute('data-movement')) || 0;
+  var openEl = document.getElementById('openCash');
+  var drawEl = document.getElementById('drawCash');
+  var countEl = document.getElementById('countCash');
+  var expEl = document.getElementById('expCash');
+  var gapBar = document.getElementById('cashGap');
+  var gapVal = document.getElementById('cashGapVal');
+
+  function inr(n){
+    var neg = n < 0; n = Math.abs(Math.round(n));
+    var s = n.toString(), out = '', c = 0;
+    // Indian grouping
+    var head = s.length > 3 ? s.slice(0, -3) : '', tail = s.length > 3 ? s.slice(-3) : s;
+    if(head){
+      var parts = [];
+      while(head.length > 2){ parts.unshift(head.slice(-2)); head = head.slice(0,-2); }
+      parts.unshift(head);
+      out = parts.join(',') + ',' + tail;
+    } else { out = tail; }
+    return (neg ? '-₹' : '₹') + out;
+  }
+  function num(el){ var v = (el.value||'').replace(/[, ]/g,''); if(v==='') return null; var n = parseFloat(v); return isNaN(n)?null:n; }
+
+  function recompute(){
+    var open = num(openEl);
+    var draw = num(drawEl) || 0;
+    var expected = (open===null?0:open) + movement - draw;
+    expEl.textContent = (open===null && movement===0 && draw===0) ? '—' : inr(expected);
+    var counted = num(countEl);
+    if(counted===null){
+      gapBar.className = 'gapbar idle'; gapVal.textContent = 'enter counted cash'; return;
+    }
+    var gap = counted - expected;
+    if(Math.abs(gap) < 1){ gapBar.className = 'gapbar tie'; gapVal.textContent = '✓ ties'; }
+    else { gapBar.className = 'gapbar off'; gapVal.textContent = (gap>0?'+':'') + inr(gap); }
+  }
+  openEl.addEventListener('input', recompute);
+  drawEl.addEventListener('input', recompute);
+  countEl.addEventListener('input', recompute);
+  recompute();  // reflect pre-filled opening cash on load
+})();
+</script>
+</body>
+</html>

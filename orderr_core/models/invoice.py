@@ -31,6 +31,21 @@ class Invoice(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # When the bill was last sent to the printer (via "Print all" or an individual
+    # print). NULL = never printed. "Print all" prints only NULL rows so a second
+    # click after more invoicing prints just the newly-added bills; individual
+    # printing sets/refreshes this too and may be repeated freely.
+    printed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # When the vasy-invoice-bot confirmed this bill was created in Vasy ERP. NULL =
+    # not yet synced. Set by the bot's POST /billing/api/vasy-synced callback after
+    # it posts the sales voucher; vasy_voucher_no is Vasy's own number (e.g. INV14207)
+    # when the bot knows it. Powers the "Synced to Vasy" indicator on the billing page.
+    vasy_synced_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    vasy_voucher_no: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
 
     items: Mapped[list["InvoiceItem"]] = relationship(
         "InvoiceItem", back_populates="invoice", cascade="all, delete-orphan"

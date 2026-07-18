@@ -11,6 +11,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 import os
 from datetime import datetime, timezone, timedelta
 
+from orderr_core.config import PLANT_NAME
 from orderr_core.database import engine, Base, SessionLocal
 from orderr_core.routes import webhook, dashboard
 from orderr_core.routes.admin import router as admin_router
@@ -21,12 +22,12 @@ from orderr_core.routes.rates import router as rates_router
 from orderr_core.routes.billing import router as billing_router
 # Staff Ledger module router (absolute paths: /staff, /staff/api/*)
 from orderr_core.routes.staff import router as staff_router
+from orderr_core.routes.wastage import router as wastage_router
+from orderr_core.routes.reminders import router as reminders_router
+from orderr_core.routes.broadcast import router as broadcast_router
+from orderr_core.routes.status_report import router as status_report_router
 from orderr_core.services.reporter import send_daily_report
-from orderr_core.services.pending_notifier import (
-    send_customer_reminders,
-    notify_salespersons_pending,
-    send_management_summary,
-)
+from orderr_core.services.pending_notifier import notify_salespersons_pending
 from orderr_core.services.retry_scheduler import retry_failed_messages
 from orderr_core.services.webhook_health import check_webhook_health
 
@@ -36,6 +37,7 @@ from orderr_core.models.customer import Customer
 from orderr_core.models.order import Order
 from orderr_core.models.inbound_message import InboundMessage  # ← reliability layer
 from orderr_core.models.customer_product_alias import CustomerProductAlias  # noqa: F401
+from orderr_core.models.customer_alias import CustomerAlias  # noqa: F401  ← Vasy split-customer merge
 from orderr_core.models.customer_product_stats import CustomerProductStats  # noqa: F401  ← unit inference (FRD §5.1)
 
 # Billing module models — billing owns these tables; shares OrdeRR's Base/metadata
@@ -51,6 +53,40 @@ from orderr_core.models.employee import Employee                   # noqa: F401
 from orderr_core.models.advance import Advance                     # noqa: F401
 from orderr_core.models.advance_repayment import AdvanceRepayment   # noqa: F401
 from orderr_core.models.leave import Leave                         # noqa: F401
+from orderr_core.models.late_mark import LateMark                   # noqa: F401
+
+# Analytics Phase 2 — Vasy money mirrors (read-only; Vasy = source of truth)
+from orderr_core.models.customer_receipt import CustomerReceipt     # noqa: F401
+from orderr_core.models.outstanding_snapshot import OutstandingSnapshot  # noqa: F401
+from orderr_core.models.import_log import ImportLog                 # noqa: F401
+from orderr_core.models.vasy_invoice import VasyInvoice, VasyInvoiceItem  # noqa: F401
+from orderr_core.models.vasy_purchase import VasyPurchase, VasyPurchaseItem  # noqa: F401
+from orderr_core.models.vasy_expense import VasyExpense                 # noqa: F401
+from orderr_core.models.vasy_payment import VasyPayment                 # noqa: F401
+from orderr_core.models.vasy_supplier_bill import VasySupplierBill       # noqa: F401
+from orderr_core.models.vasy_sales_item import VasySalesItem             # noqa: F401
+
+# Analytics — bad-debt write-offs (customer balances marked unrecoverable)
+from orderr_core.models.bad_debt import BadDebt                          # noqa: F401
+
+# Registers & Reminders — sundries register, critical notes, important dates
+from orderr_core.models.sundry import SundryItem, SundryPurchase         # noqa: F401
+from orderr_core.models.critical_note import CriticalNote                # noqa: F401
+from orderr_core.models.important_date import ImportantDate              # noqa: F401
+
+# Cash Book — manual drawer lines (drawings, bank deposits, float, spot counts)
+from orderr_core.models.cash_entry import CashEntry                      # noqa: F401
+
+# 5-Day Close (P2) — signed-off close history
+from orderr_core.models.close_period import ClosePeriod                  # noqa: F401
+# 5-Day Close (bank reconciliation) — uploaded bank statement mirror
+from orderr_core.models.bank_transaction import BankTransaction          # noqa: F401
+
+# 📣 Broadcast — owner-curated order-reminder list (manual send)
+from orderr_core.models.broadcast_recipient import BroadcastRecipient    # noqa: F401
+
+# Outbound WhatsApp delivery-status journal (send failures are only visible here)
+from orderr_core.models.wa_status_event import WaStatusEvent             # noqa: F401
 
 
 Base.metadata.create_all(bind=engine)
@@ -185,7 +221,95 @@ def _ensure_customer_outstanding_and_nullable_phone():
 
 _ensure_customer_outstanding_and_nullable_phone()
 
-IST = timezone(timedelta(hours=5, minutes=30))
+
+def _ensure_customer_credit_limit_column():
+    """Add customers.credit_limit (nullable) if missing — Phase-3 credit
+    limit / breach alert. Nullable, so a plain ADD COLUMN works on both SQLite
+    and PostgreSQL. Idempotent."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "customers" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("customers")}
+    if "credit_limit" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE customers ADD COLUMN credit_limit NUMERIC(12,2)"))
+    print("✅ Migration: added customers.credit_limit column")
+
+
+_ensure_customer_credit_limit_column()
+
+
+def _ensure_invoice_printed_at_column():
+    """Add invoices.printed_at (nullable) if missing — powers print tracking so
+    "Print all" only prints newly-invoiced bills. Nullable, so a plain ADD COLUMN
+    works on both SQLite and PostgreSQL. Idempotent."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "invoices" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the column
+    cols = {c["name"] for c in insp.get_columns("invoices")}
+    if "printed_at" in cols:
+        return
+    coltype = ("TIMESTAMP WITH TIME ZONE"
+               if engine.dialect.name == "postgresql" else "DATETIME")
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE invoices ADD COLUMN printed_at {coltype}"))
+    print("✅ Migration: added invoices.printed_at column")
+
+
+_ensure_invoice_printed_at_column()
+
+
+def _ensure_invoice_vasy_sync_columns():
+    """Add invoices.vasy_synced_at / .vasy_voucher_no (nullable) if missing — the
+    vasy-invoice-bot's POST /billing/api/vasy-synced callback sets them once a bill
+    is created in Vasy, powering the "Synced to Vasy" indicator. Nullable, so a plain
+    ADD COLUMN works on both SQLite and PostgreSQL. Idempotent."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "invoices" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the columns
+    cols = {c["name"] for c in insp.get_columns("invoices")}
+    ts_type = ("TIMESTAMP WITH TIME ZONE"
+               if engine.dialect.name == "postgresql" else "DATETIME")
+    with engine.begin() as conn:
+        if "vasy_synced_at" not in cols:
+            conn.execute(text(f"ALTER TABLE invoices ADD COLUMN vasy_synced_at {ts_type}"))
+            print("✅ Migration: added invoices.vasy_synced_at column")
+        if "vasy_voucher_no" not in cols:
+            conn.execute(text("ALTER TABLE invoices ADD COLUMN vasy_voucher_no VARCHAR(30)"))
+            print("✅ Migration: added invoices.vasy_voucher_no column")
+
+
+_ensure_invoice_vasy_sync_columns()
+
+
+def _ensure_vasy_expense_mode_columns():
+    """Add vasy_expenses.cash_paid / .noncash_paid (nullable) if missing —
+    Cash Book cross-check needs the Expense Register's per-expense payment-mode
+    split. create_all never alters existing tables, so add explicitly.
+    Idempotent; safe on SQLite and PostgreSQL."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "vasy_expenses" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the current schema
+    cols = {c["name"] for c in insp.get_columns("vasy_expenses")}
+    with engine.begin() as conn:
+        for col in ("cash_paid", "noncash_paid"):
+            if col not in cols:
+                conn.execute(text(f"ALTER TABLE vasy_expenses ADD COLUMN {col} NUMERIC(14,2)"))
+                print(f"✅ Migration: added vasy_expenses.{col} column")
+
+
+_ensure_vasy_expense_mode_columns()
+
+from orderr_core.constants import IST
 
 # Track last report time for health check
 _last_report_time: str = "Never"
@@ -204,15 +328,6 @@ def daily_report_job():
         db.close()
 
 
-def customer_reminders_job():
-    db = SessionLocal()
-    try:
-        print("\n⏰ AUTO SCHEDULER — Customer Reminders triggered")
-        send_customer_reminders(db)
-    finally:
-        db.close()
-
-
 def salesperson_notification_job():
     db = SessionLocal()
     try:
@@ -222,11 +337,12 @@ def salesperson_notification_job():
         db.close()
 
 
-def management_summary_job():
+def manager_digest_job():
     db = SessionLocal()
     try:
-        print("\n⏰ AUTO SCHEDULER — Management Summary triggered")
-        send_management_summary(db)
+        print("\n⏰ AUTO SCHEDULER — Manager Analytics Digest triggered")
+        from orderr_core.services.reporter import send_manager_digest
+        send_manager_digest(db)
     finally:
         db.close()
 
@@ -256,12 +372,8 @@ async def lifespan(app: FastAPI):
         id="daily_report", name=f"Daily Report at {report_time} IST",
     )
 
-    # Customer reminders — PROD: hour=22, minute=50
-    scheduler.add_job(
-        customer_reminders_job,
-        CronTrigger(hour=22, minute=10, timezone="Asia/Kolkata"),
-        id="customer_reminders", name="Customer Reminders at 22:00 IST",
-    )
+    # Customer reminders: auto-send removed 2026-07-14 — now manual via the
+    # 📣 Broadcast screen (owner-curated list, /dashboard/broadcast).
 
     # Salesperson notifications PROD: hour=23, minute=00
     scheduler.add_job(
@@ -270,11 +382,16 @@ async def lifespan(app: FastAPI):
         id="salesperson_notifications", name="Salesperson Notifications at 23:05 IST",
     )
 
-    # Management summary — TEST: 10:32 IST  (PROD: hour=23, minute=00)
+    # Management summary job removed 2026-07-14 — replaced by the live status
+    # page (/r/<REPORT_LINK_KEY>, config.report_url()).
+
+    # Manager analytics digest — daily (configurable via DIGEST_TIME env var)
+    digest_time = os.getenv("DIGEST_TIME", "09:00")
+    d_hour, d_min = map(int, digest_time.split(":"))
     scheduler.add_job(
-        management_summary_job,
-        CronTrigger(hour=23, minute=17, timezone="Asia/Kolkata"),
-        id="management_summary", name="Management Summary at 23:10 IST",
+        manager_digest_job,
+        CronTrigger(hour=d_hour, minute=d_min, timezone="Asia/Kolkata"),
+        id="manager_digest", name=f"Manager Analytics Digest at {digest_time} IST",
     )
 
     # Keep-alive ping — every 10 min (prevents Render spin-down)
@@ -302,10 +419,10 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
 
     print("\n✅ OrdeRR Scheduler Started!")
-    print(f"   📅 Daily report          → Every day at {report_time} IST")
-    print(f"   🔔 Customer reminders    → Every day at 22:00 IST")
-    print(f"   📋 Salesperson alerts    → Every day at 23:00 IST")
-    print(f"   📊 Management summary    → Every day at 23:00 IST")
+    print(f"   📅 Daily report (email)  → Every day at {report_time} IST")
+    print(f"   📣 Customer reminders    → Manual only (Broadcast screen)")
+    print(f"   📋 Salesperson alerts    → Every day at 23:15 IST")
+    print(f"   📊 Manager reports       → Live status page (/r/…)")
     print(f"   💓 Keep-alive ping       → Every 10 minutes")
     print(f"   🔁 Retry failed msgs     → Every 1 minute")
     print(f"   🩺 Webhook health check  → Every 30 minutes\n")
@@ -337,13 +454,17 @@ app.include_router(billing_router,  tags=["Billing"])
 
 # ── Staff Ledger module (merged) — router carries its own absolute paths ───────
 app.include_router(staff_router,    tags=["Staff"])
+app.include_router(wastage_router,  prefix="/dashboard", tags=["Analytics"])
+app.include_router(reminders_router, prefix="/dashboard", tags=["Reminders"])
+app.include_router(broadcast_router, prefix="/dashboard", tags=["Broadcast"])
+app.include_router(status_report_router, tags=["Reports"])   # public /r/<key>, no auth
 
 
 @app.get("/")
 def root():
     return {
         "app"   : "OrdeRR",
-        "plant" : os.getenv("PLANT_NAME", "Fluffy"),
+        "plant" : PLANT_NAME,
         "status": "running",
     }
 
@@ -368,7 +489,7 @@ def health_check():
     return {
         "status"          : "ok",
         "app"             : "OrdeRR",
-        "plant"           : os.getenv("PLANT_NAME", "Fluffy"),
+        "plant"           : PLANT_NAME,
         "database"        : db_status,
         "scheduler"       : sched_status,
         "scheduler_jobs"  : job_count,
