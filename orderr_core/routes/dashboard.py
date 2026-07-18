@@ -55,6 +55,11 @@ def dashboard(
     # "Area not set" last) so the board reads route-by-route.
     area_groups = group_orders_by_area(db, clear_orders)
 
+    # Within each area, float orders that need review (a dropped product / an
+    # unreadable quantity) to the top so the manager sees the RED cards first.
+    for group in area_groups:
+        group["orders"].sort(key=lambda o: not getattr(o, "has_unclear_items", False))
+
     product_summary = {}
     for order in clear_orders:
         for item in order.items_parsed:

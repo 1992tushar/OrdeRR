@@ -44,6 +44,19 @@ def check(msg, expected, note=""):
         print(f"ok   {msg!r} -> {got}")
 
 
+def check_not_dropped(msg, note=""):
+    """A recognized-product line with a bad quantity/unit must NEVER vanish —
+    it must surface as an unclear item (dashboard flags the order RED), not
+    disappear into the internal `errors` bucket."""
+    r = parse_template_order("0000000000", msg, db=None)
+    surfaced = bool(r["items"]) or bool(r["unclear_items"])
+    if not surfaced:
+        _FAILURES.append((msg, "surfaced (item or unclear)", "DROPPED", note))
+        print(f"FAIL {msg!r} was SILENTLY DROPPED  {note}")
+    else:
+        print(f"ok   {msg!r} -> surfaced (unclear={r['unclear_items']})")
+
+
 # ── The AMRAI bug: size annotation next to a ".." separator ────────────────────
 # "(250 gm)" is stripped as a size note, leaving "Tangdi ..4kg"; the ".." must
 # not be swallowed into the quantity ("..4" → unparseable → silently dropped).
@@ -82,6 +95,13 @@ check("wings 2kg breast 3kg", {("Wings", 2.0, "kg"), ("Breast Boneless", 3.0, "k
 # ── Skin-ambiguous whole chicken → NOT auto-matched (routes to Unclear) ─────────
 # With db=None there's no learned alias, so it must produce zero items.
 check("chicken big 10 kg", set(), "skin-ambiguous → unclear, never guessed")
+
+# ── No silent drops: recognized product + bad qty/unit must SURFACE ─────────────
+# These used to fall into the internal `errors` bucket (consumed nowhere) and
+# vanish — the exact class the AMRAI order exposed.
+check_not_dropped("wings kg", "recognized product, no number")
+check_not_dropped("wings ..x kg", "recognized product, garbled quantity")
+check_not_dropped("breast 3 nos", "recognized kg product sent in nos (unit mismatch)")
 
 
 if __name__ == "__main__":

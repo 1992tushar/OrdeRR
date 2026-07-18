@@ -1149,6 +1149,10 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
                 "reason":     f"Quantity *{raw_qty}* doesn't look right",
                 "suggestion": f"{display_name} - 1 {expected_unit}",
             })
+            # The PRODUCT was recognized but the quantity is unreadable. Never
+            # drop it silently — surface the raw line as unclear so the manager
+            # sees it (dashboard renders such orders RED / "check order").
+            unclear_items.append(line)
             continue
 
         # Unit mismatch — only flag if customer explicitly typed a wrong unit
@@ -1158,6 +1162,9 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
                 "reason":     f"*{display_name}* is ordered in *{expected_unit}* (you sent {raw_unit_str})",
                 "suggestion": f"{display_name} - {fmt_qty(qty)} {expected_unit}",
             })
+            # Recognized product, but the customer's unit conflicts with the
+            # catalog unit — don't drop it; surface for manager review.
+            unclear_items.append(line)
             continue
 
         # ── explicit_unit: True when the customer's text contained a unit token ──
