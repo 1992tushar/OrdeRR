@@ -1,34 +1,60 @@
 {# Shared Analytics sub-navigation. Include after the top nav on every
    analytics page and pass `analytics_view` in context to highlight the
-   active module. Self-contained styles (each analytics page has its own
-   <style>, so this partial ships the .subnav rules with it). #}
+   active module. Tabs are grouped by how an owner actually uses them
+   (money/cash first, deep analytics later, admin last); each group wraps
+   as a unit with a subtle label + divider. Self-contained styles (each
+   analytics page has its own <style>, so this partial ships its own rules). #}
 <style>
-.subnav{display:flex;gap:4px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:6px;margin-bottom:20px;box-shadow:var(--shadow)}
-.subnav a{font-size:12.5px;font-weight:600;color:var(--ink2);text-decoration:none;padding:7px 13px;border-radius:7px;white-space:nowrap}
+.subnav{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;margin-bottom:20px;box-shadow:var(--shadow)}
+.subnav .grp{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.subnav .grp:not(:last-child){border-right:1px solid var(--border);padding-right:12px}
+.subnav .glabel{font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--ink3);text-transform:uppercase;white-space:nowrap;margin-right:2px}
+.subnav a{font-size:12.5px;font-weight:600;color:var(--ink2);text-decoration:none;padding:7px 12px;border-radius:7px;white-space:nowrap}
 .subnav a:hover{background:var(--bg);color:var(--ink)}
 .subnav a.active{background:var(--green);color:#fff}
 </style>
 <div class="subnav">
-  <a href="/dashboard/analytics"           class="{{ 'active' if analytics_view=='overview' else '' }}">📊 Overview</a>
-  <a href="/dashboard/analytics/close"      class="{{ 'active' if analytics_view=='close' else '' }}">🧮 5-Day Close</a>
-  <a href="/dashboard/analytics/cashbook"   class="{{ 'active' if analytics_view=='cashbook' else '' }}">💵 Cash book</a>
-  <a href="/dashboard/analytics/revenue"    class="{{ 'active' if analytics_view=='revenue' else '' }}">📈 Revenue</a>
-  <a href="/dashboard/analytics/receivables" class="{{ 'active' if analytics_view=='receivables' else '' }}">💰 Receivables</a>
-  <a href="/dashboard/analytics/collections" class="{{ 'active' if analytics_view=='collections' else '' }}">💵 Collections</a>
-  <a href="/dashboard/analytics/reconcile"   class="{{ 'active' if analytics_view=='reconcile' else '' }}">🧾 Reconcile</a>
-  <a href="/dashboard/analytics/financials"  class="{{ 'active' if analytics_view=='financials' else '' }}">💹 Financials</a>
-  <a href="/dashboard/analytics/expenses"    class="{{ 'active' if analytics_view=='expenses' else '' }}">🧾 Expenses</a>
-  <a href="/dashboard/analytics/credit"      class="{{ 'active' if analytics_view=='credit' else '' }}">🛡️ Credit</a>
-  <a href="/dashboard/analytics/portfolio"   class="{{ 'active' if analytics_view=='portfolio' else '' }}">🎛️ Portfolio</a>
-  <a href="/dashboard/analytics/payment-behaviour" class="{{ 'active' if analytics_view=='payment' else '' }}">🩺 Payment health</a>
-  <a href="/dashboard/analytics/lifecycle"   class="{{ 'active' if analytics_view=='lifecycle' else '' }}">🔄 Lifecycle</a>
-  <a href="/dashboard/analytics/wastage"     class="{{ 'active' if analytics_view=='wastage' else '' }}">🗑️ Wastage</a>
-  <a href="/dashboard/analytics/chase"       class="{{ 'active' if analytics_view=='chase' else '' }}">📞 Chase</a>
-  <a href="/dashboard/analytics/products"   class="{{ 'active' if analytics_view=='products' else '' }}">🍗 Products</a>
-  <a href="/dashboard/analytics/team"       class="{{ 'active' if analytics_view=='team' else '' }}">🧑 Team & area</a>
-  <a href="/dashboard/analytics/rfm"         class="{{ 'active' if analytics_view=='rfm' else '' }}">🏅 RFM</a>
-  <a href="/dashboard/analytics/churn"      class="{{ 'active' if analytics_view=='churn' else '' }}">⚠️ Churn risk</a>
-  <a href="/dashboard/analytics/quality"    class="{{ 'active' if analytics_view=='quality' else '' }}">🎯 Ops quality</a>
-  <a href="/dashboard/analytics/data-health" class="{{ 'active' if analytics_view=='datahealth' else '' }}">🩹 Data health</a>
-  <a href="/dashboard/analytics/imports"    class="{{ 'active' if analytics_view=='imports' else '' }}">⬆️ Imports</a>
+
+  <div class="grp">
+    <span class="glabel">Money</span>
+    <a href="/dashboard/analytics"            class="{{ 'active' if analytics_view=='overview' else '' }}">📊 Overview</a>
+    <a href="/dashboard/analytics/cashbook"    class="{{ 'active' if analytics_view=='cashbook' else '' }}">💵 Cash book</a>
+    <a href="/dashboard/analytics/collections" class="{{ 'active' if analytics_view=='collections' else '' }}">💵 Collections</a>
+    <a href="/dashboard/analytics/receivables" class="{{ 'active' if analytics_view=='receivables' else '' }}">💰 Receivables</a>
+    <a href="/dashboard/analytics/chase"       class="{{ 'active' if analytics_view=='chase' else '' }}">📞 Chase</a>
+  </div>
+
+  <div class="grp">
+    <span class="glabel">P&amp;L</span>
+    <a href="/dashboard/analytics/close"       class="{{ 'active' if analytics_view=='close' else '' }}">🧮 5-Day Close</a>
+    <a href="/dashboard/analytics/financials"  class="{{ 'active' if analytics_view=='financials' else '' }}">💹 Financials</a>
+    <a href="/dashboard/analytics/expenses"    class="{{ 'active' if analytics_view=='expenses' else '' }}">🧾 Expenses</a>
+    <a href="/dashboard/analytics/revenue"     class="{{ 'active' if analytics_view=='revenue' else '' }}">📈 Revenue</a>
+  </div>
+
+  <div class="grp">
+    <span class="glabel">Sales</span>
+    <a href="/dashboard/analytics/products"    class="{{ 'active' if analytics_view=='products' else '' }}">🍗 Products</a>
+    <a href="/dashboard/analytics/team"        class="{{ 'active' if analytics_view=='team' else '' }}">🧑 Team &amp; area</a>
+    <a href="/dashboard/analytics/reconcile"   class="{{ 'active' if analytics_view=='reconcile' else '' }}">🧾 Reconcile</a>
+  </div>
+
+  <div class="grp">
+    <span class="glabel">Customers</span>
+    <a href="/dashboard/analytics/credit"      class="{{ 'active' if analytics_view=='credit' else '' }}">🛡️ Credit</a>
+    <a href="/dashboard/analytics/rfm"         class="{{ 'active' if analytics_view=='rfm' else '' }}">🏅 RFM</a>
+    <a href="/dashboard/analytics/churn"       class="{{ 'active' if analytics_view=='churn' else '' }}">⚠️ Churn risk</a>
+    <a href="/dashboard/analytics/payment-behaviour" class="{{ 'active' if analytics_view=='payment' else '' }}">🩺 Payment health</a>
+    <a href="/dashboard/analytics/portfolio"   class="{{ 'active' if analytics_view=='portfolio' else '' }}">🎛️ Portfolio</a>
+    <a href="/dashboard/analytics/lifecycle"   class="{{ 'active' if analytics_view=='lifecycle' else '' }}">🔄 Lifecycle</a>
+  </div>
+
+  <div class="grp">
+    <span class="glabel">Ops &amp; data</span>
+    <a href="/dashboard/analytics/wastage"     class="{{ 'active' if analytics_view=='wastage' else '' }}">🗑️ Wastage</a>
+    <a href="/dashboard/analytics/quality"     class="{{ 'active' if analytics_view=='quality' else '' }}">🎯 Ops quality</a>
+    <a href="/dashboard/analytics/data-health" class="{{ 'active' if analytics_view=='datahealth' else '' }}">🩹 Data health</a>
+    <a href="/dashboard/analytics/imports"     class="{{ 'active' if analytics_view=='imports' else '' }}">⬆️ Imports</a>
+  </div>
+
 </div>
