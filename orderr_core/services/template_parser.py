@@ -218,6 +218,7 @@ PRODUCT_DEFINITIONS = [
         "leg piece", "complete leg",
         "wl",
         "tangdi", "tangadi", "t leg",
+        "full tangdi", "full tangadi", "whole tangdi", "whole tangadi",
         "wholeleg", "fullleg","leg piece", "leg pcs", "leg pscs", "leg psc",
     ]),
 
@@ -945,6 +946,14 @@ def parse_template_order(customer_phone: str, message: str, db=None) -> dict:
             r'\([^)]*\b(?:gm|gms|gram|grams|g|size)\b[^)]*\)', ' ',
             line_clean, flags=re.IGNORECASE,
         ).strip()
+
+        # Collapse runs of 2+ dots to a space. Customers use ".." / "..." as a
+        # separator ("Tangdi..4kg", "wings...5 kg"), but the tolerant quantity
+        # regex ([\d\.]+) would swallow them into the number as "..4", which
+        # float() can't parse — the line then falls into `errors` and is silently
+        # dropped. A genuine decimal is a SINGLE dot between digits (1.5, .5), so
+        # only runs of two-or-more dots are decoration and safe to strip.
+        line_clean = re.sub(r'\.{2,}', ' ', line_clean).strip()
 
         # Empty after stripping placeholders → skip
         if not line_clean:
