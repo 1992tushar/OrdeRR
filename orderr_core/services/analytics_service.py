@@ -221,6 +221,131 @@ def business_pulse(db: Session, today: date, day: str = "today") -> dict:
     return {"periods": periods}
 
 
+def _sum_for_range(db, model, date_col, amount_col, start: date, end: date) -> float:
+    """SUM(amount_col) for `model` rows whose `date_col` is in [start, end]."""
+    return float(
+        db.query(func.coalesce(func.sum(amount_col), 0))
+        .filter(date_col >= start, date_col <= end).scalar() or 0
+    )
+
+
+def business_scorecard(db: Session, today: date) -> dict:
+    """Owner's daily business dashboard — a Today / Yesterday / Month-to-date
+    scorecard across the trading, opex and cash lines, plus standout AR and
+    cash-drawer tiles.
+
+    Every money figure is sourced from Vasy (revenue = sales invoices, buy =
+    purchases, opex = expense ledger, in = receipts, out = payment vouchers).
+    Vasy exports are imported periodically, NOT live, so recent days can read
+    ₹0 purely because that day's export hasn't been uploaded — the per-source
+    'data through' freshness line makes that explicit so a zero isn't misread.
+    """
+    from orderr_core.services import cashbook_service
+
+    yesterday = today - timedelta(days=1)
+    month_start = today.replace(day=1)
+    # drill_period/drill_day map each column onto the existing sales/collections
+    # breakdown endpoints (keyed today|week|month + a today|yesterday toggle).
+    columns = [
+        {"key": "today",     "label": "Today",         "sub": today.strftime("%d %b"),
+         "drill_period": "today", "drill_day": "today"},
+        {"key": "yesterday", "label": "Yesterday",     "sub": yesterday.strftime("%d %b"),
+         "drill_period": "today", "drill_day": "yesterday"},
+        {"key": "month",     "label": "Month to date", "sub": today.strftime("%b %Y"),
+         "drill_period": "month", "drill_day": "today"},
+    ]
+    ranges = [(today, today), (yesterday, yesterday), (month_start, today)]
+
+    def series(model, date_col, amount_col):
+        return [_sum_for_range(db, model, date_col, amount_col, s, e) for s, e in ranges]
+
+    sales   = series(VasyInvoice,  VasyInvoice.invoice_date,  VasyInvoice.total)
+    buy     = series(VasyPurchase, VasyPurchase.bill_date,    VasyPurchase.total)
+    opex    = series(VasyExpense,  VasyExpense.expense_date,  VasyExpense.total)
+    coll    = series(CustomerReceipt, CustomerReceipt.receipt_date, CustomerReceipt.amount)
+    pay     = series(VasyPayment,  VasyPayment.payment_date,  VasyPayment.amount)
+    gp      = [s - b for s, b in zip(sales, buy)]
+    netcash = [c - p for c, p in zip(coll, pay)]
+
+    def money_row(key, label, vals, kind="", drill=None, hint=None):
+        return {
+            "key": key, "label": label, "kind": kind, "drill": drill, "hint": hint,
+            "cells": [{"raw": round(v, 2), "fmt": fmt_inr(v)} for v in vals],
+        }
+
+    rows = [
+        money_row("sales", "Sales", sales, drill="sales",
+                  hint="Vasy sales invoices — revenue"),
+        money_row("purchases", "Purchases", buy,
+                  hint="Vasy purchase bills — raw material buy"),
+        {
+            "key": "gross_profit", "label": "Gross profit", "kind": "gp", "drill": None,
+            "hint": "Sales − Purchases",
+            "cells": [{"raw": round(g, 2), "fmt": fmt_inr(g),
+                       "margin": (round(g / s * 100, 1) if s else None)}
+                      for g, s in zip(gp, sales)],
+        },
+        money_row("expenses", "Expenses", opex, hint="Vasy expense ledger (opex)"),
+        money_row("collections", "Collections", coll, drill="collections",
+                  hint="Money in from customers (receipts)"),
+        money_row("payments", "Payments", pay,
+                  hint="Money out to suppliers / vouchers"),
+        money_row("net_cash", "Net cash", netcash, kind="net",
+                  hint="Collections − Payments"),
+    ]
+
+    # ── standout tiles: outstanding AR (+ trend) and today's cash drawer ──
+    latest_snap, prev_snap = _latest_two_snapshot_dates(db)
+    total_ar = _outstanding_total(db, latest_snap)
+    prev_ar = _outstanding_total(db, prev_snap) if prev_snap else None
+    ar_delta = (total_ar - prev_ar) if prev_ar is not None else None
+    outstanding = {
+        "has_data": latest_snap is not None,
+        "total_fmt": fmt_inr(total_ar),
+        "as_of": latest_snap.strftime("%d %b %Y") if latest_snap else None,
+        "delta_fmt": (fmt_inr(ar_delta) if ar_delta is not None else None),
+        "direction": (None if ar_delta is None else
+                      ("up" if ar_delta > 0 else "down" if ar_delta < 0 else "flat")),
+        "prev_snap": prev_snap.strftime("%d %b %Y") if prev_snap else None,
+    }
+
+    drawer_page = cashbook_service.day_page(db, today)
+    cash_drawer = {
+        "closing_fmt": drawer_page["closing_fmt"],
+        "in_fmt": drawer_page["total_in_fmt"],
+        "out_fmt": drawer_page["total_out_fmt"],
+        "anchored": drawer_page["anchored"],
+        "anchor_label": drawer_page["anchor_label"],
+    }
+
+    # ── data freshness: latest imported date per source (zeros vs no-import) ──
+    def _max_date(date_col):
+        d = db.query(func.max(date_col)).scalar()
+        return d.strftime("%d %b") if d else None
+    freshness = {
+        "sales":       _max_date(VasyInvoice.invoice_date),
+        "purchases":   _max_date(VasyPurchase.bill_date),
+        "expenses":    _max_date(VasyExpense.expense_date),
+        "collections": _max_date(CustomerReceipt.receipt_date),
+        "payments":    _max_date(VasyPayment.payment_date),
+    }
+    # today's column is trustworthy only for sources imported through today
+    today_covered = all(
+        (db.query(func.max(c)).scalar() or date.min) >= today
+        for c in (VasyInvoice.invoice_date, CustomerReceipt.receipt_date,
+                  VasyPayment.payment_date)
+    )
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "outstanding": outstanding,
+        "cash_drawer": cash_drawer,
+        "freshness": freshness,
+        "today_covered": today_covered,
+    }
+
+
 def sales_breakdown(db: Session, today: date, period: str = "today",
                     day: str = "today") -> dict:
     """Drill-down behind a Sales KPI on the Business Pulse card: the Vasy
@@ -956,6 +1081,96 @@ def plant_financials(db: Session, today: date, months: int = 12) -> dict:
             "unpaid_total_fmt": fmt_inr(unpaid_total),
             "top_payees": top_payees,
         },
+    }
+
+
+def plant_expenses(db: Session, today: date, months: int = 12) -> dict:
+    """Standalone opex (expense-ledger) view: monthly trend, paid/unpaid split,
+    and a breakdown by expense head (party_name). Sourced only from Vasy
+    expenses — this is the accrual opex ledger, NOT cash-out (payments realize
+    expenses; the Cash book / Financials own the cash side). Vasy exports no
+    category column, so `party_name` (the expense head / payee) is the grouping
+    dimension.
+    """
+    if db.query(VasyExpense.id).first() is None:
+        return {"has_data": False}
+
+    keys = _last_n_months(today, months)
+    tot = _monthly_bucket(db, VasyExpense, VasyExpense.expense_date, VasyExpense.total, keys)
+    paid = _monthly_bucket(db, VasyExpense, VasyExpense.expense_date, VasyExpense.paid, keys)
+    unpaid = _monthly_bucket(db, VasyExpense, VasyExpense.expense_date, VasyExpense.unpaid, keys)
+    cnt_rows = db.query(VasyExpense.expense_date, VasyExpense.id).filter(VasyExpense.expense_date != None).all()  # noqa: E711
+    counts = {k: 0 for k in keys}
+    for d, _ in cnt_rows:
+        try:
+            mk = _month_key(d)
+        except Exception:
+            continue
+        if mk in counts:
+            counts[mk] += 1
+
+    monthly = []
+    for k in keys:
+        t, p, u, n = round(tot[k], 2), round(paid[k], 2), round(unpaid[k], 2), counts[k]
+        monthly.append({
+            "key": k, "label": _month_label(k), "count": n,
+            "total": t, "total_fmt": fmt_inr(t),
+            "paid_fmt": fmt_inr(p),
+            "unpaid": u, "unpaid_fmt": fmt_inr(u),
+        })
+
+    # window totals (over the last `months`)
+    t_total, t_paid, t_unpaid = sum(tot.values()), sum(paid.values()), sum(unpaid.values())
+    t_count = sum(counts.values())
+    this_key = _month_key(today)
+    this_month = tot.get(this_key, 0.0)
+    active_months = sum(1 for k in keys if tot[k] > 0) or 1
+    monthly_avg = t_total / active_months
+
+    # ── breakdown by expense head (all-time, so a head that was quiet this
+    #    window still shows) ──
+    head_rows = db.query(
+        VasyExpense.party_name,
+        func.count(VasyExpense.id),
+        func.coalesce(func.sum(VasyExpense.total), 0),
+        func.coalesce(func.sum(VasyExpense.unpaid), 0),
+    ).group_by(VasyExpense.party_name).order_by(func.sum(VasyExpense.total).desc()).all()
+    grand = sum(float(t) for _, _, t, _ in head_rows) or 1.0
+    heads = [{
+        "head": name, "count": n,
+        "total": float(t), "total_fmt": fmt_inr(t),
+        "pct": round(float(t) / grand * 100, 1),
+        "unpaid_fmt": fmt_inr(u),
+    } for name, n, t, u in head_rows[:25]]
+
+    # cash vs bank split, where the Expense Register's Payment Data covered it
+    cash_known = db.query(
+        func.coalesce(func.sum(VasyExpense.cash_paid), 0),
+        func.coalesce(func.sum(VasyExpense.noncash_paid), 0),
+    ).filter(VasyExpense.cash_paid != None).one()  # noqa: E711
+    cash_amt, bank_amt = float(cash_known[0]), float(cash_known[1])
+    has_mode = (cash_amt + bank_amt) > 0.005
+
+    return {
+        "has_data": True,
+        "monthly": monthly,
+        "heads": heads,
+        "head_count": len(head_rows),
+        "totals": {
+            "total_fmt": fmt_inr(t_total),
+            "paid_fmt": fmt_inr(t_paid),
+            "unpaid_fmt": fmt_inr(t_unpaid),
+            "count": t_count,
+            "this_month_fmt": fmt_inr(this_month),
+            "this_month_label": _month_label(this_key),
+            "monthly_avg_fmt": fmt_inr(monthly_avg),
+        },
+        "mode": {
+            "has_mode": has_mode,
+            "cash_fmt": fmt_inr(cash_amt),
+            "bank_fmt": fmt_inr(bank_amt),
+        },
+        "coverage": _date_range(db, VasyExpense.expense_date),
     }
 
 

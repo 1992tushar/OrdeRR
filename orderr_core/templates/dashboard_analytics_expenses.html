@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Expenses</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
+.section-title{font-size:15px;font-weight:700;margin:24px 2px 12px}
+.note{font-size:11px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin:12px 0}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+@media(max-width:820px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:480px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;box-shadow:var(--shadow)}
+.kpi .n{font-size:18px;font-weight:800;line-height:1.05;letter-spacing:-.3px}
+.kpi.tot .n{color:var(--amber)} .kpi.paid .n{color:var(--green)} .kpi.unpaid .n{color:var(--red)}
+.kpi .l{font-size:10px;color:var(--ink3);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tfoot td{font-weight:700;background:var(--bg)}
+.pos{color:var(--green)} .neg{color:var(--red)} .mut{color:var(--ink3)}
+.bar{position:relative}
+.bar .fill{position:absolute;left:0;top:0;bottom:0;background:var(--amber-bg);z-index:0}
+.bar .txt{position:relative;z-index:1}
+.cov{font-size:11px;color:var(--ink3)}
+.cov b{color:var(--ink2)}
+.empty{color:var(--ink3);text-align:center;padding:24px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  {% if not exp.has_data %}
+  <div class="section-title">Expenses</div>
+  <div class="note">No expenses imported yet. Upload a Vasy <b>Expense</b> export on the <a href="/dashboard/analytics/imports">Imports</a> page.</div>
+  {% else %}
+
+  <div class="section-title" style="margin-top:6px">Operating expenses — last 12 months</div>
+  <div class="kpis">
+    <div class="kpi tot"><div class="n">{{ exp.totals.total_fmt }}</div><div class="l">Total opex</div></div>
+    <div class="kpi paid"><div class="n">{{ exp.totals.paid_fmt }}</div><div class="l">Paid</div></div>
+    <div class="kpi unpaid"><div class="n">{{ exp.totals.unpaid_fmt }}</div><div class="l">Unpaid (payable)</div></div>
+    <div class="kpi"><div class="n">{{ exp.totals.count }}</div><div class="l">Entries</div></div>
+    <div class="kpi"><div class="n">{{ exp.totals.this_month_fmt }}</div><div class="l">{{ exp.totals.this_month_label }}</div></div>
+    <div class="kpi"><div class="n">{{ exp.totals.monthly_avg_fmt }}</div><div class="l">Avg / active month</div></div>
+  </div>
+
+  <div class="note" style="border-left-color:var(--blue-border)">
+    Opex = Vasy <b>expense ledger</b> (accrual) — this is the cost, not the cash payment. Cash-out lives in the
+    <a href="/dashboard/analytics/cashbook">Cash book</a> &amp; <a href="/dashboard/analytics/financials">Financials</a> (don't add the two — expenses are realized via payments).
+    <span class="cov">Coverage — <b>{{ exp.coverage[0] or '—' }} → {{ exp.coverage[1] or '—' }}</b>.</span>
+    {% if exp.mode.has_mode %}Of the paid portion where mode is known: <b>{{ exp.mode.cash_fmt }}</b> cash · <b>{{ exp.mode.bank_fmt }}</b> bank.{% endif %}
+    Vasy exports no expense-category column, so the breakdown below is by <b>expense head / payee</b>.
+  </div>
+
+  <!-- Monthly trend -->
+  <div class="section-title">Monthly trend</div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Month</th><th class="num">Entries</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Unpaid</th></tr></thead>
+      <tbody>
+        {% for m in exp.monthly %}
+        <tr>
+          <td>{{ m.label }}</td>
+          <td class="num mut">{{ m.count }}</td>
+          <td class="num">{{ m.total_fmt }}</td>
+          <td class="num">{{ m.paid_fmt }}</td>
+          <td class="num {{ 'neg' if m.unpaid > 0 else 'mut' }}">{{ m.unpaid_fmt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td>Total</td><td class="num">{{ exp.totals.count }}</td><td class="num">{{ exp.totals.total_fmt }}</td><td class="num">{{ exp.totals.paid_fmt }}</td><td class="num">{{ exp.totals.unpaid_fmt }}</td></tr></tfoot>
+    </table>
+  </div></div>
+
+  <!-- Breakdown by expense head -->
+  <div class="section-title">By expense head &amp; payee{% if exp.head_count > 25 %} <span class="mut" style="font-weight:400;font-size:12px">— top 25 of {{ exp.head_count }}</span>{% endif %}</div>
+  <div class="wrap"><div class="scroll">
+    <table>
+      <thead><tr><th>Expense head / payee</th><th class="num">Entries</th><th class="num">Total (all-time)</th><th class="num">Share</th><th class="num">Unpaid</th></tr></thead>
+      <tbody>
+        {% for h in exp.heads %}
+        <tr>
+          <td class="bar"><span class="fill" style="width:{{ h.pct }}%"></span><span class="txt">{{ h.head }}</span></td>
+          <td class="num mut">{{ h.count }}</td>
+          <td class="num">{{ h.total_fmt }}</td>
+          <td class="num mut">{{ h.pct }}%</td>
+          <td class="num {{ 'neg' if h.unpaid_fmt != '₹0' else 'mut' }}">{{ h.unpaid_fmt }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No expenses.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% endif %}
+</main>
+</body>
+</html>

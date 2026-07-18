@@ -46,6 +46,37 @@ main{max-width:1000px;margin:0 auto;padding:24px 18px 80px}
 .pulse-metric .n{font-size:16px;font-weight:700;color:var(--ink)}
 .pulse-metric .l{font-size:10px;color:var(--ink3);margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
 
+/* ── Business scorecard ── */
+.freshbar{font-size:11.5px;color:var(--amber);background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:8px;padding:9px 13px;margin-bottom:12px;line-height:1.5}
+.freshbar a{color:inherit;font-weight:700}
+.sc-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.sc-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table.sc{width:100%;border-collapse:collapse;font-size:14px;min-width:600px}
+table.sc th{background:var(--bg);color:var(--ink2);text-align:right;padding:11px 16px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border)}
+table.sc th.metric{text-align:left}
+table.sc th .sub{display:block;font-size:10px;font-weight:500;color:var(--ink3);margin-top:2px;text-transform:none;letter-spacing:0}
+table.sc td{padding:11px 16px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.sc tr:last-child td{border-bottom:none}
+table.sc td.metric{text-align:left}
+table.sc tr.sc-net td{font-weight:700;background:var(--bg)}
+.sc-label{font-weight:600;color:var(--ink)}
+.sc-hint{font-size:11px;color:var(--ink3);margin-top:2px;font-weight:400}
+.sc-n{font-weight:600}
+.sc-zero{color:var(--ink3);font-weight:400}
+.sc-margin{font-size:11px;color:var(--ink3);margin-left:5px}
+td.drill{cursor:pointer}
+td.drill:hover,td.drill:focus{background:var(--green-bg);outline:none}
+td.drill .caret{color:var(--green);font-weight:800;opacity:0;margin-left:5px}
+td.drill:hover .caret,td.drill:focus .caret{opacity:1}
+
+/* standout tiles */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+@media(max-width:560px){.tiles{grid-template-columns:1fr}}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.tile .big{font-size:26px;font-weight:800;line-height:1}
+.tile .lbl{font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-top:5px}
+.tile .side{text-align:right;font-size:12px;color:var(--ink3);line-height:1.5}
+
 .empty{color:var(--ink3);font-size:13px;text-align:center;padding:28px}
 
 /* Clickable Collected KPI → customer breakdown */
@@ -124,99 +155,93 @@ tr.detail td{background:var(--bg);padding:14px 18px}
 
   {% include "_analytics_subnav.html" %}
 
-  <!-- ── P1-1 Business Pulse ─────────────────────────────────────────── -->
+  <!-- ── Business scorecard (Today / Yesterday / Month-to-date) ───────── -->
   <div class="section-head">
-    <div class="section-title">Business Pulse <span class="section-sub" style="font-weight:500">· as of {{ today_display }}</span></div>
-    <div class="seg" title="Applies to the first card of both boxes">
-      <a href="/dashboard/analytics?day=today&c360_days={{ c360_days }}"
-         class="{{ 'active' if day != 'yesterday' else '' }}">Today</a>
-      <a href="/dashboard/analytics?day=yesterday&c360_days={{ c360_days }}"
-         class="{{ 'active' if day == 'yesterday' else '' }}">Yesterday</a>
-    </div>
+    <div class="section-title">Business scorecard <span class="section-sub" style="font-weight:500">· as of {{ today_display }}</span></div>
   </div>
   <div class="note">
-    Sales figures are from <b>Vasy sales invoices</b> — the source of truth for
-    revenue. (OrdeRR is only the operational order-consolidation layer.)
+    All figures from <b>Vasy</b> — revenue = sales invoices, buy = purchases, opex = expense ledger,
+    money in = receipts, money out = payment vouchers. Click a <b>Sales</b> or <b>Collections</b> cell to see who.
   </div>
 
-  <div class="pulse-grid">
-    {% for p in pulse.periods %}
-    <div class="pulse-card">
-      <div class="pulse-card-head">
-        <span class="pulse-card-title">{{ p.label }}</span>
-        <span class="pulse-card-sub">{{ p.sublabel }}</span>
-      </div>
-      <div class="pulse-hero pulse-hero-click sales-hero-click" data-period="{{ p.key }}"
-           role="button" tabindex="0" title="See who bought — click to break this down by customer">
-        <div class="n">{{ p.sales_rupees_fmt }}</div>
-        <div class="l">Sales <span class="drill-caret">›</span></div>
-      </div>
-      <div class="pulse-metrics">
-        <div class="pulse-metric">
-          <div class="n">{{ p.invoices }}</div>
-          <div class="l">invoices</div>
-        </div>
-        <div class="pulse-metric">
-          <div class="n">{{ p.active_customers }}</div>
-          <div class="l">customers</div>
-        </div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-
-  <!-- ── P2-6 Business Pulse (money) ─────────────────────────────────── -->
-  {% if money.has_data %}
-  <div class="section-head" style="margin-top:26px">
-    <div class="section-title">Collections &amp; receivables</div>
-    <div class="section-sub">from Vasy{% if money.outstanding_as_of %} · outstanding as of {{ money.outstanding_as_of }}{% endif %}</div>
-  </div>
-  <div class="pulse-grid">
-    {% for p in money.periods %}
-    <div class="pulse-card">
-      <div class="pulse-card-head">
-        <span class="pulse-card-title" style="color:var(--blue)">{{ p.label }}</span>
-        <span class="pulse-card-sub">{{ p.sublabel }}</span>
-      </div>
-      <div class="pulse-hero pulse-hero-click coll-hero-click" data-period="{{ p.key }}"
-           role="button" tabindex="0" title="See who paid — click to break this down by customer">
-        <div class="n">{{ p.collections_fmt }}</div>
-        <div class="l">Collected <span class="drill-caret">›</span></div>
-      </div>
-      <div class="pulse-metrics">
-        <div class="pulse-metric"><div class="n">{{ p.cash_fmt }}</div><div class="l">cash</div></div>
-        <div class="pulse-metric"><div class="n">{{ p.bank_fmt }}</div><div class="l">bank</div></div>
-        <div class="pulse-metric"><div class="n">{{ p.billed_fmt }}</div><div class="l">billed</div></div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  <div style="margin-top:12px">
-    <div class="pulse-card" style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-      <div>
-        <div style="font-size:26px;font-weight:800;color:var(--amber);line-height:1">{{ money.total_outstanding_fmt }}</div>
-        <div class="l" style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total outstanding (AR){% if money.outstanding_as_of %} · {{ money.outstanding_as_of }}{% endif %}</div>
-      </div>
-      {% if money.outstanding_direction %}
-        <div style="text-align:right">
-          <div style="font-size:14px;font-weight:700;color:{{ 'var(--red)' if money.outstanding_direction=='up' else 'var(--green)' if money.outstanding_direction=='down' else 'var(--ink2)' }}">
-            {{ '▲' if money.outstanding_direction=='up' else '▼' if money.outstanding_direction=='down' else '■' }} {{ money.outstanding_delta_fmt }}
-          </div>
-          <div class="l" style="font-size:11px;color:var(--ink3)">vs {{ money.prev_snap }}</div>
-        </div>
-      {% else %}
-        <div class="section-sub" style="font-size:11px;color:var(--ink3)">trend appears once a 2nd daily snapshot is imported</div>
-      {% endif %}
-    </div>
+  {% if not sc.today_covered %}
+  <div class="freshbar">
+    ⚠️ <b>Today &amp; Yesterday read ₹0 until those days' Vasy exports are imported.</b>
+    Data through — Sales {{ sc.freshness.sales or '—' }} · Purchases {{ sc.freshness.purchases or '—' }} ·
+    Expenses {{ sc.freshness.expenses or '—' }} · Collections {{ sc.freshness.collections or '—' }} ·
+    Payments {{ sc.freshness.payments or '—' }}. <a href="/dashboard/analytics/imports">Import →</a>
   </div>
   {% endif %}
+
+  <div class="sc-wrap"><div class="sc-scroll">
+    <table class="sc">
+      <thead>
+        <tr>
+          <th class="metric">Metric</th>
+          {% for c in sc.columns %}
+          <th>{{ c.label }}<span class="sub">{{ c.sub }}</span></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in sc.rows %}
+        <tr class="{{ 'sc-net' if r.kind == 'net' else '' }}">
+          <td class="metric"><div class="sc-label">{{ r.label }}</div><div class="sc-hint">{{ r.hint }}</div></td>
+          {% for c in sc.columns %}
+            {% set cell = r.cells[loop.index0] %}
+            {% set zero = (cell.raw == 0) %}
+            {% set cls = 'sc-zero' if zero else ('pos' if r.kind in ['net','gp'] and cell.raw > 0 else 'neg' if r.kind in ['net','gp'] and cell.raw < 0 else '') %}
+            {% if r.drill and not zero %}
+            <td class="drill" data-drill="{{ r.drill }}" data-period="{{ c.drill_period }}" data-day="{{ c.drill_day }}"
+                role="button" tabindex="0" title="Break this down by customer">
+              <span class="sc-n">{{ cell.fmt }}</span><span class="caret">›</span>
+            </td>
+            {% else %}
+            <td><span class="sc-n {{ cls }}">{{ cell.fmt }}</span>{% if cell.margin is defined and cell.margin is not none %}<span class="sc-margin">{{ cell.margin }}%</span>{% endif %}</td>
+            {% endif %}
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+
+  <!-- standout tiles: receivables + cash drawer -->
+  <div class="tiles">
+    <div class="tile">
+      <div>
+        <div class="big" style="color:var(--amber)">{{ sc.outstanding.total_fmt if sc.outstanding.has_data else '—' }}</div>
+        <div class="lbl">Outstanding (AR){% if sc.outstanding.as_of %} · {{ sc.outstanding.as_of }}{% endif %}</div>
+      </div>
+      {% if sc.outstanding.direction %}
+      <div class="side">
+        <div style="font-weight:700;color:{{ 'var(--red)' if sc.outstanding.direction=='up' else 'var(--green)' if sc.outstanding.direction=='down' else 'var(--ink2)' }}">
+          {{ '▲' if sc.outstanding.direction=='up' else '▼' if sc.outstanding.direction=='down' else '■' }} {{ sc.outstanding.delta_fmt }}
+        </div>
+        <div>vs {{ sc.outstanding.prev_snap }}</div>
+      </div>
+      {% elif sc.outstanding.has_data %}
+      <div class="side">trend needs a 2nd snapshot</div>
+      {% endif %}
+    </div>
+    <div class="tile">
+      <div>
+        <div class="big" style="color:var(--green)">{{ sc.cash_drawer.closing_fmt }}</div>
+        <div class="lbl">Cash in drawer · today{% if not sc.cash_drawer.anchored %} · <a href="/dashboard/analytics/cashbook" style="color:var(--amber)">set opening</a>{% endif %}</div>
+      </div>
+      <div class="side">
+        <div style="color:var(--green)">▲ in {{ sc.cash_drawer.in_fmt }}</div>
+        <div style="color:var(--red)">▼ out {{ sc.cash_drawer.out_fmt }}</div>
+      </div>
+    </div>
+  </div>
 
   <!-- ── P1-2 Customer 360 (sales side) ──────────────────────────────── -->
   <div class="section-head">
     <div class="section-title">Customer 360 <span style="font-weight:500;color:var(--ink3)">· sales</span></div>
     <div class="seg">
       {% for opt, lbl in [("7","7d"),("30","30d"),("90","90d"),("all","All")] %}
-      <a href="/dashboard/analytics?c360_days={{ opt }}&day={{ day }}"
+      <a href="/dashboard/analytics?c360_days={{ opt }}"
          class="{{ 'active' if c360_days == opt else '' }}">{{ lbl }}</a>
       {% endfor %}
     </div>
@@ -410,7 +435,6 @@ renderC360();
 
 <script>
 (function(){
-  var DAY  = {{ day | tojson }};
   var back = document.getElementById('colBack');
   var titleSub = document.getElementById('colSub');
   var rowsEl = document.getElementById('colRows');
@@ -419,13 +443,13 @@ renderC360();
   function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
   function close(){ back.classList.remove('open'); }
 
-  function open(period){
+  function open(period, day){
     titleSub.textContent = '';
     rowsEl.innerHTML = '<tr><td colspan="4" class="empty">Loading…</td></tr>';
     footEl.textContent = '';
     back.classList.add('open');
     var url = '/dashboard/analytics/collections/breakdown?period=' + encodeURIComponent(period)
-            + '&day=' + encodeURIComponent(DAY);
+            + '&day=' + encodeURIComponent(day);
     fetch(url, {credentials:'same-origin'})
       .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
       .then(function(d){
@@ -453,10 +477,11 @@ renderC360();
       });
   }
 
-  document.querySelectorAll('.coll-hero-click').forEach(function(el){
-    el.addEventListener('click', function(){ open(el.getAttribute('data-period')); });
+  document.querySelectorAll('.drill[data-drill="collections"]').forEach(function(el){
+    var go = function(){ open(el.getAttribute('data-period'), el.getAttribute('data-day')); };
+    el.addEventListener('click', go);
     el.addEventListener('keydown', function(e){
-      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); open(el.getAttribute('data-period')); }
+      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); go(); }
     });
   });
   document.getElementById('colClose').addEventListener('click', close);
@@ -484,7 +509,6 @@ renderC360();
 
 <script>
 (function(){
-  var DAY  = {{ day | tojson }};
   var back = document.getElementById('salBack');
   var titleSub = document.getElementById('salSub');
   var rowsEl = document.getElementById('salRows');
@@ -493,13 +517,13 @@ renderC360();
   function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
   function close(){ back.classList.remove('open'); }
 
-  function open(period){
+  function open(period, day){
     titleSub.textContent = '';
     rowsEl.innerHTML = '<tr><td colspan="3" class="empty">Loading…</td></tr>';
     footEl.textContent = '';
     back.classList.add('open');
     var url = '/dashboard/analytics/sales/breakdown?period=' + encodeURIComponent(period)
-            + '&day=' + encodeURIComponent(DAY);
+            + '&day=' + encodeURIComponent(day);
     fetch(url, {credentials:'same-origin'})
       .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
       .then(function(d){
@@ -525,10 +549,11 @@ renderC360();
       });
   }
 
-  document.querySelectorAll('.sales-hero-click').forEach(function(el){
-    el.addEventListener('click', function(){ open(el.getAttribute('data-period')); });
+  document.querySelectorAll('.drill[data-drill="sales"]').forEach(function(el){
+    var go = function(){ open(el.getAttribute('data-period'), el.getAttribute('data-day')); };
+    el.addEventListener('click', go);
     el.addEventListener('keydown', function(e){
-      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); open(el.getAttribute('data-period')); }
+      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); go(); }
     });
   });
   document.getElementById('salClose').addEventListener('click', close);

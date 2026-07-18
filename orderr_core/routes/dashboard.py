@@ -136,22 +136,17 @@ def dashboard(
 def analytics(
     request: Request,
     c360_days: str = Query(default="30", description="Customer-360 window: 7|30|90|all"),
-    day: str = Query(default="today", description="First pulse card: today|yesterday"),
     db: Session = Depends(get_db),
     username: str = Depends(require_auth),
 ):
-    """Analytics home — sales/ops insight layer (Phase 1).
-
-    Sales figures here come from OrdeRR's own (operational) invoices; Vasy
-    remains the money source-of-truth once the Phase-2 mirror lands.
+    """Analytics home — the owner's business scorecard (Today / Yesterday /
+    Month-to-date across sales, purchases, opex & cash) plus Customer 360.
+    All money figures are sourced from Vasy (the revenue/cash source of truth).
     """
     from orderr_core.services import analytics_service
 
     today = get_current_business_date()
-    if day not in ("today", "yesterday"):
-        day = "today"
-    pulse = analytics_service.business_pulse(db, today, day=day)
-    money = analytics_service.money_pulse(db, today, day=day)
+    scorecard = analytics_service.business_scorecard(db, today)
 
     days = analytics_service.C360_WINDOWS.get(c360_days, 30)
     c360 = analytics_service.customer_360(db, today, days=days)
@@ -163,9 +158,7 @@ def analytics(
             "plant_name" : PLANT_NAME,
             "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "today_display": today.strftime("%d %b %Y"),
-            "pulse"      : pulse,
-            "money"      : money,
-            "day"        : day,
+            "sc"         : scorecard,
             "c360"       : c360,
             "c360_days"  : c360_days,
             "analytics_view": "overview",
@@ -549,6 +542,31 @@ def analytics_financials(
             "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
             "fin"        : data,
             "analytics_view": "financials",
+        },
+    )
+
+
+@router.get("/analytics/expenses", response_class=HTMLResponse)
+def analytics_expenses(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Standalone opex view — monthly expense trend, paid/unpaid split, and
+    breakdown by expense head. Cost side of the P&L on its own page."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    data = analytics_service.plant_expenses(db, today)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_expenses.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "exp"        : data,
+            "analytics_view": "expenses",
         },
     )
 
