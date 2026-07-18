@@ -88,6 +88,9 @@ from orderr_core.models.broadcast_recipient import BroadcastRecipient    # noqa:
 # Outbound WhatsApp delivery-status journal (send failures are only visible here)
 from orderr_core.models.wa_status_event import WaStatusEvent             # noqa: F401
 
+# Analytics UI prefs — pinned/bookmarked subnav tabs (server-side, synced)
+from orderr_core.models.analytics_pref import AnalyticsPref              # noqa: F401
+
 
 Base.metadata.create_all(bind=engine)
 

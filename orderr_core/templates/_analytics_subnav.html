@@ -15,15 +15,18 @@
 .subnav a.active{background:var(--green);color:#fff}
 /* pin star on each tab */
 .subnav a .pin{margin-left:6px;font-size:11px;line-height:1;color:var(--ink3);opacity:0;cursor:pointer;transition:opacity .12s;user-select:none}
-.subnav a:hover .pin{opacity:.65}
-.subnav a .pin.on{opacity:1;color:var(--amber)}
-.subnav a.active .pin.on{color:#ffd76a}
+.subnav a:hover .pin{opacity:.6}
 /* touch devices have no hover — keep the star faintly tappable */
 @media(hover:none){.subnav a .pin{opacity:.35}}
+/* pinned tabs are lifted out of their group; empty groups collapse */
+.subnav a.pin-hidden{display:none}
+.subnav .grp.grp-hidden{display:none}
 /* pinned favourites bar */
 .subnav .grp.pinbar{background:var(--amber-bg);border-color:var(--amber-border)}
 .subnav .grp.pinbar .glabel{color:var(--amber)}
 .subnav .grp.pinbar .pinhint{font-size:11px;color:var(--amber);opacity:.85;padding:4px 6px;white-space:nowrap}
+.subnav .grp.pinbar a .pin{opacity:1;color:var(--amber)}
+.subnav .grp.pinbar a.active .pin{color:#ffd76a}
 </style>
 <div class="subnav">
 
@@ -74,24 +77,36 @@
 </div>
 <script>
 (function(){
-  var LS = 'orderr_pinned_tabs_v1';
   var subnav = document.querySelector('.subnav');
   if (!subnav) return;
   var bar = document.getElementById('pinnedBar');
-  var anchors = Array.prototype.slice.call(subnav.querySelectorAll('a[data-tab]'));
+  var groups = Array.prototype.slice.call(subnav.querySelectorAll('.grp:not(.pinbar)'));
+  var anchors = Array.prototype.slice.call(subnav.querySelectorAll('.grp:not(.pinbar) a[data-tab]'));
+  var pins = [];
+  var busy = false;
 
-  function getPins(){ try { return JSON.parse(localStorage.getItem(LS)) || []; } catch(e){ return []; } }
-  function setPins(a){ try { localStorage.setItem(LS, JSON.stringify(a)); } catch(e){} }
+  function makeStar(key, filled){
+    var s = document.createElement('span');
+    s.className = 'pin';
+    s.textContent = filled ? '★' : '☆';
+    s.setAttribute('role', 'button');
+    s.setAttribute('title', filled ? 'Unpin' : 'Pin');
+    s.setAttribute('aria-label', filled ? 'Unpin tab' : 'Pin tab');
+    s.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); toggle(key); });
+    return s;
+  }
 
   function render(){
-    var pins = getPins();
-    // reflect state on the source tabs
+    // hide pinned tabs from their groups; collapse a group if all its tabs are pinned
     anchors.forEach(function(a){
-      var on = pins.indexOf(a.getAttribute('data-tab')) >= 0;
-      var star = a.querySelector('.pin');
-      if (star){ star.textContent = on ? '★' : '☆'; star.classList.toggle('on', on); }
+      a.classList.toggle('pin-hidden', pins.indexOf(a.getAttribute('data-tab')) >= 0);
     });
-    // rebuild the pinned bar (keep its label, drop old clones)
+    groups.forEach(function(g){
+      var visible = Array.prototype.slice.call(g.querySelectorAll('a[data-tab]'))
+        .some(function(a){ return !a.classList.contains('pin-hidden'); });
+      g.classList.toggle('grp-hidden', !visible);
+    });
+    // rebuild the pinned bar (keep its label, drop old clones/hint)
     Array.prototype.slice.call(bar.querySelectorAll('.pinnedlink, .pinhint')).forEach(function(n){ n.remove(); });
     if (!pins.length){
       var hint = document.createElement('span');
@@ -105,33 +120,38 @@
       if (!src) return;
       var c = document.createElement('a');
       c.href = src.getAttribute('href');
+      c.setAttribute('data-tab', k);
       c.className = 'pinnedlink' + (src.classList.contains('active') ? ' active' : '');
       c.innerHTML = src.getAttribute('data-label');
+      c.appendChild(makeStar(k, true));
       bar.appendChild(c);
     });
   }
 
+  function toggle(key){
+    if (busy) return;
+    busy = true;
+    fetch('/dashboard/analytics/pins/toggle', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tab: key})
+    })
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){ pins = d.pins || []; render(); })
+      .catch(function(){ /* leave UI as-is on failure */ })
+      .then(function(){ busy = false; });
+  }
+
+  // give each source tab a hover ☆ to pin it
   anchors.forEach(function(a){
-    // snapshot the label (emoji + text) before we append the star
-    a.setAttribute('data-label', a.innerHTML);
-    var s = document.createElement('span');
-    s.className = 'pin';
-    s.textContent = '☆';
-    s.setAttribute('role', 'button');
-    s.setAttribute('title', 'Pin / unpin');
-    s.setAttribute('aria-label', 'Pin or unpin tab');
-    s.addEventListener('click', function(e){
-      e.preventDefault(); e.stopPropagation();
-      var k = a.getAttribute('data-tab');
-      var pins = getPins();
-      var i = pins.indexOf(k);
-      if (i >= 0) pins.splice(i, 1); else pins.push(k);
-      setPins(pins);
-      render();
-    });
-    a.appendChild(s);
+    a.setAttribute('data-label', a.innerHTML);   // clean label (before star) for bar clones
+    a.appendChild(makeStar(a.getAttribute('data-tab'), false));
   });
 
-  render();
+  // load pins from the server, then render
+  fetch('/dashboard/analytics/pins', {credentials: 'same-origin'})
+    .then(function(r){ return r.ok ? r.json() : {pins: []}; })
+    .then(function(d){ pins = d.pins || []; render(); })
+    .catch(function(){ render(); });
 })();
 </script>

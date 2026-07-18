@@ -553,6 +553,67 @@ def analytics_financials(
     )
 
 
+# Valid Analytics subnav tab keys — pins are restricted to these so junk
+# can't accumulate in the prefs row. Keep in sync with _analytics_subnav.html.
+_PIN_TABS = {
+    "overview", "cashbook", "collections", "receivables", "chase",
+    "close", "financials", "expenses", "revenue",
+    "products", "team", "reconcile",
+    "credit", "rfm", "churn", "payment", "portfolio", "lifecycle",
+    "wastage", "quality", "datahealth", "imports",
+}
+
+
+def _get_pins(db: Session, username: str) -> list:
+    from orderr_core.models.analytics_pref import AnalyticsPref
+    row = db.get(AnalyticsPref, username)
+    if not row:
+        return []
+    try:
+        pins = json.loads(row.pinned_tabs) or []
+    except (ValueError, TypeError):
+        return []
+    # drop any keys no longer valid, preserve order
+    return [t for t in pins if t in _PIN_TABS]
+
+
+def _save_pins(db: Session, username: str, pins: list) -> None:
+    from orderr_core.models.analytics_pref import AnalyticsPref
+    row = db.get(AnalyticsPref, username)
+    payload = json.dumps(pins)
+    if row:
+        row.pinned_tabs = payload
+    else:
+        db.add(AnalyticsPref(username=username, pinned_tabs=payload))
+    db.commit()
+
+
+@router.get("/analytics/pins")
+def analytics_pins(db: Session = Depends(get_db), username: str = Depends(require_auth)):
+    """Current user's pinned Analytics tab keys, in pin order."""
+    return JSONResponse({"pins": _get_pins(db, username)})
+
+
+@router.post("/analytics/pins/toggle")
+async def analytics_pins_toggle(request: Request, db: Session = Depends(get_db),
+                                username: str = Depends(require_auth)):
+    """Toggle one tab's pinned state; returns the updated ordered pin list."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tab = (body or {}).get("tab")
+    if tab not in _PIN_TABS:
+        raise HTTPException(status_code=400, detail="unknown tab")
+    pins = _get_pins(db, username)
+    if tab in pins:
+        pins.remove(tab)
+    else:
+        pins.append(tab)
+    _save_pins(db, username, pins)
+    return JSONResponse({"pins": pins})
+
+
 @router.get("/analytics/expenses", response_class=HTMLResponse)
 def analytics_expenses(
     request: Request,
