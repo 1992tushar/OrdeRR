@@ -68,11 +68,13 @@
         .order-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; gap:8px; flex-wrap:wrap; }
         .items { font-size:13px; color:#555; line-height:1.8; }
         .raw-message { font-size:12px; color:#e67e22; margin-top:8px; font-style:italic; word-break:break-word; }
+        /* Parsed items (left) and original message (right) sit side-by-side */
+        .order-body { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+        .order-body > .items { flex:1 1 260px; min-width:0; }
         /* Original WhatsApp message, shown beside the parsed items for cross-checking */
-        .orig-msg { margin-top:10px; background:#f0f7f6; border:1px solid #d7e8e5; border-radius:8px; padding:8px 10px; }
-        .orig-msg > summary { font-size:11px; font-weight:700; color:#075e54; cursor:pointer; list-style:none; }
-        .orig-msg > summary::-webkit-details-marker { display:none; }
-        .orig-msg-body { font-size:13px; color:#333; white-space:pre-wrap; word-break:break-word; margin-top:6px; font-family:'Segoe UI',system-ui,sans-serif; }
+        .orig-msg { flex:1 1 300px; min-width:0; align-self:stretch; background:#f0f7f6; border:1px solid #d7e8e5; border-radius:8px; padding:8px 12px; }
+        .orig-msg-head { font-size:11px; font-weight:700; color:#075e54; margin-bottom:6px; }
+        .orig-msg-body { font-size:13px; color:#333; white-space:pre-wrap; word-break:break-word; font-family:'Segoe UI',system-ui,sans-serif; }
         .reason { font-size:12px; color:#e67e22; margin-top:4px; }
 
         /* ── Badges ── */
@@ -410,8 +412,9 @@
                         {% endif %}
                     </span>
                 </div>
+                <div class="order-body">
                 <div class="items">{% for item in order.items_parsed %}{{ erp_name(item.product) }} — {{ item.quantity }} {{ item.unit }}<br>{% endfor %}
-                
+
                                 {% if is_before_cutoff %}
                 {% if not order.is_next_day_override %}
                     <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
@@ -440,11 +443,12 @@
                 </div>
 
                 {% if order.raw_message and order.raw_message != 'repeat' %}
-                <details class="orig-msg" open>
-                    <summary>📩 Original message</summary>
+                <aside class="orig-msg">
+                    <div class="orig-msg-head">📩 Original message</div>
                     <div class="orig-msg-body">{{ order.raw_message }}</div>
-                </details>
+                </aside>
                 {% endif %}
+                </div>
 
 
                 {% if order.has_unclear_items %}
