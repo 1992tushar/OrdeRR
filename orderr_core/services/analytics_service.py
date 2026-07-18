@@ -221,6 +221,54 @@ def business_pulse(db: Session, today: date, day: str = "today") -> dict:
     return {"periods": periods}
 
 
+def sales_breakdown(db: Session, today: date, period: str = "today",
+                    day: str = "today") -> dict:
+    """Drill-down behind a Sales KPI on the Business Pulse card: the Vasy
+    invoices that make up a period's revenue, grouped by customer ('sold to
+    whom'), each with its invoice count. Rows sort by revenue, largest first.
+
+    `period` is a pulse key ("today" | "week" | "month"); `day` mirrors the card
+    toggle so the first ("today") card resolves to today vs yesterday exactly as
+    business_pulse() does.
+    """
+    bounds = {b[0]: b for b in _period_bounds(today, day)}
+    key, label, sublabel, start, end = bounds.get(period, bounds["today"])
+
+    rows_q = (
+        db.query(VasyInvoice.party_name, VasyInvoice.customer_id,
+                 func.count(VasyInvoice.id),
+                 func.coalesce(func.sum(VasyInvoice.total), 0))
+        .filter(VasyInvoice.invoice_date >= start,
+                VasyInvoice.invoice_date <= end)
+        .group_by(VasyInvoice.party_name, VasyInvoice.customer_id)
+        .all()
+    )
+
+    ordered = sorted(
+        ({"party_name": (party or "—"), "customer_id": cust_id,
+          "count": int(cnt or 0), "total": float(amt or 0)}
+         for party, cust_id, cnt, amt in rows_q),
+        key=lambda r: r["total"], reverse=True,
+    )
+    rows = [{
+        "party_name":   r["party_name"],
+        "customer_id":  r["customer_id"],
+        "unattributed": r["customer_id"] is None,
+        "count":        r["count"],
+        "total":        round(r["total"], 2), "total_fmt": fmt_inr(r["total"]),
+    } for r in ordered]
+
+    grand = sum(r["total"] for r in ordered)
+    return {
+        "period":       key,
+        "label":        label,
+        "window_label": f"{label} · {sublabel}",
+        "rows":         rows,
+        "party_count":  len(rows),
+        "total_fmt":    fmt_inr(grand),
+    }
+
+
 # ── P2 money helpers: latest / previous outstanding snapshot ───────────────
 
 def _latest_two_snapshot_dates(db: Session):

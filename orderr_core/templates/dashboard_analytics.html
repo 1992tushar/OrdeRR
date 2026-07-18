@@ -146,9 +146,10 @@ tr.detail td{background:var(--bg);padding:14px 18px}
         <span class="pulse-card-title">{{ p.label }}</span>
         <span class="pulse-card-sub">{{ p.sublabel }}</span>
       </div>
-      <div class="pulse-hero">
+      <div class="pulse-hero pulse-hero-click sales-hero-click" data-period="{{ p.key }}"
+           role="button" tabindex="0" title="See who bought — click to break this down by customer">
         <div class="n">{{ p.sales_rupees_fmt }}</div>
-        <div class="l">Sales</div>
+        <div class="l">Sales <span class="drill-caret">›</span></div>
       </div>
       <div class="pulse-metrics">
         <div class="pulse-metric">
@@ -177,7 +178,7 @@ tr.detail td{background:var(--bg);padding:14px 18px}
         <span class="pulse-card-title" style="color:var(--blue)">{{ p.label }}</span>
         <span class="pulse-card-sub">{{ p.sublabel }}</span>
       </div>
-      <div class="pulse-hero pulse-hero-click" data-period="{{ p.key }}"
+      <div class="pulse-hero pulse-hero-click coll-hero-click" data-period="{{ p.key }}"
            role="button" tabindex="0" title="See who paid — click to break this down by customer">
         <div class="n">{{ p.collections_fmt }}</div>
         <div class="l">Collected <span class="drill-caret">›</span></div>
@@ -452,13 +453,85 @@ renderC360();
       });
   }
 
-  document.querySelectorAll('.pulse-hero-click').forEach(function(el){
+  document.querySelectorAll('.coll-hero-click').forEach(function(el){
     el.addEventListener('click', function(){ open(el.getAttribute('data-period')); });
     el.addEventListener('keydown', function(e){
       if(e.key==='Enter' || e.key===' '){ e.preventDefault(); open(el.getAttribute('data-period')); }
     });
   });
   document.getElementById('colClose').addEventListener('click', close);
+  back.addEventListener('click', function(e){ if(e.target===back) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+})();
+</script>
+
+<!-- ── Sales drill-down modal (who a period's sales came from) ────────────── -->
+<div class="modal-back" id="salBack">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="salTitle">
+    <div class="modal-head">
+      <div class="modal-title" id="salTitle">Sold to<span class="sub" id="salSub"></span></div>
+      <button class="modal-x" id="salClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <table>
+        <thead><tr><th>Customer</th><th class="num">Invoices</th><th class="num">Sales</th></tr></thead>
+        <tbody id="salRows"></tbody>
+      </table>
+    </div>
+    <div class="modal-foot" id="salFoot"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var DAY  = {{ day | tojson }};
+  var back = document.getElementById('salBack');
+  var titleSub = document.getElementById('salSub');
+  var rowsEl = document.getElementById('salRows');
+  var footEl = document.getElementById('salFoot');
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function close(){ back.classList.remove('open'); }
+
+  function open(period){
+    titleSub.textContent = '';
+    rowsEl.innerHTML = '<tr><td colspan="3" class="empty">Loading…</td></tr>';
+    footEl.textContent = '';
+    back.classList.add('open');
+    var url = '/dashboard/analytics/sales/breakdown?period=' + encodeURIComponent(period)
+            + '&day=' + encodeURIComponent(DAY);
+    fetch(url, {credentials:'same-origin'})
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        titleSub.textContent = d.window_label || '';
+        if(!d.rows || !d.rows.length){
+          rowsEl.innerHTML = '<tr><td colspan="3" class="empty">No invoices in this period.</td></tr>';
+          footEl.textContent = d.window_label || '';
+          return;
+        }
+        rowsEl.innerHTML = d.rows.map(function(r){
+          var name = r.customer_id
+            ? '<a class="party" href="/dashboard/analytics/customer/' + encodeURIComponent(r.customer_id) + '">' + esc(r.party_name) + '</a>'
+            : esc(r.party_name) + '<span class="party-tag">unmatched</span>';
+          return '<tr><td>' + name + '</td>'
+               + '<td class="num">' + esc(r.count) + '</td>'
+               + '<td class="num" style="font-weight:700">' + esc(r.total_fmt) + '</td></tr>';
+        }).join('');
+        footEl.innerHTML = '<span>' + d.party_count + (d.party_count===1?' customer':' customers') + '</span>'
+                         + '<span style="font-weight:700;color:var(--ink)">' + esc(d.total_fmt) + ' sold</span>';
+      })
+      .catch(function(){
+        rowsEl.innerHTML = '<tr><td colspan="3" class="empty">Could not load. Please try again.</td></tr>';
+      });
+  }
+
+  document.querySelectorAll('.sales-hero-click').forEach(function(el){
+    el.addEventListener('click', function(){ open(el.getAttribute('data-period')); });
+    el.addEventListener('keydown', function(e){
+      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); open(el.getAttribute('data-period')); }
+    });
+  });
+  document.getElementById('salClose').addEventListener('click', close);
   back.addEventListener('click', function(e){ if(e.target===back) close(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
 })();
