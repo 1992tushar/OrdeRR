@@ -7,8 +7,9 @@
    top for quick access. Self-contained styles + script (each analytics
    page has its own <style>, so this partial ships its own). #}
 <style>
-.subnav{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;margin-bottom:20px}
-.subnav .grp{display:flex;align-items:center;gap:1px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:3px 5px;box-shadow:var(--shadow)}
+.subnav{display:flex;flex-direction:column;gap:8px;align-items:stretch;margin-bottom:20px}
+.subnav .grp{display:flex;align-items:center;gap:2px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:4px 8px;box-shadow:var(--shadow)}
+.subnav .grp .glabel{min-width:74px}
 .subnav .glabel{font-size:8.5px;font-weight:800;letter-spacing:.5px;color:var(--ink3);text-transform:uppercase;padding:0 7px 0 4px;white-space:nowrap}
 .subnav a{position:relative;display:inline-flex;align-items:center;font-size:12px;font-weight:600;color:var(--ink2);text-decoration:none;padding:5px 9px;border-radius:6px;white-space:nowrap}
 .subnav a:hover{background:var(--bg);color:var(--ink)}
