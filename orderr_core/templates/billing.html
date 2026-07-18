@@ -82,6 +82,12 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 .badge-invoiced{background:var(--blue-bg);color:var(--blue)}
 .badge-pending{background:var(--bg);color:var(--ink3);border:1px solid var(--border)}
 .badge-error{background:var(--red-bg);color:var(--red)}
+/* Vasy-sync pill, shown only on invoiced cards: green when the bot has confirmed
+   the bill exists in Vasy, muted grey while it hasn't synced yet. */
+.badge-vasy{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;margin-left:6px;
+  background:var(--green-bg);color:var(--green)}
+.badge-vasy-pending{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;margin-left:6px;
+  background:var(--bg);color:var(--ink3);border:1px solid var(--border)}
 .chevron{color:var(--ink3);font-size:16px;transition:transform .2s;flex-shrink:0}
 .chevron.open{transform:rotate(180deg)}
 .hotel-body{border-top:1px solid var(--border);background:var(--bg);display:none;padding:16px}
@@ -305,10 +311,11 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
           <th onclick="sortHist('business_date')">Date</th>
           <th>Phone</th>
           <th onclick="sortHist('total')" style="text-align:right">Amount</th>
+          <th style="text-align:center">Vasy</th>
           <th style="text-align:center">PDF</th>
         </tr></thead>
         <tbody id="hist-tbody">
-          <tr><td colspan="6" style="padding:40px;text-align:center;color:var(--ink3)">Loading...</td></tr>
+          <tr><td colspan="7" style="padding:40px;text-align:center;color:var(--ink3)">Loading...</td></tr>
         </tbody>
       </table>
       <div class="hist-empty" id="hist-empty" style="display:none">No invoices match your search.</div>
@@ -441,6 +448,16 @@ function buildHotelCard(h){
     error:'Error', pending:'Awaiting entry'
   }[h.status] || h.status;
 
+  // On invoiced cards, show whether the bill has been synced into Vasy ERP by
+  // the bot (green ✓ Vasy + voucher tooltip when known, else muted "Vasy pending").
+  const vasyBadge = (h.status === 'invoiced')
+    ? (h.vasy_synced
+        ? '<span class="hotel-badge badge-vasy" title="Synced to Vasy'
+            + (h.vasy_voucher_no ? ' as '+h.vasy_voucher_no : '') + '">✓ Vasy'
+            + (h.vasy_voucher_no ? ' '+h.vasy_voucher_no : '') + '</span>'
+        : '<span class="hotel-badge badge-vasy-pending" title="Not yet synced to Vasy">Vasy pending</span>')
+    : '';
+
   const head = document.createElement('div');
   head.className = 'hotel-head';
   head.innerHTML =
@@ -448,6 +465,7 @@ function buildHotelCard(h){
     '<span class="hotel-name">'+h.hotel_name+'</span>' +
     (h.invoice_number ? '<span class="hotel-meta">'+h.invoice_number+' - ₹'+h.invoice_total?.toFixed(2)+'</span>' : '') +
     '<span class="hotel-badge badge-'+h.status+'">'+statusLabel+'</span>' +
+    vasyBadge +
     '<span class="chevron" id="chev-'+h.order_id+'">v</span>';
   head.onclick = ()=> toggleCard(h.order_id);
   wrap.appendChild(head);
@@ -1103,7 +1121,7 @@ async function loadHistory(){
     allInvoices = d.invoices||[];
   }catch(e){
     document.getElementById('hist-tbody').innerHTML=
-      '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--red)">Could not load: '+e.message+'</td></tr>';
+      '<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--red)">Could not load: '+e.message+'</td></tr>';
     return;
   }
   filterHist();
@@ -1148,6 +1166,9 @@ function filterHist(){
     '<td style="color:var(--ink2)">'+fmts(i.business_date)+'</td>' +
     '<td style="color:var(--ink3);font-size:12px">'+(i.customer_phone||'-')+'</td>' +
     '<td style="text-align:right"><span class="inv-amount">₹'+parseFloat(i.total).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></td>' +
+    '<td style="text-align:center">' + (i.vasy_synced
+        ? '<span class="badge-vasy" title="Synced to Vasy'+(i.vasy_voucher_no?' as '+i.vasy_voucher_no:'')+'">✓'+(i.vasy_voucher_no?' '+i.vasy_voucher_no:'')+'</span>'
+        : '<span class="badge-vasy-pending" title="Not yet synced to Vasy">—</span>') + '</td>' +
     '<td style="text-align:center"><a class="pdf-link btn-sm" href="/billing/api/invoices/'+i.invoice_number+'/pdf" target="_blank">Download</a>' +
     ' <a class="pdf-link btn-sm" href="#" onclick="printOne(\''+i.invoice_number+'\');return false;" title="Print this bill">🖨 Print</a></td></tr>'
   ).join('');

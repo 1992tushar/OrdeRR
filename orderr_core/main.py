@@ -264,6 +264,31 @@ def _ensure_invoice_printed_at_column():
 _ensure_invoice_printed_at_column()
 
 
+def _ensure_invoice_vasy_sync_columns():
+    """Add invoices.vasy_synced_at / .vasy_voucher_no (nullable) if missing — the
+    vasy-invoice-bot's POST /billing/api/vasy-synced callback sets them once a bill
+    is created in Vasy, powering the "Synced to Vasy" indicator. Nullable, so a plain
+    ADD COLUMN works on both SQLite and PostgreSQL. Idempotent."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "invoices" not in insp.get_table_names():
+        return  # fresh DB — create_all already made the columns
+    cols = {c["name"] for c in insp.get_columns("invoices")}
+    ts_type = ("TIMESTAMP WITH TIME ZONE"
+               if engine.dialect.name == "postgresql" else "DATETIME")
+    with engine.begin() as conn:
+        if "vasy_synced_at" not in cols:
+            conn.execute(text(f"ALTER TABLE invoices ADD COLUMN vasy_synced_at {ts_type}"))
+            print("✅ Migration: added invoices.vasy_synced_at column")
+        if "vasy_voucher_no" not in cols:
+            conn.execute(text("ALTER TABLE invoices ADD COLUMN vasy_voucher_no VARCHAR(30)"))
+            print("✅ Migration: added invoices.vasy_voucher_no column")
+
+
+_ensure_invoice_vasy_sync_columns()
+
+
 def _ensure_vasy_expense_mode_columns():
     """Add vasy_expenses.cash_paid / .noncash_paid (nullable) if missing —
     Cash Book cross-check needs the Expense Register's per-expense payment-mode

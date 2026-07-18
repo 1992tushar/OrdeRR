@@ -396,6 +396,9 @@ def _build_hotel_record(db: Session, hotel_name: str, order_id: int) -> dict:
         "invoice_number": existing_invoice.invoice_number if existing_invoice else None,
         "invoice_id":     existing_invoice.id             if existing_invoice else None,
         "invoice_total":  float(existing_invoice.total)   if existing_invoice else None,
+        # Vasy-sync state (set by the bot's /billing/api/vasy-synced callback).
+        "vasy_synced":     bool(existing_invoice and existing_invoice.vasy_synced_at),
+        "vasy_voucher_no": existing_invoice.vasy_voucher_no if existing_invoice else None,
         "items":          items_out,
         "unmatched": [
             {"id": u.id, "raw_line": u.raw_line, "reason": u.reason}
@@ -841,6 +844,60 @@ async def api_correct_invoice(request: Request, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# vasy-synced — callback from the vasy-invoice-bot. After the bot posts a bill
+# into Vasy ERP it POSTs the OrdeRR invoice number(s) here so the billing page
+# can show a "Synced to Vasy" indicator. Idempotent: marking an already-synced
+# bill just refreshes its voucher number, never errors. The bot posts its whole
+# "already pushed" ledger each run (voucher_no only for bills pushed this run),
+# so historical bills get backfilled the first time this runs.
+#
+# Body: {"invoices": [{"invoice_number": "FLUFFY-YYYYMMDD-NNN",
+#                      "voucher_no": "INV14207"?}, ...]}
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/vasy-synced")
+async def api_vasy_synced(request: Request, db: Session = Depends(get_db)):
+    body     = await request.json()
+    entries  = body.get("invoices") or []
+    now      = datetime.now(timezone.utc)
+    marked, updated, unknown = [], [], []
+
+    for entry in entries:
+        number = (entry.get("invoice_number") or "").strip()
+        if not number:
+            continue
+        voucher = (entry.get("voucher_no") or "").strip() or None
+
+        invoice = db.scalars(
+            select(Invoice).where(Invoice.invoice_number == number)
+        ).first()
+        if not invoice:
+            unknown.append(number)
+            continue
+
+        if invoice.vasy_synced_at is None:
+            invoice.vasy_synced_at = now
+            marked.append(number)
+        else:
+            updated.append(number)
+        # Always keep the latest voucher we were told about (don't blank a known
+        # one when a later backfill call omits it).
+        if voucher:
+            invoice.vasy_voucher_no = voucher
+
+    db.commit()
+    return {
+        "ok":            True,
+        "marked":        marked,     # newly flagged synced this call
+        "already":       updated,    # were already synced (voucher refreshed)
+        "unknown":       unknown,    # invoice numbers OrdeRR doesn't have
+        "marked_count":  len(marked),
+        "already_count": len(updated),
+        "unknown_count": len(unknown),
+    }
+
+
+# ---------------------------------------------------------------------------
 # invoices/all (unchanged)
 # ---------------------------------------------------------------------------
 
@@ -853,7 +910,9 @@ def api_invoices_all(db: Session = Depends(get_db)):
                 i.business_date,
                 i.customer_phone,
                 i.total,
-                o.customer_name AS hotel_name
+                o.customer_name AS hotel_name,
+                i.vasy_synced_at,
+                i.vasy_voucher_no
             FROM invoices i
             LEFT JOIN orders o ON o.id = i.order_id
             ORDER BY i.business_date DESC, i.invoice_number DESC
@@ -863,11 +922,13 @@ def api_invoices_all(db: Session = Depends(get_db)):
     return {
         "invoices": [
             {
-                "invoice_number": r[0],
-                "business_date":  str(r[1])[:10],
-                "customer_phone": r[2],
-                "total":          float(r[3]),
-                "hotel_name":     r[4],
+                "invoice_number":  r[0],
+                "business_date":   str(r[1])[:10],
+                "customer_phone":  r[2],
+                "total":           float(r[3]),
+                "hotel_name":      r[4],
+                "vasy_synced":     r[5] is not None,
+                "vasy_voucher_no": r[6],
             }
             for r in rows
         ]
