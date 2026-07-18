@@ -1,60 +1,137 @@
 {# Shared Analytics sub-navigation. Include after the top nav on every
    analytics page and pass `analytics_view` in context to highlight the
    active module. Tabs are ordered by how an owner actually uses them
-   (money/cash first → P&L → sales → customers → ops/admin last). Each
-   group is its own light chip (label + its tabs), so proximity makes the
-   sections obvious without a heavy outer card. Self-contained styles
-   (each analytics page has its own <style>, so this partial ships its own). #}
+   (money/cash first → P&L → sales → customers → ops/admin last), grouped
+   into light chips. Users can PIN favourites (★) — pins persist in the
+   browser (localStorage, per-device) and surface in a "Pinned" bar at the
+   top for quick access. Self-contained styles + script (each analytics
+   page has its own <style>, so this partial ships its own). #}
 <style>
 .subnav{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;margin-bottom:20px}
 .subnav .grp{display:flex;align-items:center;gap:1px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:3px 5px;box-shadow:var(--shadow)}
-.subnav .glabel{font-size:8.5px;font-weight:800;letter-spacing:.5px;color:var(--ink3);text-transform:uppercase;padding:0 7px 0 4px}
-.subnav a{font-size:12px;font-weight:600;color:var(--ink2);text-decoration:none;padding:5px 9px;border-radius:6px;white-space:nowrap}
+.subnav .glabel{font-size:8.5px;font-weight:800;letter-spacing:.5px;color:var(--ink3);text-transform:uppercase;padding:0 7px 0 4px;white-space:nowrap}
+.subnav a{position:relative;display:inline-flex;align-items:center;font-size:12px;font-weight:600;color:var(--ink2);text-decoration:none;padding:5px 9px;border-radius:6px;white-space:nowrap}
 .subnav a:hover{background:var(--bg);color:var(--ink)}
 .subnav a.active{background:var(--green);color:#fff}
+/* pin star on each tab */
+.subnav a .pin{margin-left:6px;font-size:11px;line-height:1;color:var(--ink3);opacity:0;cursor:pointer;transition:opacity .12s;user-select:none}
+.subnav a:hover .pin{opacity:.65}
+.subnav a .pin.on{opacity:1;color:var(--amber)}
+.subnav a.active .pin.on{color:#ffd76a}
+/* touch devices have no hover — keep the star faintly tappable */
+@media(hover:none){.subnav a .pin{opacity:.35}}
+/* pinned favourites bar */
+.subnav .grp.pinbar{background:var(--amber-bg);border-color:var(--amber-border)}
+.subnav .grp.pinbar .glabel{color:var(--amber)}
+.subnav .grp.pinbar .pinhint{font-size:11px;color:var(--amber);opacity:.85;padding:4px 6px;white-space:nowrap}
 </style>
 <div class="subnav">
 
+  <div class="grp pinbar" id="pinnedBar"><span class="glabel">★ Pinned</span></div>
+
   <div class="grp">
     <span class="glabel">Money</span>
-    <a href="/dashboard/analytics"            class="{{ 'active' if analytics_view=='overview' else '' }}">📊 Overview</a>
-    <a href="/dashboard/analytics/cashbook"    class="{{ 'active' if analytics_view=='cashbook' else '' }}">💵 Cash book</a>
-    <a href="/dashboard/analytics/collections" class="{{ 'active' if analytics_view=='collections' else '' }}">💵 Collections</a>
-    <a href="/dashboard/analytics/receivables" class="{{ 'active' if analytics_view=='receivables' else '' }}">💰 Receivables</a>
-    <a href="/dashboard/analytics/chase"       class="{{ 'active' if analytics_view=='chase' else '' }}">📞 Chase</a>
+    <a data-tab="overview"    href="/dashboard/analytics"            class="{{ 'active' if analytics_view=='overview' else '' }}">📊 Overview</a>
+    <a data-tab="cashbook"    href="/dashboard/analytics/cashbook"    class="{{ 'active' if analytics_view=='cashbook' else '' }}">💵 Cash book</a>
+    <a data-tab="collections" href="/dashboard/analytics/collections" class="{{ 'active' if analytics_view=='collections' else '' }}">💵 Collections</a>
+    <a data-tab="receivables" href="/dashboard/analytics/receivables" class="{{ 'active' if analytics_view=='receivables' else '' }}">💰 Receivables</a>
+    <a data-tab="chase"       href="/dashboard/analytics/chase"       class="{{ 'active' if analytics_view=='chase' else '' }}">📞 Chase</a>
   </div>
 
   <div class="grp">
     <span class="glabel">P&amp;L</span>
-    <a href="/dashboard/analytics/close"       class="{{ 'active' if analytics_view=='close' else '' }}">🧮 5-Day Close</a>
-    <a href="/dashboard/analytics/financials"  class="{{ 'active' if analytics_view=='financials' else '' }}">💹 Financials</a>
-    <a href="/dashboard/analytics/expenses"    class="{{ 'active' if analytics_view=='expenses' else '' }}">🧾 Expenses</a>
-    <a href="/dashboard/analytics/revenue"     class="{{ 'active' if analytics_view=='revenue' else '' }}">📈 Revenue</a>
+    <a data-tab="close"      href="/dashboard/analytics/close"       class="{{ 'active' if analytics_view=='close' else '' }}">🧮 5-Day Close</a>
+    <a data-tab="financials" href="/dashboard/analytics/financials"  class="{{ 'active' if analytics_view=='financials' else '' }}">💹 Financials</a>
+    <a data-tab="expenses"   href="/dashboard/analytics/expenses"    class="{{ 'active' if analytics_view=='expenses' else '' }}">🧾 Expenses</a>
+    <a data-tab="revenue"    href="/dashboard/analytics/revenue"     class="{{ 'active' if analytics_view=='revenue' else '' }}">📈 Revenue</a>
   </div>
 
   <div class="grp">
     <span class="glabel">Sales</span>
-    <a href="/dashboard/analytics/products"    class="{{ 'active' if analytics_view=='products' else '' }}">🍗 Products</a>
-    <a href="/dashboard/analytics/team"        class="{{ 'active' if analytics_view=='team' else '' }}">🧑 Team &amp; area</a>
-    <a href="/dashboard/analytics/reconcile"   class="{{ 'active' if analytics_view=='reconcile' else '' }}">🧾 Reconcile</a>
+    <a data-tab="products"   href="/dashboard/analytics/products"    class="{{ 'active' if analytics_view=='products' else '' }}">🍗 Products</a>
+    <a data-tab="team"       href="/dashboard/analytics/team"        class="{{ 'active' if analytics_view=='team' else '' }}">🧑 Team &amp; area</a>
+    <a data-tab="reconcile"  href="/dashboard/analytics/reconcile"   class="{{ 'active' if analytics_view=='reconcile' else '' }}">🧾 Reconcile</a>
   </div>
 
   <div class="grp">
     <span class="glabel">Customers</span>
-    <a href="/dashboard/analytics/credit"      class="{{ 'active' if analytics_view=='credit' else '' }}">🛡️ Credit</a>
-    <a href="/dashboard/analytics/rfm"         class="{{ 'active' if analytics_view=='rfm' else '' }}">🏅 RFM</a>
-    <a href="/dashboard/analytics/churn"       class="{{ 'active' if analytics_view=='churn' else '' }}">⚠️ Churn risk</a>
-    <a href="/dashboard/analytics/payment-behaviour" class="{{ 'active' if analytics_view=='payment' else '' }}">🩺 Payment health</a>
-    <a href="/dashboard/analytics/portfolio"   class="{{ 'active' if analytics_view=='portfolio' else '' }}">🎛️ Portfolio</a>
-    <a href="/dashboard/analytics/lifecycle"   class="{{ 'active' if analytics_view=='lifecycle' else '' }}">🔄 Lifecycle</a>
+    <a data-tab="credit"     href="/dashboard/analytics/credit"      class="{{ 'active' if analytics_view=='credit' else '' }}">🛡️ Credit</a>
+    <a data-tab="rfm"        href="/dashboard/analytics/rfm"         class="{{ 'active' if analytics_view=='rfm' else '' }}">🏅 RFM</a>
+    <a data-tab="churn"      href="/dashboard/analytics/churn"       class="{{ 'active' if analytics_view=='churn' else '' }}">⚠️ Churn risk</a>
+    <a data-tab="payment"    href="/dashboard/analytics/payment-behaviour" class="{{ 'active' if analytics_view=='payment' else '' }}">🩺 Payment health</a>
+    <a data-tab="portfolio"  href="/dashboard/analytics/portfolio"   class="{{ 'active' if analytics_view=='portfolio' else '' }}">🎛️ Portfolio</a>
+    <a data-tab="lifecycle"  href="/dashboard/analytics/lifecycle"   class="{{ 'active' if analytics_view=='lifecycle' else '' }}">🔄 Lifecycle</a>
   </div>
 
   <div class="grp">
     <span class="glabel">Ops &amp; data</span>
-    <a href="/dashboard/analytics/wastage"     class="{{ 'active' if analytics_view=='wastage' else '' }}">🗑️ Wastage</a>
-    <a href="/dashboard/analytics/quality"     class="{{ 'active' if analytics_view=='quality' else '' }}">🎯 Ops quality</a>
-    <a href="/dashboard/analytics/data-health" class="{{ 'active' if analytics_view=='datahealth' else '' }}">🩹 Data health</a>
-    <a href="/dashboard/analytics/imports"     class="{{ 'active' if analytics_view=='imports' else '' }}">⬆️ Imports</a>
+    <a data-tab="wastage"    href="/dashboard/analytics/wastage"     class="{{ 'active' if analytics_view=='wastage' else '' }}">🗑️ Wastage</a>
+    <a data-tab="quality"    href="/dashboard/analytics/quality"     class="{{ 'active' if analytics_view=='quality' else '' }}">🎯 Ops quality</a>
+    <a data-tab="datahealth" href="/dashboard/analytics/data-health" class="{{ 'active' if analytics_view=='datahealth' else '' }}">🩹 Data health</a>
+    <a data-tab="imports"    href="/dashboard/analytics/imports"     class="{{ 'active' if analytics_view=='imports' else '' }}">⬆️ Imports</a>
   </div>
 
 </div>
+<script>
+(function(){
+  var LS = 'orderr_pinned_tabs_v1';
+  var subnav = document.querySelector('.subnav');
+  if (!subnav) return;
+  var bar = document.getElementById('pinnedBar');
+  var anchors = Array.prototype.slice.call(subnav.querySelectorAll('a[data-tab]'));
+
+  function getPins(){ try { return JSON.parse(localStorage.getItem(LS)) || []; } catch(e){ return []; } }
+  function setPins(a){ try { localStorage.setItem(LS, JSON.stringify(a)); } catch(e){} }
+
+  function render(){
+    var pins = getPins();
+    // reflect state on the source tabs
+    anchors.forEach(function(a){
+      var on = pins.indexOf(a.getAttribute('data-tab')) >= 0;
+      var star = a.querySelector('.pin');
+      if (star){ star.textContent = on ? '★' : '☆'; star.classList.toggle('on', on); }
+    });
+    // rebuild the pinned bar (keep its label, drop old clones)
+    Array.prototype.slice.call(bar.querySelectorAll('.pinnedlink, .pinhint')).forEach(function(n){ n.remove(); });
+    if (!pins.length){
+      var hint = document.createElement('span');
+      hint.className = 'pinhint';
+      hint.textContent = 'tap a ☆ on any tab to pin it here';
+      bar.appendChild(hint);
+      return;
+    }
+    pins.forEach(function(k){
+      var src = subnav.querySelector('.grp:not(.pinbar) a[data-tab="' + k + '"]');
+      if (!src) return;
+      var c = document.createElement('a');
+      c.href = src.getAttribute('href');
+      c.className = 'pinnedlink' + (src.classList.contains('active') ? ' active' : '');
+      c.innerHTML = src.getAttribute('data-label');
+      bar.appendChild(c);
+    });
+  }
+
+  anchors.forEach(function(a){
+    // snapshot the label (emoji + text) before we append the star
+    a.setAttribute('data-label', a.innerHTML);
+    var s = document.createElement('span');
+    s.className = 'pin';
+    s.textContent = '☆';
+    s.setAttribute('role', 'button');
+    s.setAttribute('title', 'Pin / unpin');
+    s.setAttribute('aria-label', 'Pin or unpin tab');
+    s.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      var k = a.getAttribute('data-tab');
+      var pins = getPins();
+      var i = pins.indexOf(k);
+      if (i >= 0) pins.splice(i, 1); else pins.push(k);
+      setPins(pins);
+      render();
+    });
+    a.appendChild(s);
+  });
+
+  render();
+})();
+</script>
