@@ -447,18 +447,32 @@ def strip_list_marker(text: str) -> str:
 
 def normalize_alias_key(raw: str) -> str:
     """Canonical, human-readable alias key: lowercased product phrase with any
-    leading list marker, parenthetical size annotation ("(900 gm)"), trailing
-    quantity/unit, and trailing dash/punctuation decoration removed. Used for
-    STORAGE (and display) so the saved key stays readable.
+    leading list marker, leading quantity(+unit), parenthetical size annotation
+    ("(900 gm)"), trailing quantity/unit, and trailing dash/punctuation
+    decoration removed. Used for STORAGE (and display) so the saved key stays
+    readable AND matches the name the parser looks up.
 
         "1)Chicken big ------- 30 kg"        -> "chicken big"
         "chicken big (900 gm) 30 kg"         -> "chicken big"
         "chicken big ------"                 -> "chicken big"
+        "5 तंदूर"                             -> "तंदूर"
+        "5 kg breast"                        -> "breast"
         "tandoori"                           -> "tandoori"
     """
     if not raw:
         return ""
     s = strip_list_marker(str(raw))                              # leading "1)" etc.
+    # Leading quantity(+unit): "5 तंदूर" -> "तंदूर", "5 kg breast" -> "breast".
+    # Mirrors the parser's quantity-first path (_QTY_FIRST_RE + _LEADING_UNIT_RE)
+    # so the stored key equals the raw_name the parser looks up. WITHOUT this,
+    # a quantity-first order ("5 तंदूर") re-enters the Unclear flow on every
+    # send even after the manager has resolved it, because the stored key kept
+    # the leading "5" that the parser had already split off as the quantity.
+    _lead = re.match(r'^\s*[\d]+(?:[./][\d]+)?\s+(.+)$', s)
+    if _lead:
+        _rest = _lead.group(1)
+        _lead_unit = _LEADING_UNIT_RE.match(_rest)
+        s = _lead_unit.group(2) if _lead_unit else _rest
     s = re.sub(r'\([^)]*\)', ' ', s)                            # "(900 gm)" size notes
     s = re.sub(r'\s*[-:]?\s*[\d\.]+\s*[a-zA-Z]*\s*$', '', s)     # trailing "30 kg"
     s = re.sub(r'[\s\-–—:_.]+$', '', s)                # trailing "------"

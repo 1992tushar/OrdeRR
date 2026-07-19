@@ -23,7 +23,11 @@ import sys
 # Make the repo root importable when run as a bare script.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from orderr_core.services.template_parser import parse_template_order  # noqa: E402
+from orderr_core.services.template_parser import (  # noqa: E402
+    parse_template_order,
+    normalize_alias_key,
+    alias_token_set,
+)
 
 _FAILURES = []
 
@@ -102,6 +106,40 @@ check("chicken big 10 kg", set(), "skin-ambiguous → unclear, never guessed")
 check_not_dropped("wings kg", "recognized product, no number")
 check_not_dropped("wings ..x kg", "recognized product, garbled quantity")
 check_not_dropped("breast 3 nos", "recognized kg product sent in nos (unit mismatch)")
+
+
+# ── Alias round-trip: a resolved item must re-match on the NEXT order ──────────
+# The manager resolves an Unclear line; the resolve endpoint stores
+# normalize_alias_key(full_line). On the next order the parser splits off the
+# quantity and looks up the bare product name. If the stored key and the lookup
+# name disagree, the item re-enters the Unclear flow FOREVER. The trap that
+# regressed: quantity-FIRST lines ("5 तंदूर", "3 Leg piece") kept the leading
+# number in the stored key while the parser stripped it — so they never matched.
+def check_alias_roundtrip(stored_line, lookup_name, note=""):
+    """`stored_line` = the raw Unclear line the manager resolves.
+    `lookup_name`  = the product-name the parser extracts next order.
+    They must resolve to the same alias key (exact OR token-set)."""
+    key   = normalize_alias_key(stored_line)
+    exact = key == lookup_name.strip().lower()
+    tok   = bool(alias_token_set(stored_line)) and \
+            alias_token_set(stored_line) == alias_token_set(lookup_name)
+    if exact or tok:
+        print(f"ok   alias {stored_line!r} -> {key!r} matches {lookup_name!r}")
+    else:
+        _FAILURES.append((stored_line, lookup_name, key, note))
+        print(f"FAIL alias {stored_line!r} -> {key!r} != {lookup_name!r}  {note}")
+
+
+check_alias_roundtrip("5 तंदूर", "तंदूर",
+                      "AARYA FOODZ: qty-first Devanagari tandoor")
+check_alias_roundtrip("2  lollipop", "lollipop", "qty-first, double space")
+check_alias_roundtrip("3  Leg piece", "Leg piece", "qty-first multi-word")
+check_alias_roundtrip("5 kg breast", "breast", "qty-first with leading unit")
+check_alias_roundtrip("1.5 tandoori", "tandoori", "qty-first decimal")
+check_alias_roundtrip("1/2 chicken curry", "chicken curry", "qty-first fraction")
+# Trailing-quantity and list-marker forms must still round-trip (no regression).
+check_alias_roundtrip("Chicken 30", "chicken", "trailing qty")
+check_alias_roundtrip("1)Chicken big ------- 30 kg", "chicken big", "list marker + dash + trailing qty")
 
 
 if __name__ == "__main__":
