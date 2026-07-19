@@ -63,7 +63,7 @@ from orderr_core.templating import make_templates
 templates = make_templates()
 
 def _today() -> date:
-    """Billing 'today' = the current BUSINESS date (rolls over at the 8 PM
+    """Billing 'today' = the current BUSINESS date (rolls over at the 9 PM
     cutoff), matching the Orders/Rates tabs. Using the plain calendar date here
     made Billing lag Orders by a day after the cutoff."""
     return date.fromisoformat(get_current_business_date_str())

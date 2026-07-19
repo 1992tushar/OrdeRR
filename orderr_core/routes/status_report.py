@@ -4,8 +4,8 @@
 customer lists are unreadable in WhatsApp and each template send costs money).
 
 One static link, NO auth (salespersons have no logins): /r/{REPORT_LINK_KEY}.
-Content follows the business date, which rolls over at RESET_HOUR (8 PM IST) —
-after 8 PM the page shows tomorrow's delivery cycle, exactly like ordering.
+Content follows the business date, which rolls over at RESET_HOUR (9 PM IST) —
+after 9 PM the page shows tomorrow's delivery cycle, exactly like ordering.
 """
 from collections import defaultdict
 from datetime import datetime

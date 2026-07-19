@@ -1,5 +1,5 @@
 """
-Business-date helpers — the single source for the 8 PM IST day-rollover logic.
+Business-date helpers — the single source for the 9 PM IST day-rollover logic.
 
 Imports only the standard library + orderr_core.constants, so it is free of
 circular-import risk and can be used from any service or route. order_service

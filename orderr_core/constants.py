@@ -11,8 +11,8 @@ from datetime import timedelta, timezone
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # Hour (IST) at which the "business day" rolls over to the next delivery date.
-# Orders placed at/after 8 PM IST count toward tomorrow's delivery.
-RESET_HOUR = 20
+# Orders placed at/after 9 PM IST count toward tomorrow's delivery.
+RESET_HOUR = 21
 
 # Sentinel written into a parsed item's "unit" field when the quantity's unit
 # is ambiguous and needs manager resolution. order_service / admin / the parser

@@ -32,7 +32,7 @@ BASE_URL = os.getenv("BASE_URL", "")
 
 # Path segment of the public live order-status page (/r/<key>). One static
 # link shared by the manager and salespersons — no login, content follows the
-# 8 PM business-date rollover.
+# 9 PM business-date rollover.
 REPORT_LINK_KEY = os.getenv("REPORT_LINK_KEY", "fluffy-status")
 
 

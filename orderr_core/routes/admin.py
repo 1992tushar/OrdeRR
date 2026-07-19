@@ -1175,7 +1175,7 @@ def set_next_day_override(
 
     now_ist = datetime.now(IST)
     if now_ist.hour >= RESET_HOUR:
-        raise HTTPException(status_code=403, detail="Override window closed. Orders are locked after 8 PM IST.")
+        raise HTTPException(status_code=403, detail="Override window closed. Orders are locked after 9 PM IST.")
 
     if order.created_at.tzinfo is None:
         # Some DB backends (e.g. SQLite) can strip tzinfo on read even
@@ -1189,7 +1189,7 @@ def set_next_day_override(
         order_ist = order.created_at.astimezone(IST)
     cutoff = order_ist.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
     if order_ist >= cutoff:
-        raise HTTPException(status_code=400, detail="This order was placed after 8 PM IST and is already assigned to the next day.")
+        raise HTTPException(status_code=400, detail="This order was placed after 9 PM IST and is already assigned to the next day.")
 
     if payload.is_next_day:
         order.business_date = (order_ist.date() + timedelta(days=1)).strftime("%Y-%m-%d")

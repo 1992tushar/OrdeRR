@@ -13,7 +13,7 @@ import json
 import os
 
 router = APIRouter()
-from orderr_core.constants import IST
+from orderr_core.constants import IST, RESET_HOUR
 from orderr_core.templating import make_templates
 templates = make_templates()
 
@@ -78,7 +78,7 @@ def dashboard(
     tomorrow  = (target_date + timedelta(days=1)).isoformat()
     is_today  = (target_date == today)
     now_ist = datetime.now(IST)
-    is_before_cutoff = now_ist.hour < 20
+    is_before_cutoff = now_ist.hour < RESET_HOUR
 
     failed_messages   = []
     reliability_stats = {"has_issues": False, "total_today": 0, "confirmed_today": 0, "failed_today": 0, "manual_review_total": 0}
