@@ -1156,8 +1156,7 @@ async function saveRates(){
 
   const selectedPhone = document.getElementById('cust-select').value;
   if(!selectedPhone){
-    if(!confirm('This updates the rate for ALL hotels that do NOT have a custom rate. '+
-                'Hotels with a custom rate keep theirs. Continue?')) return;
+    if(!confirm("Update today's rate for all hotels except those with a custom rate?")) return;
   }
   const url  = selectedPhone ? '/billing/api/save-customer-rate' : '/billing/api/save-rates';
   const body = selectedPhone
