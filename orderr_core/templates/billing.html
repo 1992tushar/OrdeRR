@@ -165,6 +165,12 @@ main{max-width:900px;margin:0 auto;padding:24px 18px 80px}
 .rate-inp{width:105px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:7px;font-size:14px;text-align:right;background:var(--surface)}
 .rate-inp:focus{outline:none;border-color:var(--green)}
 .rate-inp.edited{border-color:var(--green);background:var(--green-bg)}
+.line-rate{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.line-rate-inp{width:80px;padding:5px 8px;border:1px solid var(--border-strong);border-radius:6px;font-size:13px;text-align:right;background:var(--surface)}
+.line-rate-inp:focus{outline:none;border-color:var(--green)}
+.line-rate-inp.custom{border-color:var(--blue);background:var(--blue-bg)}
+.line-rate-inp:disabled{opacity:.5}
+.rate-badge{font-size:10px;background:var(--blue-bg);color:var(--blue);border-radius:4px;padding:1px 5px;font-weight:600;white-space:nowrap}
 
 .hist-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
 .hist-search{flex:1;min-width:160px;padding:8px 12px 8px 34px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;background:var(--surface) no-repeat 10px center}
@@ -509,6 +515,60 @@ function toggleCard(orderId){
   ch.style.transform = body.classList.contains('open') ? 'rotate(180deg)' : '';
 }
 
+// The editable per-hotel rate cell shown on every order line. Shows the rate
+// that currently applies to THIS hotel+product (customer override if one exists,
+// else the global/carried-forward rate). Editing it sets a rate just for this
+// hotel (see setItemRate). A "custom" badge marks a hotel-specific override.
+function lineRateTd(h, it){
+  const r = (it.rate != null) ? it.rate : '';
+  const custom = !!it.rate_is_custom;
+  const prod = (it.product || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  const u = it.rate_unit || it.unit || 'kg';
+  return '<td style="text-align:right">' +
+    '<div class="line-rate">' +
+      '<input class="line-rate-inp'+(custom?' custom':'')+'" type="number" step="0.01" min="0" ' +
+        'value="'+r+'" placeholder="₹ -" data-order="'+h.order_id+'" data-product="'+prod+'" data-unit="'+u+'" ' +
+        'onchange="setItemRate(this)" ' +
+        'title="'+(custom?'Custom rate for this hotel':'Global rate — edit to set a rate just for this hotel')+'">' +
+      (custom?'<span class="rate-badge">custom</span>':'') +
+    '</div></td>';
+}
+
+// Set/correct the rate for one hotel+product. Writes a customer-specific
+// override (sticks until changed, survives global saves). If the order is
+// already invoiced, the backend regenerates the bill in place with the new
+// rate (same number) — so confirm first, and remind about the Vasy voucher.
+async function setItemRate(inp){
+  const orderId = parseInt(inp.dataset.order, 10);
+  const product = inp.dataset.product;
+  const unit    = inp.dataset.unit || 'kg';
+  const rate    = parseFloat(inp.value);
+  if(!(rate > 0)){ showToast('Enter a rate greater than 0'); return; }
+  const h = hotelResults.find(x=>x.order_id===orderId);
+  if(h && h.status === 'invoiced'){
+    if(!confirm('Set '+erpName(product)+' to ₹'+rate+' for this hotel and re-generate invoice '+
+                h.invoice_number+' with the new rate?\n\n(If this bill is already in Vasy, correct that voucher by hand.)')){
+      refreshTodayView(); return;
+    }
+  }
+  inp.disabled = true;
+  try{
+    const r = await fetch('/billing/api/set-item-rate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({order_id:orderId, product, unit, rate})
+    });
+    const d = await r.json();
+    if(!r.ok || d.error){ showToast(d.error || 'Could not save rate'); refreshTodayView(); return; }
+    if(d.invoice_number){
+      showToast('Rate saved — '+d.invoice_number+' now ₹'+(d.total||0).toFixed(2)+
+        (d.vasy_warning ? '. Now correct the Vasy voucher by hand.' : ''));
+    } else {
+      showToast('Custom rate saved for this hotel');
+    }
+    await refreshTodayView();
+  }catch(e){ showToast('Could not save rate'); refreshTodayView(); }
+}
+
 function buildPendingBody(h){
   // Pending items already have actual_id seeded by the backend
   // (_ensure_order_seeded), so the operator can type every delivered quantity
@@ -527,11 +587,12 @@ function buildPendingBody(h){
       'aria-label="Delivered quantity for '+erpName(it.product)+'">' +
       '</td>' +
       '<td>'+it.unit+'</td>' +
+      lineRateTd(h, it) +
       '</tr>';
   });
   wrap.innerHTML = '<div class="unmatched-head" style="color:var(--blue)">Enter delivered quantities manually</div>' +
     '<table class="items-tbl"><thead><tr>' +
-    '<th>Product</th><th style="text-align:right">Ordered</th><th style="text-align:right">Delivered</th><th>Unit</th>' +
+    '<th>Product</th><th style="text-align:right">Ordered</th><th style="text-align:right">Delivered</th><th>Unit</th><th style="text-align:right">Rate</th>' +
     '</tr></thead><tbody>'+rows+'</tbody></table>' +
     '<div class="action-bar" style="margin-top:12px">' +
     '<button class="gen-btn" onclick="confirmAllItems('+h.order_id+')">Confirm delivered quantities</button>' +
@@ -571,6 +632,7 @@ function buildItemsTable(h){
       ) +
       '</td>' +
       '<td>'+it.unit+'</td>' +
+      lineRateTd(h, it) +
       '<td>'+(unconfirmed
         ? ''
         : '<span class="check-tag">OK</span>' +
@@ -579,7 +641,7 @@ function buildItemsTable(h){
       '</tr>';
   });
   wrap.innerHTML = '<table class="items-tbl"><thead><tr>' +
-    '<th>Product</th><th style="text-align:right">Ordered</th><th style="text-align:right">Delivered</th><th>Unit</th><th></th>' +
+    '<th>Product</th><th style="text-align:right">Ordered</th><th style="text-align:right">Delivered</th><th>Unit</th><th style="text-align:right">Rate</th><th></th>' +
     '</tr></thead><tbody>'+rows+'</tbody></table>' +
     (anyEditable
       ? '<div class="action-bar" style="margin-top:12px">' +
@@ -1093,6 +1155,10 @@ async function saveRates(){
   if(!rates.length){ showToast('No rates to save'); return; }
 
   const selectedPhone = document.getElementById('cust-select').value;
+  if(!selectedPhone){
+    if(!confirm('This updates the rate for ALL hotels that do NOT have a custom rate. '+
+                'Hotels with a custom rate keep theirs. Continue?')) return;
+  }
   const url  = selectedPhone ? '/billing/api/save-customer-rate' : '/billing/api/save-rates';
   const body = selectedPhone
     ? JSON.stringify({customer_phone: selectedPhone, rates})

@@ -221,6 +221,123 @@ async def api_save_customer_rate(request: Request, db: Session = Depends(get_db)
     db.commit()
     return {"ok": True, "saved": saved}
 
+
+# ---------------------------------------------------------------------------
+# set-item-rate — set/correct the rate for ONE hotel+product straight from an
+# order card. Writes a customer-specific override (so it sticks for that hotel
+# until changed, and survives global rate saves), keyed to today. If the order
+# is already invoiced, the bill is regenerated in place (same invoice number)
+# with the new rate — the only way to push a rate change into an issued bill,
+# since rate_used is otherwise frozen at generation time. A synced Vasy voucher
+# still has to be corrected by hand (the bot only ever CREATES vouchers).
+# ---------------------------------------------------------------------------
+
+@router.post("/billing/api/set-item-rate")
+async def api_set_item_rate(request: Request, db: Session = Depends(get_db)):
+    body     = await request.json()
+    order_id = body.get("order_id")
+    product  = (body.get("product") or "").strip()
+    unit     = (body.get("unit") or "kg").strip()
+    try:
+        rate_value = float(body.get("rate") or 0)
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400, content={"error": "Invalid rate"})
+
+    if order_id is None or not product or rate_value <= 0:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "order_id, product and a rate greater than 0 are required"},
+        )
+
+    # Resolve the hotel's phone authoritatively from the order (never trust a
+    # client-supplied phone) — same precedence as _build_hotel_record: the
+    # order's own phone first, then a name lookup as a fallback.
+    order_row = db.execute(
+        text("SELECT customer_phone, customer_name FROM orders WHERE id = :oid"),
+        {"oid": order_id},
+    ).fetchone()
+    if not order_row:
+        return JSONResponse(status_code=404, content={"error": f"Order {order_id} not found"})
+    customer_phone = (order_row[0] or "").strip()
+    if not customer_phone:
+        crow = db.execute(
+            text("""
+                SELECT phone_number FROM customers
+                WHERE LOWER(restaurant_name) = LOWER(:name)
+                  AND is_active = TRUE
+                ORDER BY id DESC
+                LIMIT 1
+            """),
+            {"name": order_row[1]},
+        ).fetchone()
+        customer_phone = (crow[0] if crow else "").strip()
+    if not customer_phone:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "This hotel has no phone on record, so a per-hotel "
+                              "rate can't be keyed to it. Set the customer's phone first."},
+        )
+
+    today = _today()
+
+    # Deactivate any currently-active override for this hotel+product, then add
+    # the new one (mirrors save-customer-rate so both paths behave identically).
+    active = db.scalars(
+        select(CustomerRateOverride).where(
+            CustomerRateOverride.customer_phone == customer_phone,
+            CustomerRateOverride.product == product,
+            CustomerRateOverride.effective_to.is_(None),
+        )
+    ).all()
+    for ov in active:
+        ov.effective_to = today
+    db.add(CustomerRateOverride(
+        customer_phone=customer_phone,
+        product=product,
+        rate_per_unit=rate_value,
+        unit=unit,
+        effective_from=today,
+        effective_to=None,
+    ))
+    db.flush()
+
+    # If already invoiced, rebuild the bill in place with the new rate.
+    existing_invoice = db.scalars(
+        select(Invoice).where(Invoice.order_id == order_id)
+    ).first()
+    if not existing_invoice:
+        db.commit()
+        return {"ok": True, "invoice_number": None}
+
+    was_synced = bool(existing_invoice.vasy_synced_at)
+    try:
+        invoice = reissue_invoice(db, order_id, refresh_rates=True)
+    except InvoiceHoldError as e:
+        db.rollback()
+        return JSONResponse(status_code=422, content={"error": str(e)})
+    except Exception as e:
+        db.rollback()
+        logger.exception("set-item-rate reissue failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # Cached PDF is now stale — drop it so it regenerates, and clear printed_at
+    # so "Print all" reprints the corrected bill.
+    try:
+        for p in Path("invoices").glob(f"*_{invoice.invoice_number}.pdf"):
+            p.unlink()
+    except Exception:
+        logger.warning("could not clear cached PDF for %s", invoice.invoice_number)
+    invoice.printed_at = None
+    db.commit()
+
+    return {
+        "ok":             True,
+        "invoice_number": invoice.invoice_number,
+        "total":          float(invoice.total),
+        "vasy_warning":   was_synced,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Seeding: turn an orderr-core order into OrderItemActual + OcrUnmatchedLine
 # rows the first time it's viewed. Idempotent — safe to call every request.
@@ -349,8 +466,13 @@ def _build_hotel_record(db: Session, hotel_name: str, order_id: int) -> dict:
         select(OrderItemActual).where(OrderItemActual.order_id == order_id)
     ).all()
 
+    rate_date = _today()
     items_out = []
     for a in actuals:
+        # The rate that WOULD apply to this hotel+product right now (customer
+        # override first, then today's / carried-forward daily rate). Surfaced
+        # per line so the card can show it and let the operator correct it.
+        rr = get_rate(db, a.product, rate_date, customer_phone or None)
         items_out.append({
             "actual_id":     a.id,
             "product":       a.product,
@@ -359,6 +481,9 @@ def _build_hotel_record(db: Session, hotel_name: str, order_id: int) -> dict:
             "unit":          a.actual_unit or a.ordered_unit,
             "needs_review":  a.confidence == "needs_review" and not a.confirmed_by,
             "review_reason": None,
+            "rate":          float(rr.rate_per_unit) if rr.found else None,
+            "rate_unit":     rr.unit,
+            "rate_is_custom": rr.source == "override",
         })
 
     unmatched_lines = db.scalars(

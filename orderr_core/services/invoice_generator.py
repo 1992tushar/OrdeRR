@@ -223,18 +223,27 @@ def generate_invoice(
 # Reissue / correction
 # ---------------------------------------------------------------------------
 
-def reissue_invoice(db: Session, order_id: int) -> Invoice:
+def reissue_invoice(db: Session, order_id: int, refresh_rates: bool = False) -> Invoice:
     """
     Rebuild an EXISTING invoice in place from the order's current (corrected)
     actuals — same invoice_number, same order_id — so a data-entry error (e.g. a
     delivered-quantity typo like 405 kg instead of 4.05 kg) can be fixed without
     minting a new invoice number or a duplicate in downstream systems (Vasy).
 
-    Only quantities/amounts/total change. rate_used stays the ORIGINAL snapshot
-    per product (per §rate rules, rates are never recalculated retroactively) —
-    we reuse the rate from the existing invoice line for that product. A product
-    newly present on the order (not on the original invoice) resolves its rate
-    fresh via get_rate.
+    refresh_rates=False (default — the quantity-correction path):
+        Only quantities/amounts/total change. rate_used stays the ORIGINAL
+        snapshot per product (per §rate rules, rates are never recalculated
+        retroactively) — we reuse the rate from the existing invoice line for
+        that product. A product newly present on the order (not on the original
+        invoice) resolves its rate fresh via get_rate.
+
+    refresh_rates=True (the rate-correction path):
+        EVERY line re-resolves its rate via get_rate (customer override first,
+        then today's/carried-forward daily rate). This is the ONLY way to push a
+        just-changed rate into an already-issued bill, since rates are otherwise
+        frozen at generation time. The invoice_number / order_id are still
+        untouched, so no new number is minted and nothing duplicates downstream —
+        but the matching Vasy voucher must be corrected by hand.
 
     The caller is responsible for deleting any cached PDF for this invoice so it
     regenerates on next view (see api_correct_invoice).
@@ -284,10 +293,13 @@ def reissue_invoice(db: Session, order_id: int) -> Invoice:
         qty = Decimal(str(actual.actual_quantity))
         unit = actual.actual_unit or actual.ordered_unit
 
-        if actual.product in prior:
+        if actual.product in prior and not refresh_rates:
             rate, rate_source = prior[actual.product]
         else:
-            # Item added after the original invoice — resolve its rate fresh.
+            # refresh_rates=True → re-resolve every line's current rate so a
+            # just-changed rate flows into this bill. refresh_rates=False → this
+            # branch is only reached for a product added after the original
+            # invoice; either way the rate is resolved fresh via get_rate.
             rr = get_rate(
                 db=db,
                 product=actual.product,
