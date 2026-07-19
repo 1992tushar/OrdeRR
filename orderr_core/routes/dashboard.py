@@ -558,10 +558,45 @@ def analytics_financials(
     )
 
 
+@router.get("/analytics/business", response_class=HTMLResponse)
+def analytics_business(
+    request: Request,
+    frm: str = Query(default=None, alias="from", description="window start YYYY-MM-DD"),
+    to: str = Query(default=None, description="window end YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Business at a glance — Sales / Purchases / Expenses / Received cards for a
+    [from, to] window, each drilling down to its underlying rows. Defaults to the
+    current month-to-date."""
+    from orderr_core.services import analytics_service
+
+    today = get_current_business_date()
+    from_date, to_date = _parse_iso(frm), _parse_iso(to)
+    if from_date is None:
+        from_date = today.replace(day=1)          # month-to-date default
+    if to_date is None:
+        to_date = today
+    if from_date > to_date:
+        from_date, to_date = to_date, from_date
+    data = analytics_service.business_overview(db, from_date, to_date)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_analytics_business.html",
+        context={
+            "plant_name" : PLANT_NAME,
+            "current_time": datetime.now(IST).strftime("%d %b %Y, %I:%M %p"),
+            "biz"        : data,
+            "analytics_view": "business",
+        },
+    )
+
+
 # Valid Analytics subnav tab keys — pins are restricted to these so junk
 # can't accumulate in the prefs row. Keep in sync with _analytics_subnav.html.
 _PIN_TABS = {
-    "overview", "cashbook", "collections", "receivables", "chase",
+    "overview", "business", "cashbook", "collections", "receivables", "chase",
     "close", "financials", "expenses", "revenue",
     "products", "team", "reconcile",
     "credit", "rfm", "churn", "payment", "portfolio", "lifecycle",

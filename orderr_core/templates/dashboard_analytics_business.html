@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ plant_name }} · Business</title>
+<style>
+:root{
+  --ink:#1a1a18;--ink2:#5a5a54;--ink3:#9a9a90;
+  --bg:#f4f3ef;--surface:#fff;--border:rgba(0,0,0,0.09);--border-strong:rgba(0,0,0,0.15);
+  --green:#1a6b41;--green-bg:#e8f5ee;--green-border:#b6ddc8;
+  --amber:#92540a;--amber-bg:#fef3c7;--amber-border:#f5cc6e;
+  --red:#b91c1c;--red-bg:#fee2e2;--red-border:#fca5a5;
+  --blue:#1b4fba;--blue-bg:#eff4ff;--blue-border:#b3c8f7;
+  --r:10px;--shadow:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;font-size:14px;background:var(--bg);color:var(--ink);min-height:100vh}
+.nav{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.nav-back{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:500;color:var(--ink3);text-decoration:none;margin-right:14px;padding:4px 8px;border-radius:6px}
+.nav-back:hover{color:var(--green);background:var(--bg)}
+.nav-logo{font-weight:700;font-size:15px;color:var(--green);display:flex;align-items:center;gap:6px}
+.nav-right{margin-left:auto}
+.date-chip{font-size:12px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
+.section-title{font-size:15px;font-weight:700;margin:24px 2px 12px}
+.note{font-size:11px;color:var(--ink3);background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber-border);border-radius:8px;padding:10px 14px;margin:12px 0}
+
+/* date filter bar */
+.filter{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:6px}
+.filter .fld{display:flex;flex-direction:column;gap:3px}
+.filter label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3)}
+.filter input[type=date]{font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--border-strong);border-radius:7px;background:var(--bg);color:var(--ink)}
+.filter button{font:inherit;font-size:13px;font-weight:600;padding:7px 16px;border:none;border-radius:7px;background:var(--green);color:#fff;cursor:pointer}
+.filter button:hover{filter:brightness(1.06)}
+.presets{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.presets a{font-size:12px;font-weight:600;color:var(--ink2);text-decoration:none;background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:5px 11px}
+.presets a:hover{color:var(--green);border-color:var(--green-border)}
+.rangelbl{font-size:12px;color:var(--ink3);margin:10px 2px 0}
+.rangelbl b{color:var(--ink2)}
+
+/* KPI-style cards, but clickable + selectable */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px}
+@media(max-width:820px){.cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:420px){.cards{grid-template-columns:1fr}}
+.card{position:relative;text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 15px;box-shadow:var(--shadow);cursor:pointer;transition:transform .08s,box-shadow .12s,border-color .12s}
+.card:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.09)}
+.card .top{display:flex;align-items:center;gap:7px}
+.card .ic{font-size:16px}
+.card .lbl{font-size:12px;font-weight:700;color:var(--ink2)}
+.card .n{font-size:21px;font-weight:800;line-height:1.05;letter-spacing:-.4px;margin-top:9px}
+.card .sub{font-size:10px;color:var(--ink3);margin-top:5px}
+.card .caret{position:absolute;right:13px;top:14px;font-size:11px;color:var(--ink3);transition:transform .15s}
+.card.sel .caret{transform:rotate(180deg)}
+.card.green .n{color:var(--green)} .card.amber .n{color:var(--amber)}
+.card.red .n{color:var(--red)} .card.blue .n{color:var(--blue)}
+.card.sel{border-color:var(--border-strong);box-shadow:0 0 0 2px var(--green-border),var(--shadow)}
+.card.green.sel{box-shadow:0 0 0 2px var(--green-border),var(--shadow)}
+.card.amber.sel{box-shadow:0 0 0 2px var(--amber-border),var(--shadow)}
+.card.red.sel{box-shadow:0 0 0 2px var(--red-border),var(--shadow)}
+.card.blue.sel{box-shadow:0 0 0 2px var(--blue-border),var(--shadow)}
+
+/* net strip */
+.net{display:flex;gap:22px;flex-wrap:wrap;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:11px 16px;margin-top:12px;font-size:12px;color:var(--ink3)}
+.net .v{font-size:15px;font-weight:800;display:block;margin-top:2px;color:var(--ink)}
+.net .v.pos{color:var(--green)} .net .v.neg{color:var(--red)}
+
+/* drill-down tables */
+.panel{display:none;margin-top:16px}
+.panel.on{display:block}
+.wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{padding:9px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tfoot td{font-weight:700;background:var(--bg)}
+.mut{color:var(--ink3)}
+.empty{color:var(--ink3);text-align:center;padding:28px}
+.paneltitle{font-size:14px;font-weight:700;margin:0 2px 10px;display:flex;align-items:center;gap:8px}
+.pill{font-size:11px;font-weight:600;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="/dashboard/" class="nav-back">← Dashboard</a>
+  <span class="nav-logo">📊 {{ plant_name }} Analytics</span>
+  <div class="nav-right"><span class="date-chip">{{ current_time }}</span></div>
+</div>
+
+<main>
+  {% include "_analytics_subnav.html" %}
+
+  <div class="section-title" style="margin-top:6px">💼 Business at a glance</div>
+
+  <form class="filter" method="get" action="/dashboard/analytics/business">
+    <div class="fld">
+      <label for="from">From</label>
+      <input type="date" id="from" name="from" value="{{ biz.start_iso }}">
+    </div>
+    <div class="fld">
+      <label for="to">To</label>
+      <input type="date" id="to" name="to" value="{{ biz.end_iso }}">
+    </div>
+    <button type="submit">Apply</button>
+    <div class="presets">
+      <a href="/dashboard/analytics/business?preset=today"  data-preset="today">Today</a>
+      <a href="/dashboard/analytics/business?preset=7"      data-preset="7">7 days</a>
+      <a href="/dashboard/analytics/business?preset=30"     data-preset="30">30 days</a>
+      <a href="/dashboard/analytics/business?preset=month"  data-preset="month">This month</a>
+    </div>
+  </form>
+  <div class="rangelbl">Showing <b>{{ biz.start_fmt }}</b> → <b>{{ biz.end_fmt }}</b> · tap a card to see the underlying entries.</div>
+
+  {% if not biz.has_data %}
+  <div class="note">No Sales, Purchase, Expense or Receipt data in this window. Import money data on the <a href="/dashboard/analytics/imports">Imports</a> page, or widen the date range.</div>
+  {% else %}
+
+  <div class="cards">
+    {% for c in biz.cards %}
+    <button type="button" class="card {{ c.tone }}{{ ' sel' if loop.first else '' }}" data-target="ledger-{{ c.key }}" aria-expanded="{{ 'true' if loop.first else 'false' }}">
+      <span class="caret">▾</span>
+      <div class="top"><span class="ic">{{ c.icon }}</span><span class="lbl">{{ c.label }}</span></div>
+      <div class="n">{{ c.total_fmt }}</div>
+      <div class="sub">{{ c.count }} entr{{ 'y' if c.count == 1 else 'ies' }} · {{ c.hint }}</div>
+    </button>
+    {% endfor %}
+  </div>
+
+  <div class="net">
+    <span>Received (cash in)<span class="v pos">{{ biz.received_fmt }}</span></span>
+    <span>Purchases + Expenses (billed)<span class="v">{{ biz.money_out_fmt }}</span></span>
+    <span>Net<span class="v {{ 'pos' if biz.net_positive else 'neg' }}">{{ biz.net_fmt }}</span></span>
+    <span style="margin-left:auto;max-width:340px;font-size:10.5px;line-height:1.4">Indicative only — receipts are cash-in while purchases/expenses are billed (accrual), so they don't net exactly.</span>
+  </div>
+
+  {% for c in biz.cards %}
+  <div class="panel{{ ' on' if loop.first else '' }}" id="ledger-{{ c.key }}">
+    <div class="paneltitle">{{ c.icon }} {{ c.label }}
+      <span class="pill">{{ c.count }} entr{{ 'y' if c.count == 1 else 'ies' }}</span>
+      <span class="pill">{{ c.total_fmt }}</span>
+    </div>
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Date</th><th>{{ c.ref_head }}</th><th>Party</th><th>{{ c.meta_head }}</th><th class="num">Amount</th>
+        </tr></thead>
+        <tbody>
+          {% for r in c.rows %}
+          <tr>
+            <td class="mut">{{ r.date }}</td>
+            <td>{{ r.ref }}</td>
+            <td>{{ r.party }}</td>
+            <td class="mut">{{ r.meta }}</td>
+            <td class="num">{{ r.amount_fmt }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No {{ c.label|lower }} in this window.</td></tr>
+          {% endfor %}
+        </tbody>
+        {% if c.rows %}
+        <tfoot><tr><td colspan="4">Total{% if c.truncated %} (showing first {{ c.rows|length }} of {{ c.count }}){% endif %}</td><td class="num">{{ c.total_fmt }}</td></tr></tfoot>
+        {% endif %}
+      </table>
+    </div></div>
+    {% if c.truncated %}
+    <div class="note">Showing the {{ c.rows|length }} most recent of {{ c.count }} entries. Narrow the date range to see the rest.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% endif %}
+</main>
+
+<script>
+(function(){
+  // Card → drill-down toggle. Selecting a card shows its ledger table and
+  // hides the others (single-open accordion driven by the cards).
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card[data-target]'));
+  cards.forEach(function(card){
+    card.addEventListener('click', function(){
+      var id = card.getAttribute('data-target');
+      cards.forEach(function(c){
+        var on = c === card;
+        c.classList.toggle('sel', on);
+        c.setAttribute('aria-expanded', on ? 'true' : 'false');
+      });
+      document.querySelectorAll('.panel').forEach(function(p){
+        p.classList.toggle('on', p.id === id);
+      });
+    });
+  });
+
+  // Date presets — compute [from,to] client-side and submit, so the server
+  // route stays a plain from/to window.
+  function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  document.querySelectorAll('.presets a[data-preset]').forEach(function(a){
+    a.addEventListener('click', function(e){
+      e.preventDefault();
+      var p = a.getAttribute('data-preset'), to = new Date(), from = new Date();
+      if (p === 'today') { /* from = to = today */ }
+      else if (p === '7')  { from.setDate(to.getDate() - 6); }
+      else if (p === '30') { from.setDate(to.getDate() - 29); }
+      else if (p === 'month') { from = new Date(to.getFullYear(), to.getMonth(), 1); }
+      window.location = '/dashboard/analytics/business?from=' + iso(from) + '&to=' + iso(to);
+    });
+  });
+})();
+</script>
+</body>
+</html>

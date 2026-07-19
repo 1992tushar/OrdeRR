@@ -959,6 +959,127 @@ def plant_financials(db: Session, today: date, months: int = 12) -> dict:
     }
 
 
+def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) -> dict:
+    """Business-at-a-glance for a [start, end] date window: four money ledgers —
+    Sales, Purchases, Expenses and Received — each with its period total, count
+    and the underlying rows (for the drill-down on the Business tab).
+
+    All four come straight from the Vasy mirror (source of truth for money):
+      Sales     = Vasy sales invoices  (invoice_date, total)
+      Purchases = Vasy purchase bills  (bill_date, total)
+      Expenses  = Vasy expenses        (expense_date, total)
+      Received  = customer receipts    (receipt_date, amount)
+
+    Each ledger's `rows` are newest-first and capped at `row_cap` (the total /
+    count always reflect the full window; `truncated` flags a capped list).
+    """
+    def _fmt_d(d):
+        return d.strftime("%d %b %Y") if d else "—"
+
+    # ── Sales (Vasy invoices) ────────────────────────────────────────────────
+    sales_q = (db.query(VasyInvoice)
+               .filter(VasyInvoice.invoice_date != None,               # noqa: E711
+                       VasyInvoice.invoice_date >= start,
+                       VasyInvoice.invoice_date <= end)
+               .order_by(VasyInvoice.invoice_date.desc(), VasyInvoice.id.desc()))
+    sales_total = float(db.query(func.coalesce(func.sum(VasyInvoice.total), 0))
+                        .filter(VasyInvoice.invoice_date != None,      # noqa: E711
+                                VasyInvoice.invoice_date >= start,
+                                VasyInvoice.invoice_date <= end).scalar() or 0)
+    sales_count = sales_q.count()
+    sales_rows = [{
+        "date": _fmt_d(r.invoice_date), "ref": r.voucher_no,
+        "party": r.party_name, "meta": f"{r.item_count} item(s)",
+        "amount": float(r.total or 0), "amount_fmt": fmt_inr(r.total),
+    } for r in sales_q.limit(row_cap).all()]
+
+    # ── Purchases (Vasy purchase bills) ──────────────────────────────────────
+    purch_q = (db.query(VasyPurchase)
+               .filter(VasyPurchase.bill_date != None,                 # noqa: E711
+                       VasyPurchase.bill_date >= start,
+                       VasyPurchase.bill_date <= end)
+               .order_by(VasyPurchase.bill_date.desc(), VasyPurchase.id.desc()))
+    purch_total = float(db.query(func.coalesce(func.sum(VasyPurchase.total), 0))
+                        .filter(VasyPurchase.bill_date != None,        # noqa: E711
+                                VasyPurchase.bill_date >= start,
+                                VasyPurchase.bill_date <= end).scalar() or 0)
+    purch_count = purch_q.count()
+    purch_rows = [{
+        "date": _fmt_d(r.bill_date), "ref": r.bill_no,
+        "party": r.party_name, "meta": f"{r.item_count} item(s)",
+        "amount": float(r.total or 0), "amount_fmt": fmt_inr(r.total),
+    } for r in purch_q.limit(row_cap).all()]
+
+    # ── Expenses (Vasy expenses) ─────────────────────────────────────────────
+    exp_q = (db.query(VasyExpense)
+             .filter(VasyExpense.expense_date != None,                 # noqa: E711
+                     VasyExpense.expense_date >= start,
+                     VasyExpense.expense_date <= end)
+             .order_by(VasyExpense.expense_date.desc(), VasyExpense.id.desc()))
+    exp_total = float(db.query(func.coalesce(func.sum(VasyExpense.total), 0))
+                      .filter(VasyExpense.expense_date != None,        # noqa: E711
+                              VasyExpense.expense_date >= start,
+                              VasyExpense.expense_date <= end).scalar() or 0)
+    exp_count = exp_q.count()
+    exp_rows = [{
+        "date": _fmt_d(r.expense_date), "ref": r.expense_no,
+        "party": r.party_name,
+        "meta": ("unpaid " + fmt_inr(r.unpaid)) if float(r.unpaid or 0) > 0 else "paid",
+        "amount": float(r.total or 0), "amount_fmt": fmt_inr(r.total),
+    } for r in exp_q.limit(row_cap).all()]
+
+    # ── Received (customer receipts) ─────────────────────────────────────────
+    rcpt_q = (db.query(CustomerReceipt)
+              .filter(CustomerReceipt.receipt_date != None,            # noqa: E711
+                      CustomerReceipt.receipt_date >= start,
+                      CustomerReceipt.receipt_date <= end)
+              .order_by(CustomerReceipt.receipt_date.desc(), CustomerReceipt.id.desc()))
+    rcpt_total = float(db.query(func.coalesce(func.sum(CustomerReceipt.amount), 0))
+                       .filter(CustomerReceipt.receipt_date != None,   # noqa: E711
+                               CustomerReceipt.receipt_date >= start,
+                               CustomerReceipt.receipt_date <= end).scalar() or 0)
+    rcpt_count = rcpt_q.count()
+    rcpt_rows = [{
+        "date": _fmt_d(r.receipt_date), "ref": r.receipt_no,
+        "party": r.party_name, "meta": (r.mode or "").upper(),
+        "amount": float(r.amount or 0), "amount_fmt": fmt_inr(r.amount),
+    } for r in rcpt_q.limit(row_cap).all()]
+
+    cards = [
+        {"key": "sales",    "label": "Sales",     "icon": "🧾", "tone": "green",
+         "hint": "Vasy sales invoices", "total": sales_total, "total_fmt": fmt_inr(sales_total),
+         "count": sales_count, "rows": sales_rows, "truncated": sales_count > len(sales_rows),
+         "ref_head": "Voucher", "meta_head": "Items"},
+        {"key": "purchases", "label": "Purchases", "icon": "📦", "tone": "amber",
+         "hint": "Vasy purchase bills", "total": purch_total, "total_fmt": fmt_inr(purch_total),
+         "count": purch_count, "rows": purch_rows, "truncated": purch_count > len(purch_rows),
+         "ref_head": "Bill no", "meta_head": "Items"},
+        {"key": "expenses", "label": "Expenses",  "icon": "💡", "tone": "red",
+         "hint": "Vasy expenses (opex)", "total": exp_total, "total_fmt": fmt_inr(exp_total),
+         "count": exp_count, "rows": exp_rows, "truncated": exp_count > len(exp_rows),
+         "ref_head": "Expense no", "meta_head": "Status"},
+        {"key": "received", "label": "Received",  "icon": "💰", "tone": "blue",
+         "hint": "Money in (receipts)", "total": rcpt_total, "total_fmt": fmt_inr(rcpt_total),
+         "count": rcpt_count, "rows": rcpt_rows, "truncated": rcpt_count > len(rcpt_rows),
+         "ref_head": "Receipt no", "meta_head": "Mode"},
+    ]
+
+    money_out = purch_total + exp_total
+    return {
+        "has_data": bool(sales_count or purch_count or exp_count or rcpt_count),
+        "start": start, "end": end,
+        "start_fmt": _fmt_d(start), "end_fmt": _fmt_d(end),
+        "start_iso": start.isoformat(), "end_iso": end.isoformat(),
+        "cards": cards,
+        # Rough money-in vs money-out read for the range. Purchases/expenses are
+        # accrual (billed), receipts are cash-in, so this is indicative not exact.
+        "received_fmt": fmt_inr(rcpt_total),
+        "money_out_fmt": fmt_inr(money_out),
+        "net_fmt": fmt_inr(rcpt_total - money_out),
+        "net_positive": (rcpt_total - money_out) >= 0,
+    }
+
+
 def plant_expenses(db: Session, today: date, months: int = 12) -> dict:
     """Standalone opex (expense-ledger) view: monthly trend, paid/unpaid split,
     and a breakdown by expense head (party_name). Sourced only from Vasy
