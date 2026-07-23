@@ -76,10 +76,17 @@ th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
 td{padding:9px 12px;border-bottom:1px solid var(--border)}
 tr:last-child td{border-bottom:none}
 tfoot td{font-weight:700;background:var(--bg)}
-.mut{color:var(--ink3)}
+.mut{color:var(--ink3)} .neg{color:var(--red)}
 .empty{color:var(--ink3);text-align:center;padding:28px}
 .paneltitle{font-size:14px;font-weight:700;margin:0 2px 10px;display:flex;align-items:center;gap:8px}
 .pill{font-size:11px;font-weight:600;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px}
+.subhead{font-size:12px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.4px;margin:16px 2px 8px}
+.subhead:first-of-type{margin-top:2px}
+.subhead .mut{font-weight:400;text-transform:none;letter-spacing:0}
+/* share-bar behind the party name — same 'nice view' as the Expenses tab */
+.bar{position:relative}
+.bar .fill{position:absolute;left:0;top:0;bottom:0;background:var(--amber-bg);z-index:0}
+.bar .txt{position:relative;z-index:1}
 </style>
 </head>
 <body>
@@ -142,6 +149,31 @@ tfoot td{font-weight:700;background:var(--bg)}
       <span class="pill">{{ c.count }} entr{{ 'y' if c.count == 1 else 'ies' }}</span>
       <span class="pill">{{ c.total_fmt }}</span>
     </div>
+
+    <!-- By party (the 'nice view' — share-bar breakdown, like the Expenses tab) -->
+    <div class="subhead">By {{ c.group_head|lower }}{% if c.group_count > c.breakdown|length %} <span class="mut">— top {{ c.breakdown|length }} of {{ c.group_count }}</span>{% endif %}</div>
+    <div class="wrap"><div class="scroll">
+      <table>
+        <thead><tr>
+          <th>{{ c.group_head }}</th><th class="num">Entries</th><th class="num">Total</th><th class="num">Share</th>{% if c.has_unpaid %}<th class="num">Unpaid</th>{% endif %}
+        </tr></thead>
+        <tbody>
+          {% for g in c.breakdown %}
+          <tr class="daywise" data-ledger="{{ c.key }}" data-party="{{ g.name }}" data-from="{{ biz.start_iso }}" data-to="{{ biz.end_iso }}">
+            <td class="bar"><span class="fill" style="width:{{ g.pct }}%"></span><span class="txt">{{ g.name }}</span></td>
+            <td class="num mut">{{ g.count }}</td>
+            <td class="num">{{ g.total_fmt }}</td>
+            <td class="num mut">{{ g.pct }}%</td>
+            {% if c.has_unpaid %}<td class="num {{ 'neg' if g.unpaid_fmt != '₹0' else 'mut' }}">{{ g.unpaid_fmt }}</td>{% endif %}
+          </tr>
+          {% else %}
+          <tr><td colspan="{{ 5 if c.has_unpaid else 4 }}" class="empty">No {{ c.label|lower }} in this window.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+
+    <div class="subhead">All entries</div>
     <div class="wrap"><div class="scroll">
       <table>
         <thead><tr>
@@ -173,6 +205,8 @@ tfoot td{font-weight:700;background:var(--bg)}
 
   {% endif %}
 </main>
+
+{% include "_daywise_modal.html" %}
 
 <script>
 (function(){

@@ -593,6 +593,28 @@ def analytics_business(
     )
 
 
+@router.get("/analytics/ledger/daywise")
+def analytics_ledger_daywise(
+    ledger: str = Query(..., description="sales|purchases|expenses|received"),
+    party: str = Query(..., description="party / expense head to drill into"),
+    frm: str = Query(default=None, alias="from", description="window start YYYY-MM-DD (optional)"),
+    to: str = Query(default=None, description="window end YYYY-MM-DD (optional)"),
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Day-wise drill-down behind one Business/Expenses breakdown row. Window is
+    optional (Business passes its [from,to]; Expenses groups all-time)."""
+    from orderr_core.services import analytics_service
+
+    if ledger not in ("sales", "purchases", "expenses", "received"):
+        raise HTTPException(status_code=400, detail="unknown ledger")
+    from_date, to_date = _parse_iso(frm), _parse_iso(to)
+    if from_date and to_date and from_date > to_date:
+        from_date, to_date = to_date, from_date
+    data = analytics_service.ledger_daywise(db, ledger, party, from_date, to_date)
+    return JSONResponse(data)
+
+
 # Valid Analytics subnav tab keys — pins are restricted to these so junk
 # can't accumulate in the prefs row. Keep in sync with _analytics_subnav.html.
 _PIN_TABS = {

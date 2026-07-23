@@ -110,7 +110,7 @@ tfoot td{font-weight:700;background:var(--bg)}
       <thead><tr><th>Expense head / payee</th><th class="num">Entries</th><th class="num">Total (all-time)</th><th class="num">Share</th><th class="num">Unpaid</th></tr></thead>
       <tbody>
         {% for h in exp.heads %}
-        <tr>
+        <tr class="daywise" data-ledger="expenses" data-party="{{ h.head }}">
           <td class="bar"><span class="fill" style="width:{{ h.pct }}%"></span><span class="txt">{{ h.head }}</span></td>
           <td class="num mut">{{ h.count }}</td>
           <td class="num">{{ h.total_fmt }}</td>
@@ -125,5 +125,7 @@ tfoot td{font-weight:700;background:var(--bg)}
   </div></div>
   {% endif %}
 </main>
+
+{% include "_daywise_modal.html" %}
 </body>
 </html>

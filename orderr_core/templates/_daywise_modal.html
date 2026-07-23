@@ -1,0 +1,113 @@
+<!-- Day-wise drill-down modal, shared by the Business & Expenses tabs.
+     Any element with class="daywise" + data-ledger + data-party opens it;
+     optional data-from / data-to scope the window (omit for all-time). -->
+<style>
+.dw-back{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:40px 14px;overflow-y:auto}
+.dw-back.open{display:flex}
+.dw-modal{background:var(--surface);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.25);width:100%;max-width:520px;overflow:hidden}
+.dw-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border)}
+.dw-title{font-size:15px;font-weight:700;line-height:1.3}
+.dw-title .sub{display:block;font-size:12px;font-weight:500;color:var(--ink3);margin-top:2px}
+.dw-x{background:none;border:none;font-size:22px;line-height:1;color:var(--ink3);cursor:pointer;padding:0 4px}
+.dw-x:hover{color:var(--ink)}
+.dw-body{max-height:62vh;overflow-y:auto}
+.dw-body table{width:100%;border-collapse:collapse;font-size:13px}
+.dw-body th{background:var(--bg);color:var(--ink2);text-align:left;padding:9px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--border);position:sticky;top:0}
+.dw-body th.num{text-align:right}
+.dw-body td{padding:9px 14px;border-bottom:1px solid var(--border)}
+.dw-body td.num{text-align:right;font-variant-numeric:tabular-nums}
+.dw-body td.neg{color:var(--red)} .dw-body td.mut{color:var(--ink3)}
+.dw-body tr:last-child td{border-bottom:none}
+.dw-empty{color:var(--ink3);text-align:center;padding:24px}
+.dw-foot{padding:10px 18px;font-size:12px;color:var(--ink3);border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+/* clickable breakdown rows */
+tr.daywise{cursor:pointer}
+tr.daywise:hover{background:var(--amber-bg)}
+tr.daywise .txt{text-decoration:underline;text-decoration-color:var(--border-strong);text-underline-offset:2px}
+</style>
+
+<div class="dw-back" id="dwBack">
+  <div class="dw-modal" role="dialog" aria-modal="true" aria-labelledby="dwTitle">
+    <div class="dw-head">
+      <div class="dw-title" id="dwTitle">Day-wise<span class="sub" id="dwSub"></span></div>
+      <button class="dw-x" id="dwClose" aria-label="Close">×</button>
+    </div>
+    <div class="dw-body">
+      <table>
+        <thead id="dwHead"></thead>
+        <tbody id="dwRows"></tbody>
+      </table>
+    </div>
+    <div class="dw-foot" id="dwFoot"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var back  = document.getElementById('dwBack');
+  var title = document.getElementById('dwTitle');
+  var sub   = document.getElementById('dwSub');
+  var head  = document.getElementById('dwHead');
+  var rows  = document.getElementById('dwRows');
+  var foot  = document.getElementById('dwFoot');
+  if(!back) return;
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function close(){ back.classList.remove('open'); }
+
+  function open(el){
+    var ledger = el.getAttribute('data-ledger');
+    var party  = el.getAttribute('data-party');
+    var from   = el.getAttribute('data-from');
+    var to     = el.getAttribute('data-to');
+    title.childNodes[0].nodeValue = party || 'Day-wise';
+    sub.textContent = 'Loading…';
+    head.innerHTML = '';
+    rows.innerHTML = '<tr><td class="dw-empty">Loading…</td></tr>';
+    foot.textContent = '';
+    back.classList.add('open');
+
+    var url = '/dashboard/analytics/ledger/daywise?ledger=' + encodeURIComponent(ledger)
+            + '&party=' + encodeURIComponent(party);
+    if(from) url += '&from=' + encodeURIComponent(from);
+    if(to)   url += '&to='   + encodeURIComponent(to);
+
+    fetch(url, {credentials:'same-origin'})
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        sub.textContent = d.window_label || '';
+        var cols = d.has_unpaid ? 4 : 3;
+        head.innerHTML = '<tr><th>Day</th><th class="num">Entries</th><th class="num">Total</th>'
+                       + (d.has_unpaid ? '<th class="num">Unpaid</th>' : '') + '</tr>';
+        if(!d.rows || !d.rows.length){
+          rows.innerHTML = '<tr><td colspan="' + cols + '" class="dw-empty">No entries.</td></tr>';
+          return;
+        }
+        rows.innerHTML = d.rows.map(function(r){
+          var u = d.has_unpaid
+            ? '<td class="num ' + (r.unpaid_fmt !== '₹0' ? 'neg' : 'mut') + '">' + esc(r.unpaid_fmt) + '</td>'
+            : '';
+          return '<tr><td>' + esc(r.date) + '</td>'
+               + '<td class="num mut">' + esc(r.count) + '</td>'
+               + '<td class="num" style="font-weight:700">' + esc(r.total_fmt) + '</td>'
+               + u + '</tr>';
+        }).join('');
+        foot.innerHTML = '<span>' + d.day_count + (d.day_count===1?' day · ':' days · ')
+                       + d.count + (d.count===1?' entry':' entries') + '</span>'
+                       + '<span style="font-weight:700;color:var(--ink)">' + esc(d.total_fmt) + '</span>';
+      })
+      .catch(function(){
+        rows.innerHTML = '<tr><td colspan="4" class="dw-empty">Could not load. Please try again.</td></tr>';
+      });
+  }
+
+  // event delegation — works for every .daywise row on the page
+  document.addEventListener('click', function(e){
+    var el = e.target.closest ? e.target.closest('.daywise') : null;
+    if(el && el.getAttribute('data-ledger')) open(el);
+  });
+  document.getElementById('dwClose').addEventListener('click', close);
+  back.addEventListener('click', function(e){ if(e.target===back) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+})();
+</script>

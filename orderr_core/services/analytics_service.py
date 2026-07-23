@@ -976,6 +976,30 @@ def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) 
     def _fmt_d(d):
         return d.strftime("%d %b %Y") if d else "—"
 
+    def _grouped(model, party_col, date_col, amt_col, card_total,
+                 unpaid_col=None, cap=25):
+        """Group a ledger by party within the window — the 'by head/payee' view.
+        Returns (rows, group_count); rows are top `cap` by total, each with the
+        share of the card total and (optionally) an unpaid sum."""
+        cols = [party_col, func.count(model.id), func.coalesce(func.sum(amt_col), 0)]
+        if unpaid_col is not None:
+            cols.append(func.coalesce(func.sum(unpaid_col), 0))
+        rows = (db.query(*cols)
+                .filter(date_col != None,                    # noqa: E711
+                        date_col >= start, date_col <= end)
+                .group_by(party_col)
+                .order_by(func.sum(amt_col).desc()).all())
+        grand = card_total or 1.0
+        out = []
+        for r in rows[:cap]:
+            item = {"name": r[0] or "—", "count": int(r[1]),
+                    "total": float(r[2]), "total_fmt": fmt_inr(r[2]),
+                    "pct": round(float(r[2]) / grand * 100, 1)}
+            if unpaid_col is not None:
+                item["unpaid_fmt"] = fmt_inr(r[3])
+            out.append(item)
+        return out, len(rows)
+
     # ── Sales (Vasy invoices) ────────────────────────────────────────────────
     sales_q = (db.query(VasyInvoice)
                .filter(VasyInvoice.invoice_date != None,               # noqa: E711
@@ -1045,23 +1069,42 @@ def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) 
         "amount": float(r.amount or 0), "amount_fmt": fmt_inr(r.amount),
     } for r in rcpt_q.limit(row_cap).all()]
 
+    # ── Grouped-by-party breakdowns (the 'by head/payee' view) ───────────────
+    sales_brk, sales_grp = _grouped(VasyInvoice, VasyInvoice.party_name,
+                                    VasyInvoice.invoice_date, VasyInvoice.total, sales_total)
+    purch_brk, purch_grp = _grouped(VasyPurchase, VasyPurchase.party_name,
+                                    VasyPurchase.bill_date, VasyPurchase.total, purch_total)
+    exp_brk, exp_grp = _grouped(VasyExpense, VasyExpense.party_name,
+                                VasyExpense.expense_date, VasyExpense.total, exp_total,
+                                unpaid_col=VasyExpense.unpaid)
+    rcpt_brk, rcpt_grp = _grouped(CustomerReceipt, CustomerReceipt.party_name,
+                                  CustomerReceipt.receipt_date, CustomerReceipt.amount, rcpt_total)
+
     cards = [
         {"key": "sales",    "label": "Sales",     "icon": "🧾", "tone": "green",
          "hint": "Vasy sales invoices", "total": sales_total, "total_fmt": fmt_inr(sales_total),
          "count": sales_count, "rows": sales_rows, "truncated": sales_count > len(sales_rows),
-         "ref_head": "Voucher", "meta_head": "Items"},
+         "ref_head": "Voucher", "meta_head": "Items",
+         "group_head": "Customer", "breakdown": sales_brk, "group_count": sales_grp,
+         "has_unpaid": False},
         {"key": "purchases", "label": "Purchases", "icon": "📦", "tone": "amber",
          "hint": "Vasy purchase bills", "total": purch_total, "total_fmt": fmt_inr(purch_total),
          "count": purch_count, "rows": purch_rows, "truncated": purch_count > len(purch_rows),
-         "ref_head": "Bill no", "meta_head": "Items"},
+         "ref_head": "Bill no", "meta_head": "Items",
+         "group_head": "Supplier", "breakdown": purch_brk, "group_count": purch_grp,
+         "has_unpaid": False},
         {"key": "expenses", "label": "Expenses",  "icon": "💡", "tone": "red",
          "hint": "Vasy expenses (opex)", "total": exp_total, "total_fmt": fmt_inr(exp_total),
          "count": exp_count, "rows": exp_rows, "truncated": exp_count > len(exp_rows),
-         "ref_head": "Expense no", "meta_head": "Status"},
+         "ref_head": "Expense no", "meta_head": "Status",
+         "group_head": "Expense head / payee", "breakdown": exp_brk, "group_count": exp_grp,
+         "has_unpaid": True},
         {"key": "received", "label": "Received",  "icon": "💰", "tone": "blue",
          "hint": "Money in (receipts)", "total": rcpt_total, "total_fmt": fmt_inr(rcpt_total),
          "count": rcpt_count, "rows": rcpt_rows, "truncated": rcpt_count > len(rcpt_rows),
-         "ref_head": "Receipt no", "meta_head": "Mode"},
+         "ref_head": "Receipt no", "meta_head": "Mode",
+         "group_head": "Customer", "breakdown": rcpt_brk, "group_count": rcpt_grp,
+         "has_unpaid": False},
     ]
 
     money_out = purch_total + exp_total
@@ -1077,6 +1120,75 @@ def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) 
         "money_out_fmt": fmt_inr(money_out),
         "net_fmt": fmt_inr(rcpt_total - money_out),
         "net_positive": (rcpt_total - money_out) >= 0,
+    }
+
+
+# ledger key → (model, party column, date column, amount column, ref column,
+# ref label, extra unpaid column). Shared by the day-wise drill-down below.
+_LEDGER_MAP = {
+    "sales":     (VasyInvoice,     "party_name", "invoice_date", "total",  "voucher_no",  "Voucher",     None),
+    "purchases": (VasyPurchase,    "party_name", "bill_date",    "total",  "bill_no",     "Bill no",     None),
+    "expenses":  (VasyExpense,     "party_name", "expense_date", "total",  "expense_no",  "Expense no",  "unpaid"),
+    "received":  (CustomerReceipt, "party_name", "receipt_date", "amount", "receipt_no",  "Receipt no",  None),
+}
+
+
+def ledger_daywise(db: Session, ledger: str, party: str,
+                   start: date = None, end: date = None) -> dict:
+    """Day-wise drill-down behind one row of a Business/Expenses breakdown: for a
+    single party (customer / supplier / expense head), the per-day entry count and
+    amount, newest day first. Window is optional — the Expenses tab groups
+    all-time, the Business tab passes its [start, end]."""
+    cfg = _LEDGER_MAP.get(ledger)
+    if cfg is None:
+        return {"ok": False, "rows": []}
+    model, party_attr, date_attr, amt_attr, ref_attr, ref_head, unpaid_attr = cfg
+    party_col = getattr(model, party_attr)
+    date_col = getattr(model, date_attr)
+    amt_col = getattr(model, amt_attr)
+
+    def _fmt_d(d):
+        return d.strftime("%d %b %Y") if d else "—"
+
+    # party_name can be NULL (unmatched) — treat the "—" label as a NULL match.
+    party_filter = (party_col == None) if (party is None or party == "—") else (party_col == party)  # noqa: E711
+    filters = [date_col != None, party_filter]                          # noqa: E711
+    if start is not None:
+        filters.append(date_col >= start)
+    if end is not None:
+        filters.append(date_col <= end)
+
+    cols = [date_col, func.count(model.id), func.coalesce(func.sum(amt_col), 0)]
+    has_unpaid = unpaid_attr is not None
+    if has_unpaid:
+        cols.append(func.coalesce(func.sum(getattr(model, unpaid_attr)), 0))
+
+    grp = (db.query(*cols).filter(*filters)
+           .group_by(date_col).order_by(date_col.desc()).all())
+
+    rows, total, count = [], 0.0, 0
+    for r in grp:
+        d, n, t = r[0], int(r[1]), float(r[2])
+        total += t
+        count += n
+        item = {"date": _fmt_d(d), "count": n, "total_fmt": fmt_inr(t)}
+        if has_unpaid:
+            item["unpaid_fmt"] = fmt_inr(r[3])
+        rows.append(item)
+
+    label = party if (party and party != "—") else "(unmatched)"
+    return {
+        "ok": True,
+        "ledger": ledger,
+        "party": label,
+        "ref_head": ref_head,
+        "has_unpaid": has_unpaid,
+        "rows": rows,
+        "day_count": len(rows),
+        "count": count,
+        "total_fmt": fmt_inr(total),
+        "window_label": (f"{_fmt_d(start)} → {_fmt_d(end)}"
+                         if (start is not None or end is not None) else "All time"),
     }
 
 
