@@ -14,7 +14,7 @@ All figures exclude cancelled orders and void invoices.
 """
 import bisect
 import calendar
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from statistics import median
 
 from sqlalchemy import func
@@ -1107,7 +1107,27 @@ def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) 
          "has_unpaid": False},
     ]
 
-    money_out = purch_total + exp_total
+    # ── Manual overheads (Salaries + Daily saving) Vasy never books ──────────
+    # Each row sits on the 1st of its month; include the rows whose month-start
+    # falls in the window. These are accrual P&L lines, so they reduce Net.
+    from orderr_core.models.monthly_overhead import (
+        MonthlyOverhead, HEAD_SALARIES, HEAD_SAVING,
+    )
+    oh_rows = (db.query(MonthlyOverhead)
+               .filter(MonthlyOverhead.period >= start,
+                       MonthlyOverhead.period <= end)
+               .all())
+    salaries_total = float(sum(float(o.amount) for o in oh_rows if o.head == HEAD_SALARIES))
+    saving_total = float(sum(float(o.amount) for o in oh_rows if o.head == HEAD_SAVING))
+    overhead_total = salaries_total + saving_total
+
+    # Prefill the editable box for the window's month (the end month — for the
+    # month-to-date default, start and end share a month, so this is unambiguous).
+    edit_month = end.replace(day=1)
+    edit_rows = {o.head: float(o.amount) for o in oh_rows if o.period == edit_month}
+
+    vasy_out = purch_total + exp_total           # Vasy-booked purchases + expenses
+    money_out = vasy_out + overhead_total        # + manual overheads (salaries/saving)
     net = sales_total - money_out
     return {
         "has_data": bool(sales_count or purch_count or exp_count or rcpt_count),
@@ -1115,13 +1135,75 @@ def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) 
         "start_fmt": _fmt_d(start), "end_fmt": _fmt_d(end),
         "start_iso": start.isoformat(), "end_iso": end.isoformat(),
         "cards": cards,
-        # Accrual margin read for the range: Sales − (Purchases + Expenses), all
-        # billed. Receipts (cash-in) are shown separately in the Received card.
+        # Accrual margin read for the range: Sales − (Purchases + Expenses +
+        # Salaries + Daily saving). Receipts (cash-in), loans & owner cash-in
+        # aren't here — those are cash-only and live in the Cash Book.
         "sales_fmt": fmt_inr(sales_total),
+        "vasy_out_fmt": fmt_inr(vasy_out),
+        "overhead_total": round(overhead_total, 2),
+        "overhead_total_fmt": fmt_inr(overhead_total),
         "money_out_fmt": fmt_inr(money_out),
         "net_fmt": fmt_inr(net),
         "net_positive": net >= 0,
+        # Editable two-head box (current window's month)
+        "edit_month_iso": edit_month.isoformat(),
+        "edit_month_fmt": edit_month.strftime("%b %Y"),
+        "salaries_amount": round(edit_rows.get(HEAD_SALARIES, 0.0), 2),
+        "salaries_total_fmt": fmt_inr(salaries_total),
+        "saving_amount": round(edit_rows.get(HEAD_SAVING, 0.0), 2),
+        "saving_total_fmt": fmt_inr(saving_total),
     }
+
+
+def set_overhead(db: Session, data: dict) -> str | None:
+    """Set (upsert) one manual overhead head for a month — used by the Business
+    Salaries / Daily-saving boxes. `period` accepts YYYY-MM (or YYYY-MM-DD) and
+    is normalised to the 1st; `head` must be one of the canonical heads. Amount
+    0 / blank clears that (month, head) figure. Returns an error string, or None
+    on success (house convention)."""
+    from orderr_core.models.monthly_overhead import (
+        MonthlyOverhead, HEAD_SALARIES, HEAD_SAVING,
+    )
+
+    raw = (data.get("period") or "").strip()
+    period = None
+    for fmt in ("%Y-%m", "%Y-%m-%d"):
+        try:
+            period = datetime.strptime(raw, fmt).date().replace(day=1)
+            break
+        except ValueError:
+            continue
+    if period is None:
+        return "Pick the month this figure is for."
+
+    head = (data.get("head") or "").strip()
+    canonical = {HEAD_SALARIES.lower(): HEAD_SALARIES, HEAD_SAVING.lower(): HEAD_SAVING}
+    head = canonical.get(head.lower())
+    if head is None:
+        return "Unknown overhead head."
+
+    try:
+        amount = round(float(str(data.get("amount") or "0").replace(",", "").strip() or "0"), 2)
+    except ValueError:
+        return "Enter a valid amount."
+    if amount < 0:
+        return "Amount can't be negative."
+
+    existing = (db.query(MonthlyOverhead)
+                .filter(MonthlyOverhead.period == period,
+                        MonthlyOverhead.head == head)
+                .first())
+    if amount == 0:                     # 0 / blank → clear the figure
+        if existing:
+            db.delete(existing)
+            db.commit()
+        return None
+    if existing:
+        existing.amount = amount
+    else:
+        db.add(MonthlyOverhead(period=period, head=head, amount=amount))
+    db.commit()
+    return None
 
 
 # ledger key → (model, party column, date column, amount column, ref column,

@@ -91,6 +91,9 @@ from orderr_core.models.wa_status_event import WaStatusEvent             # noqa:
 # Analytics UI prefs — pinned/bookmarked subnav tabs (server-side, synced)
 from orderr_core.models.analytics_pref import AnalyticsPref              # noqa: F401
 
+# Manual accrual overheads (Salaries + Daily saving) folded into Business Net
+from orderr_core.models.monthly_overhead import MonthlyOverhead          # noqa: F401
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -312,24 +315,6 @@ def _ensure_vasy_expense_mode_columns():
 
 _ensure_vasy_expense_mode_columns()
 
-
-def _drop_monthly_overheads_table():
-    """One-time cleanup: drop the short-lived `monthly_overheads` table. It was
-    created by a brief 2026-07-24 deploy (manual salaries box) that was reverted
-    the same day; salary is now booked in Vasy instead. The table is empty and
-    unused (no model imports it). DROP … IF EXISTS is idempotent and safe on
-    both SQLite and PostgreSQL; this can be deleted once every env is clean."""
-    from sqlalchemy import inspect, text
-
-    insp = inspect(engine)
-    if "monthly_overheads" not in insp.get_table_names():
-        return
-    with engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS monthly_overheads"))
-    print("✅ Migration: dropped unused monthly_overheads table")
-
-
-_drop_monthly_overheads_table()
 
 from orderr_core.constants import IST
 

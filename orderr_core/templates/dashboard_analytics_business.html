@@ -65,6 +65,24 @@ main{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
 .net .v{font-size:15px;font-weight:800;display:block;margin-top:2px;color:var(--ink)}
 .net .v.pos{color:var(--green)} .net .v.neg{color:var(--red)}
 
+/* manual overheads box (Salaries + Daily saving) */
+.ohbox{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);margin-top:12px;overflow:hidden}
+.ohbox>summary{cursor:pointer;list-style:none;padding:11px 16px;font-size:13px;font-weight:700;user-select:none}
+.ohbox>summary::-webkit-details-marker{display:none}
+.ohbox>summary::before{content:'▸ ';color:var(--ink3)}
+.ohbox[open]>summary::before{content:'▾ '}
+.ohbox .mut{font-weight:400;color:var(--ink3);font-size:12px}
+.ohbody{padding:14px 16px 16px;border-top:1px solid var(--border)}
+.ohnote{font-size:11px;color:var(--ink3);margin-bottom:12px}
+.ohrow{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px}
+.ohrow label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);margin-bottom:3px}
+.ohrow .fld{flex:1;min-width:150px}
+.ohrow input{width:100%;font:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--border-strong);border-radius:7px;background:var(--bg);color:var(--ink)}
+.ohbtn{font:inherit;font-size:13px;font-weight:600;padding:8px 16px;border:none;border-radius:7px;background:var(--green);color:#fff;cursor:pointer;white-space:nowrap}
+.ohsaved{font-size:11px;color:var(--green);font-weight:600;align-self:center;opacity:0;transition:opacity .2s}
+.ohsaved.on{opacity:1}
+.oherr{font-size:12px;color:var(--red);margin-top:4px;display:none}
+
 /* drill-down tables */
 .panel{display:none;margin-top:16px}
 .panel.on{display:block}
@@ -138,10 +156,28 @@ tfoot td{font-weight:700;background:var(--bg)}
 
   <div class="net">
     <span>Sales (billed)<span class="v pos">{{ biz.sales_fmt }}</span></span>
-    <span>Purchases + Expenses (billed)<span class="v">{{ biz.money_out_fmt }}</span></span>
+    <span>Purchases + Expenses<span class="v">{{ biz.vasy_out_fmt }}</span></span>
+    <span>Salaries + Daily saving<span class="v">{{ biz.overhead_total_fmt }}</span></span>
     <span>Net<span class="v {{ 'pos' if biz.net_positive else 'neg' }}">{{ biz.net_fmt }}</span></span>
-    <span style="margin-left:auto;max-width:340px;font-size:10.5px;line-height:1.4">Net = Sales − Purchases − Expenses (all billed/accrual). Received (cash-in) is shown separately above.</span>
+    <span style="margin-left:auto;max-width:360px;font-size:10.5px;line-height:1.4">Net = Sales − Purchases − Expenses − Salaries − Daily saving (all accrual). Received (cash-in), loans &amp; owner cash-in aren't here — those are cash-only, in the <a href="/dashboard/analytics/cashbook" style="color:var(--blue)">Cash book</a>.</span>
   </div>
+
+  <!-- Salaries & Daily saving (paid outside Vasy) — folded into Net above -->
+  <details class="ohbox"{% if biz.overhead_total %} open{% endif %}>
+    <summary>💼 Salaries &amp; Daily collection (saving) <span class="mut">— {{ biz.overhead_total_fmt }} in {{ biz.edit_month_fmt }} · not booked in Vasy</span></summary>
+    <div class="ohbody">
+      <div class="ohnote">Vasy's register never books staff salaries or the daily-saving amount you set aside, so Net understated profit. Enter each month's total here and it folds into Net. Editing <b>{{ biz.edit_month_fmt }}</b> (the viewed window's month) · set to 0 to clear.</div>
+      <div class="ohrow">
+        <div class="fld"><label>Salaries (₹) — {{ biz.edit_month_fmt }}</label>
+          <input id="oh-salaries" inputmode="decimal" value="{{ '%g'|format(biz.salaries_amount) if biz.salaries_amount else '' }}" placeholder="0"></div>
+        <div class="fld"><label>Daily collection / saving (₹) — {{ biz.edit_month_fmt }}</label>
+          <input id="oh-saving" inputmode="decimal" value="{{ '%g'|format(biz.saving_amount) if biz.saving_amount else '' }}" placeholder="0"></div>
+        <button class="ohbtn" onclick="saveOverheads()">Save</button>
+        <span class="ohsaved" id="oh-saved">Saved ✓</span>
+      </div>
+      <div class="oherr" id="oh-err"></div>
+    </div>
+  </details>
 
   {% for c in biz.cards %}
   <div class="panel{{ ' on' if loop.first else '' }}" id="ledger-{{ c.key }}">
@@ -242,6 +278,28 @@ tfoot td{font-weight:700;background:var(--bg)}
     });
   });
 })();
+
+// Salaries & Daily saving — upsert both heads for the window's month, reload.
+var OH_MONTH = "{{ biz.edit_month_iso }}";
+function ohErr(msg){ var el=document.getElementById('oh-err'); if(!el) return; el.textContent=msg||''; el.style.display=msg?'block':'none'; }
+async function ohPost(head, amount){
+  var res = await fetch('/dashboard/analytics/business/overhead',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ period: OH_MONTH, head: head, amount: amount })
+  });
+  if(!res.ok){ var j = await res.json().catch(function(){return {};}); throw new Error(j.detail || 'Something went wrong.'); }
+}
+async function saveOverheads(){
+  ohErr('');
+  var sal = (document.getElementById('oh-salaries').value || '').trim();
+  var sav = (document.getElementById('oh-saving').value || '').trim();
+  try{
+    await ohPost('Salaries', sal || '0');
+    await ohPost('Daily saving', sav || '0');
+    var s = document.getElementById('oh-saved'); s.classList.add('on');
+    location.reload();
+  }catch(e){ ohErr(e.message || 'Network error — try again.'); }
+}
 </script>
 </body>
 </html>

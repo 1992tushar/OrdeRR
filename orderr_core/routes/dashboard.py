@@ -593,6 +593,23 @@ def analytics_business(
     )
 
 
+@router.post("/analytics/business/overhead")
+async def analytics_business_set_overhead(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Set a manual overhead head (Salaries / Daily saving) for a month — feeds
+    the Business Net. Amount 0 / blank clears that figure."""
+    from orderr_core.services import analytics_service
+
+    body = await request.json()
+    err = analytics_service.set_overhead(db, body)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return JSONResponse({"status": "ok"})
+
+
 @router.get("/analytics/ledger/daywise")
 def analytics_ledger_daywise(
     ledger: str = Query(..., description="sales|purchases|expenses|received"),
