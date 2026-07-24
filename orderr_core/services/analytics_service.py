@@ -14,7 +14,7 @@ All figures exclude cancelled orders and void invoices.
 """
 import bisect
 import calendar
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from statistics import median
 
 from sqlalchemy import func
@@ -1107,26 +1107,7 @@ def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) 
          "has_unpaid": False},
     ]
 
-    # Manual monthly overheads (salaries etc.) that Vasy's register never books.
-    # Each row sits on the 1st of its month; include the rows whose month-start
-    # falls in the window. These are accrual P&L lines, so they reduce Net.
-    from orderr_core.models.monthly_overhead import MonthlyOverhead
-    oh_rows_q = (db.query(MonthlyOverhead)
-                 .filter(MonthlyOverhead.period >= start,
-                         MonthlyOverhead.period <= end)
-                 .order_by(MonthlyOverhead.period.desc(), MonthlyOverhead.id.desc())
-                 .all())
-    overhead_total = float(sum(float(o.amount) for o in oh_rows_q))
-    overheads = [{
-        "id": o.id,
-        "period_fmt": o.period.strftime("%b %Y"),
-        "head": o.head,
-        "amount_fmt": fmt_inr(float(o.amount)),
-        "note": o.note or "",
-    } for o in oh_rows_q]
-
-    vasy_out = purch_total + exp_total          # Vasy-booked purchases + expenses
-    money_out = vasy_out + overhead_total       # + manual overheads (salaries)
+    money_out = purch_total + exp_total
     net = sales_total - money_out
     return {
         "has_data": bool(sales_count or purch_count or exp_count or rcpt_count),
@@ -1134,70 +1115,13 @@ def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) 
         "start_fmt": _fmt_d(start), "end_fmt": _fmt_d(end),
         "start_iso": start.isoformat(), "end_iso": end.isoformat(),
         "cards": cards,
-        # Accrual margin read for the range: Sales − (Purchases + Expenses +
-        # manual overheads). Receipts (cash-in) show separately in the Received
-        # card; loans / owner cash-in are cash-only and live in the Cash Book.
+        # Accrual margin read for the range: Sales − (Purchases + Expenses), all
+        # billed. Receipts (cash-in) are shown separately in the Received card.
         "sales_fmt": fmt_inr(sales_total),
-        "vasy_out_fmt": fmt_inr(vasy_out),
-        "overhead_total": round(overhead_total, 2),
-        "overhead_total_fmt": fmt_inr(overhead_total),
-        "overheads": overheads,
         "money_out_fmt": fmt_inr(money_out),
         "net_fmt": fmt_inr(net),
         "net_positive": net >= 0,
     }
-
-
-def add_overhead(db: Session, data: dict) -> str | None:
-    """Add/replace a manual monthly overhead (salaries etc.). `period` accepts a
-    YYYY-MM (or any YYYY-MM-DD) and is normalised to the 1st. One figure per
-    (month, head) — re-saving the same pair overwrites. Returns an error string,
-    or None on success (house convention)."""
-    from orderr_core.models.monthly_overhead import MonthlyOverhead
-
-    raw = (data.get("period") or "").strip()
-    period = None
-    for fmt in ("%Y-%m", "%Y-%m-%d"):
-        try:
-            period = datetime.strptime(raw, fmt).date().replace(day=1)
-            break
-        except ValueError:
-            continue
-    if period is None:
-        return "Pick the month this figure is for."
-    head = (data.get("head") or "Salaries").strip() or "Salaries"
-    try:
-        amount = round(float(str(data.get("amount") or "").replace(",", "").strip()), 2)
-    except ValueError:
-        return "Enter the amount."
-    if amount <= 0:
-        return "Amount must be more than zero."
-    note = (data.get("note") or "").strip() or None
-
-    existing = (db.query(MonthlyOverhead)
-                .filter(MonthlyOverhead.period == period,
-                        func.lower(MonthlyOverhead.head) == head.lower())
-                .first())
-    if existing:
-        existing.amount = amount
-        existing.note = note
-        existing.head = head
-    else:
-        db.add(MonthlyOverhead(period=period, head=head, amount=amount, note=note))
-    db.commit()
-    return None
-
-
-def delete_overhead(db: Session, overhead_id: int) -> str | None:
-    """Remove one manual overhead row. Returns an error string, or None."""
-    from orderr_core.models.monthly_overhead import MonthlyOverhead
-
-    rec = db.get(MonthlyOverhead, overhead_id)
-    if rec is None:
-        return "Overhead not found."
-    db.delete(rec)
-    db.commit()
-    return None
 
 
 # ledger key → (model, party column, date column, amount column, ref column,
