@@ -1164,7 +1164,6 @@ def analytics_cashbook(
             "next_day"   : (day + timedelta(days=1)).strftime("%Y-%m-%d"),
             "page"       : cashbook_service.day_page(db, day),
             "strip"      : cashbook_service.month_strip(db, day),
-            "pots"       : cashbook_service.pots(db, day),
             "month_label": day.strftime("%B %Y"),
             "freshness"  : cashbook_service.freshness(db),
             "crosscheck" : cashbook_service.expense_crosscheck(db),
