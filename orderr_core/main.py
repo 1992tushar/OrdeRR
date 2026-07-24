@@ -90,6 +90,7 @@ from orderr_core.models.wa_status_event import WaStatusEvent             # noqa:
 
 # Analytics UI prefs — pinned/bookmarked subnav tabs (server-side, synced)
 from orderr_core.models.analytics_pref import AnalyticsPref              # noqa: F401
+from orderr_core.models.monthly_overhead import MonthlyOverhead          # noqa: F401
 
 
 Base.metadata.create_all(bind=engine)

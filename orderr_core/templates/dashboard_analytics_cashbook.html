@@ -87,7 +87,9 @@ tr.sumrow td{background:var(--bg);font-weight:700}
     The drawer's passbook — every cash movement, one page per day. Cash in from
     <b>receipts</b>, cash out from <b>payment vouchers</b> (Vasy already books each expense's
     payment as a voucher, so expenses are in there — counting them twice would be wrong).
-    You only add what Vasy never sees: drawings, cash moved to bank, staff float.
+    You only add what Vasy never sees: drawings, owner cash in, cash moved to / pulled back from
+    the bank, loans received &amp; repaid, staff float. None of these are profit/loss — they don't
+    touch the Business "Net"; they only move the drawer &amp; the pots below.
     Imports: {% for f in freshness %}{{ f.label }} — {{ f.imported_at }}{% if not loop.last %} · {% endif %}{% endfor %}.
   </div>
 
@@ -109,6 +111,15 @@ tr.sumrow td{background:var(--bg);font-weight:700}
     <div class="kpi in"><div class="n">+{{ page.total_in_fmt }}</div><div class="l">Cash in</div></div>
     <div class="kpi out"><div class="n">−{{ page.total_out_fmt }}</div><div class="l">Cash out</div></div>
     <div class="kpi"><div class="n">{{ page.closing_fmt }}</div><div class="l">Closing (expected in drawer)</div></div>
+  </div>
+
+  <!-- Off-drawer pots: own cash parked in bank + money owed on loans. Neither
+       touches the Business Net (accrual) — they're cash-position only. -->
+  <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+    <div class="kpi"><div class="n" style="color:var(--blue)">{{ pots.bank_parked_fmt }}</div>
+      <div class="l">🏦 Bank savings parked · as of {{ pots.as_of_fmt }}</div></div>
+    <div class="kpi"><div class="n" style="color:var(--amber)">{{ pots.loans_outstanding_fmt }}</div>
+      <div class="l">📉 Loans outstanding · as of {{ pots.as_of_fmt }}</div></div>
   </div>
 
   {% if page.spot %}
@@ -153,7 +164,11 @@ tr.sumrow td{background:var(--bg);font-weight:700}
       <div><label>Type</label>
         <select id="e-type" onchange="onType()">
           <option value="drawing">Owner drawing (out)</option>
+          <option value="owner_infusion">Owner cash in (in)</option>
           <option value="bank_deposit">Cash → bank (out)</option>
+          <option value="bank_withdraw">Bank → cash (in)</option>
+          <option value="loan_received">Loan received (in)</option>
+          <option value="loan_repaid">Loan repayment (out)</option>
           <option value="float_given">Float given (out)</option>
           <option value="float_returned">Float returned (in)</option>
           <option value="adjustment">Adjustment</option>

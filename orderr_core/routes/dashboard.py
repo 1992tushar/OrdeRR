@@ -593,6 +593,37 @@ def analytics_business(
     )
 
 
+@router.post("/analytics/business/overhead")
+async def analytics_business_add_overhead(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Add/replace a manual monthly overhead (salaries etc.) that feeds Net."""
+    from orderr_core.services import analytics_service
+
+    body = await request.json()
+    err = analytics_service.add_overhead(db, body)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return JSONResponse({"status": "ok"})
+
+
+@router.post("/analytics/business/overhead/{overhead_id}/delete")
+async def analytics_business_delete_overhead(
+    overhead_id: int,
+    db: Session = Depends(get_db),
+    username: str = Depends(require_auth),
+):
+    """Remove one manual monthly overhead row."""
+    from orderr_core.services import analytics_service
+
+    err = analytics_service.delete_overhead(db, overhead_id)
+    if err:
+        raise HTTPException(status_code=404, detail=err)
+    return JSONResponse({"status": "ok"})
+
+
 @router.get("/analytics/ledger/daywise")
 def analytics_ledger_daywise(
     ledger: str = Query(..., description="sales|purchases|expenses|received"),
@@ -1133,6 +1164,7 @@ def analytics_cashbook(
             "next_day"   : (day + timedelta(days=1)).strftime("%Y-%m-%d"),
             "page"       : cashbook_service.day_page(db, day),
             "strip"      : cashbook_service.month_strip(db, day),
+            "pots"       : cashbook_service.pots(db, day),
             "month_label": day.strftime("%B %Y"),
             "freshness"  : cashbook_service.freshness(db),
             "crosscheck" : cashbook_service.expense_crosscheck(db),

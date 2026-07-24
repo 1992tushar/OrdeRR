@@ -36,7 +36,11 @@ from orderr_core.services.analytics_service import fmt_inr
 # type → fixed direction ('in'/'out'), None = caller supplies, '' = not a flow
 ENTRY_TYPES = {
     "drawing":        {"label": "Owner drawing",   "direction": "out"},
+    "owner_infusion": {"label": "Owner cash in",   "direction": "in"},   # capital in
     "bank_deposit":   {"label": "Cash → bank",     "direction": "out"},
+    "bank_withdraw":  {"label": "Bank → cash",     "direction": "in"},   # pulled back
+    "loan_received":  {"label": "Loan received",   "direction": "in"},
+    "loan_repaid":    {"label": "Loan repayment",  "direction": "out"},
     "float_given":    {"label": "Float given",     "direction": "out"},
     "float_returned": {"label": "Float returned",  "direction": "in"},
     "adjustment":     {"label": "Adjustment",      "direction": None},   # note mandatory
@@ -44,6 +48,14 @@ ENTRY_TYPES = {
     "opening_set":    {"label": "Opening balance", "direction": ""},     # anchor
     "spot_count":     {"label": "Drawer counted",  "direction": ""},     # check
 }
+
+# entry types that move cash between the drawer and a tracked "pot" (bank
+# savings / loans). None of these are income/expense — they never touch Net;
+# they only reposition the owner's own money, so they get running-balance tiles.
+_BANK_IN_TYPES  = ("bank_deposit",)     # cash → bank : grows the parked pot
+_BANK_OUT_TYPES = ("bank_withdraw",)    # bank → cash : shrinks it
+_LOAN_IN_TYPES  = ("loan_received",)    # borrowed    : grows amount owed
+_LOAN_OUT_TYPES = ("loan_repaid",)      # repaid      : shrinks amount owed
 FLOW_TYPES = [k for k, v in ENTRY_TYPES.items() if v["direction"] != ""]
 
 
@@ -228,6 +240,33 @@ def month_strip(db: Session, day: date) -> list:
                      "closing_fmt": fmt_inr(round(opening + cin - cout, 2)),
                      "has_activity": bool(cin or cout)})
     return rows
+
+
+# ── bank-savings & loan pots ─────────────────────────────────────────────────
+
+def pots(db: Session, as_of: date) -> dict:
+    """Running balances for the two off-drawer pots, cumulative up to and
+    including `as_of` (same as-of basis as the day page's closing):
+
+      Bank savings parked = Σ(cash → bank) − Σ(bank → cash)
+      Loans outstanding   = Σ(loan received) − Σ(loan repayment)
+
+    These are pure cash movements — the owner's own money moved between pockets,
+    or borrowed/repaid — so they NEVER hit the Business "Net" (that's accrual).
+    They live here purely so the drawer's cash position stays honest and the
+    owner can see how much is parked / owed."""
+    def _sum(types) -> float:
+        return float(db.query(func.coalesce(func.sum(CashEntry.amount), 0))
+                     .filter(CashEntry.entry_date <= as_of,
+                             CashEntry.type.in_(types)).scalar() or 0)
+
+    bank = round(_sum(_BANK_IN_TYPES) - _sum(_BANK_OUT_TYPES), 2)
+    loans = round(_sum(_LOAN_IN_TYPES) - _sum(_LOAN_OUT_TYPES), 2)
+    return {
+        "bank_parked": bank, "bank_parked_fmt": fmt_inr(bank),
+        "loans_outstanding": loans, "loans_outstanding_fmt": fmt_inr(loans),
+        "as_of_fmt": _fmt_day(as_of),
+    }
 
 
 # ── manual entries ──────────────────────────────────────────────────────────
