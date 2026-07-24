@@ -1108,18 +1108,19 @@ def business_overview(db: Session, start: date, end: date, row_cap: int = 1000) 
     ]
 
     money_out = purch_total + exp_total
+    net = sales_total - money_out
     return {
         "has_data": bool(sales_count or purch_count or exp_count or rcpt_count),
         "start": start, "end": end,
         "start_fmt": _fmt_d(start), "end_fmt": _fmt_d(end),
         "start_iso": start.isoformat(), "end_iso": end.isoformat(),
         "cards": cards,
-        # Rough money-in vs money-out read for the range. Purchases/expenses are
-        # accrual (billed), receipts are cash-in, so this is indicative not exact.
-        "received_fmt": fmt_inr(rcpt_total),
+        # Accrual margin read for the range: Sales − (Purchases + Expenses), all
+        # billed. Receipts (cash-in) are shown separately in the Received card.
+        "sales_fmt": fmt_inr(sales_total),
         "money_out_fmt": fmt_inr(money_out),
-        "net_fmt": fmt_inr(rcpt_total - money_out),
-        "net_positive": (rcpt_total - money_out) >= 0,
+        "net_fmt": fmt_inr(net),
+        "net_positive": net >= 0,
     }
 
 
